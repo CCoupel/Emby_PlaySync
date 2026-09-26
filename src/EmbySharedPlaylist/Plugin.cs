@@ -7,6 +7,12 @@ namespace EmbySharedPlaylist;
 
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
+    /// <summary>Nom de la page de configuration : <c>/web/configurationpage?name=EmbySharedPlaylistConfig</c>.</summary>
+    public const string ConfigPageName = "EmbySharedPlaylistConfig";
+
+    /// <summary>Nom du contrôleur JS de la page (référencé par data-controller="__plugin/…").</summary>
+    public const string ConfigScriptName = "EmbySharedPlaylistConfigScript";
+
     public static Plugin? Instance { get; private set; }
 
     public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
@@ -28,7 +34,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             new PluginPageInfo
             {
-                Name                 = "EmbySharedPlaylistConfig",
+                Name                 = ConfigPageName,
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
                 EnableInMainMenu     = true,
                 DisplayName          = "Emby Shared Playlist",
@@ -37,7 +43,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             },
             new PluginPageInfo
             {
-                Name                 = "EmbySharedPlaylistConfigScript",
+                Name                 = ConfigScriptName,
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configScript.js"
             }
         };

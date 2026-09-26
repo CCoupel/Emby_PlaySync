@@ -89,16 +89,23 @@ public class SpikeService : IService
         foreach (var item in _libraryManager.GetItemList(query))
         {
             if (item is not Playlist playlist) continue;
-            var level = playlist.GetShareLevel(user, CancellationToken.None);
+            // La requête avec contexte utilisateur renvoie aussi des playlists sans lien avec lui (observé en réel) :
+            // on ne garde que celles où il a une ligne de partage (propriétaire = ManageDelete, membres) ou qui sont publiques.
+            var rows = GetShareRows(playlist);
+            var row = rows.FirstOrDefault(r => r.UserId == user.InternalId);
+            if (!SpikeRules.IsVisibleToUser(row != null, playlist.IsPublic)) continue;
+            // Le niveau vient de la ligne de partage ; GetShareLevel() renvoyait None même pour le propriétaire.
+            var level = row?.ShareLevel ?? playlist.GetShareLevel(user, CancellationToken.None);
             var entries = GetEntries(playlist, user);
             result.Add(new SpikePlaylistDto
             {
                 PlaylistId = playlist.InternalId.ToString(),
                 Name = playlist.Name,
-                OwnerUserId = GetOwner(GetShares(playlist)),
+                OwnerUserId = GetOwner(ToShareDtos(rows)),
                 ShareLevel = level.ToString(),
                 CanManageAccess = playlist.CanManageAccess(user, level),
                 CanLeaveSharedContent = playlist.CanLeaveSharedContent(user, level),
+                IsPublic = playlist.IsPublic,
                 EntryCount = entries.Count,
                 Entries = entries
             });
@@ -313,9 +320,13 @@ public class SpikeService : IService
             .ToList();
     }
 
-    private List<ShareDto> GetShares(Playlist playlist)
+    private UserItemShare[] GetShareRows(Playlist playlist) =>
+        _itemRepository.GetUserItemShares(new UserItemShareQuery { ItemIds = new[] { playlist.InternalId } }, CancellationToken.None);
+
+    private List<ShareDto> GetShares(Playlist playlist) => ToShareDtos(GetShareRows(playlist));
+
+    private List<ShareDto> ToShareDtos(IEnumerable<UserItemShare> shares)
     {
-        var shares = _itemRepository.GetUserItemShares(new UserItemShareQuery { ItemIds = new[] { playlist.InternalId } }, CancellationToken.None);
         return shares.Select(s => new ShareDto
         {
             UserId = _userManager.GetGuid(s.UserId).ToString("N"),

@@ -14,6 +14,9 @@ public static class SpikeRules
     public static bool IsEligibleForSpikeWrite(string? userName, bool isAdministrator) =>
         IsTestUser(userName) && !isAdministrator;
 
+    /// <summary>Une playlist est « vue » par un utilisateur s'il a une ligne de partage (propriétaire ou membre) ou si elle est publique.</summary>
+    public static bool IsVisibleToUser(bool hasShareRow, bool isPublic) => hasShareRow || isPublic;
+
     /// <summary>Seules les playlists dont le nom commence par SPIKE peuvent être modifiées par le spike.</summary>
     public static bool IsSpikePlaylist(string? name) =>
         name != null && name.StartsWith(PlaylistPrefix, StringComparison.Ordinal);

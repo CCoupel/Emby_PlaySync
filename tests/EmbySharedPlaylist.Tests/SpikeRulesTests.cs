@@ -18,6 +18,14 @@ public class SpikeRulesTests
         Assert.Equal(expected, SpikeRules.IsTestUser(name));
 
     [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    [InlineData(false, false, false)]
+    public void IsVisibleToUser_RequiresShareRowOrPublic(bool row, bool isPublic, bool expected) =>
+        Assert.Equal(expected, SpikeRules.IsVisibleToUser(row, isPublic));
+
+    [Theory]
     [InlineData("test_u1", false, true)]
     [InlineData("test_admin", true, false)]
     [InlineData("admin", false, false)]
