@@ -24,6 +24,7 @@ public static class PluginRuntime
     public static SeenPlaylists Seen { get; } = new();
     public static PlayedTransitionTracker PlayedTransitions { get; } = new();
     public static HandlerStats Handler { get; } = new();
+    public static SkippedCounters Skipped { get; } = new();
 
     public static Log? Log { get; private set; }
     public static IJournal? Journal { get; private set; }
@@ -55,7 +56,8 @@ public static class PluginRuntime
             if (_initialized) return;
 
             var log = new Log(logManager.GetLogger("EmbySharedPlaylist"));
-            var journal = new LoggingJournal(JournalStore, log);
+            // Les Skipped bruyants (already-seen, reentrant…) ne vont qu'aux compteurs ; le reste est journalisé (mémoire + logs).
+            var journal = new AggregatingJournal(new LoggingJournal(JournalStore, log), Skipped, log);
             var clock = new SystemClock();
             var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager, () => EngineSuspended);
             var defaults = new DefaultsService(gateway, Seen, Locks, journal, HelpText.Message,

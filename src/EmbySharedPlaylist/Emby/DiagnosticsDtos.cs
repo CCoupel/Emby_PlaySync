@@ -40,6 +40,9 @@ public class DiagnosticsStateDto
     public DiagnosticsLastPassDto LastPass { get; set; } = new();
     public DiagnosticsHandlerDto Handler { get; set; } = new();
     public int GracePasses { get; set; }
+
+    /// <summary>Tous les <c>Skipped</c> depuis le démarrage, par raison (y compris ceux qui ne sont pas inscrits dans le journal).</summary>
+    public Dictionary<string, long> SkippedCounts { get; set; } = new();
 }
 
 public class DiagnosticsLastPassDto

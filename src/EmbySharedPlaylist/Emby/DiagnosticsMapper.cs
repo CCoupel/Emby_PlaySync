@@ -32,7 +32,8 @@ public static class DiagnosticsMapper
             }).ToList();
     }
 
-    public static DiagnosticsStateDto State(SeenPlaylists seen, LastPassInfo? lastPass, (long Count, long LastMs, long MaxMs) handler, int gracePasses)
+    public static DiagnosticsStateDto State(SeenPlaylists seen, LastPassInfo? lastPass, (long Count, long LastMs, long MaxMs) handler, int gracePasses,
+        IReadOnlyDictionary<string, long>? skipped = null)
     {
         var counters = seen.Counters();
         return new DiagnosticsStateDto
@@ -53,7 +54,8 @@ public static class DiagnosticsMapper
                     SharedManaged = lastPass.SharedManaged
                 },
             Handler = new DiagnosticsHandlerDto { Count = handler.Count, LastMs = handler.LastMs, MaxMs = handler.MaxMs },
-            GracePasses = gracePasses
+            GracePasses = gracePasses,
+            SkippedCounts = skipped == null ? new Dictionary<string, long>() : new Dictionary<string, long>(skipped)
         };
     }
 }

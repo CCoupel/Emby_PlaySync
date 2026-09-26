@@ -27,7 +27,7 @@ public class DiagnosticsService : IService
 
     public object Get(DiagnosticsState request) => Run(() =>
         DiagnosticsMapper.State(PluginRuntime.Seen, PluginRuntime.Reconciliation?.LastPass, PluginRuntime.Handler.Snapshot(),
-            Plugin.Instance?.Configuration.EffectiveGracePasses ?? 2));
+            Plugin.Instance?.Configuration.EffectiveGracePasses ?? 2, PluginRuntime.Skipped.Snapshot()));
 
     private static object Run(Func<object> action)
     {

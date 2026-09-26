@@ -37,9 +37,10 @@
   "GraceCounters": { "<playlistId>": { "remove-si-lu": 0, "propager-lu": 0, "description": 0 } },
   "LastPass": { "Ts": "ISO-8601|null", "DurationMs": 0, "PlaylistsSeen": 0, "SharedManaged": 0 },
   "Handler": { "Count": 0, "LastMs": 0, "MaxMs": 0 },
-  "GracePasses": 2 }
+  "GracePasses": 2,
+  "SkippedCounts": { "already-seen": 0, "reentrant": 0, "lock-busy": 0 } }
 ```
-`SeenPlaylistIds` = playlists ayant subi la première détection depuis le démarrage. `GraceCounters` = passes consécutives sans étiquette de la famille (ou avec description vide). `Handler` = traitements de transition effectués dans le gestionnaire d'événement (nombre, dernière et plus longue durée en ms) : sert à vérifier le budget de latence.
+`SkippedCounts` = **tous** les `Skipped` depuis le démarrage, par raison. Les raisons bruyantes (`already-seen`, `reentrant`, `not-shared`, `unknown-owner` : une par événement de playlist) ne sont PAS inscrites dans le journal (500) : elles n'existent que dans ces compteurs (et en Debug dans le fichier de log) ; les autres (`lock-busy`, `inactive`, `already-removed`, `marker-present`, `suspended`…) sont dans le journal ET comptées. `SeenPlaylistIds` = playlists ayant subi la première détection depuis le démarrage. `GraceCounters` = passes consécutives sans étiquette de la famille (ou avec description vide). `Handler` = traitements de transition effectués dans le gestionnaire d'événement (nombre, dernière et plus longue durée en ms) : sert à vérifier le budget de latence.
 
 > **Config plugin (v0.2.0)** : `EnableDiagnostics` (bool, défaut `true`), `GracePasses` (int, défaut `2`, min 1), `LogToConsole` (bool, défaut `true`), `LogLevel` (`Off|Info|Debug`, défaut `Info`). `EnableSpikeEndpoints` supprimé avec `Spike/*`. **Aucun état n'est stocké** (ni dans `PluginConfiguration`, ni dans un fichier). La période de réconciliation est celle de la tâche planifiée Emby (déclencheurs par défaut : démarrage + 5 min ; modifiable dans le tableau de bord).
 
