@@ -1,5 +1,16 @@
 # Changelog des contrats
 
+## [20260926] — v0.2.0 : étiquettes `remove-si-lu` / `propager-lu` et retrait du média lu (planifié)
+
+- **[NEW]** `GET /SharedPlaylist/Diagnostics/Journal` — journal borné des décisions du plugin (admin, ids seulement, permanent) ; remplace `Spike/Events` (#14)
+- **[NEW]** `GET /SharedPlaylist/Diagnostics/State` — état **en mémoire** : playlists vues, compteurs de grâce par famille d'étiquette, dernière passe (admin)
+- **[NEW]** Config plugin : `EnableDiagnostics` (true), `GracePasses` (2), `LogToConsole` (true), `LogLevel` (Info) ; aucun état persisté
+- **[BREAKING]** `/SharedPlaylist/Spike/*` (Setup, Playlists, RemoveItem, MarkPlayed, Events, SetPosition, Shares, Tags, Policy) — supprimés (#15) ; endpoints temporaires de v0.1.0, seuls consommateurs : `tests/spike/*` (remplacés par `tests/integration/*`) ; à effet à la livraison de #15
+- **[REMOVED]** Config plugin : `EnableSpikeEndpoints`
+- **[CHANGED]** (v3, exécution immédiate sous verrou par playlist) `Diagnostics/State` : ajout `Handler {Count, LastMs, MaxMs}` ; `Diagnostics/Journal` : `Removal.Detail` gagne `durationMs`, `Skipped` gagne `reentrant` et `lock-busy`
+- **[NEW]** (temporaire) config `EnableReentrancyProbe` et kind `Probe` de `Spike/Events` : sonde U11 (B52), supprimées avec `Spike/*` (#15)
+- **[INFO]** Modèle d'étiquettes : deux familles indépendantes `remove-si-lu` (retrait à la transition non lu -> lu, actif v0.2.0) et `propager-lu` (propagation, v0.3.0) ; valeurs `=NON` / `=OUI`. Aucun endpoint de gestion : le moteur réagit aux événements Emby et à la tâche planifiée « réconciliation » (natif Emby).
+
 ## [20260926] — Squelette plugin + spike partage natif (v0.1.0)
 
 - **[NEW]** `POST /SharedPlaylist/Spike/Setup` — crée et partage une playlist de test (temporaire)
