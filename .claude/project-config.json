@@ -1,0 +1,97 @@
+{
+  "name": "Emby_shared_playlist",
+  "team_name": "emby-shared-playlist-team",
+  "org": "CCoupel",
+  "project": "Emby_shared_playlist",
+  "description": "Plugin Emby Media Server (C#/.NET 6) qui partage et synchronise des playlists « À voir » entre utilisateurs : une playlist appartient à un propriétaire, elle est répliquée chez les membres, et un média lu est retiré de la liste et marqué lu pour les membres du groupe.",
+  "version": "0.1.0",
+  "initialized_at": "2026-09-26",
+  "initialized_from": "manual",
+  "src_dir": "src/EmbySharedPlaylist",
+  "version_file": "src/EmbySharedPlaylist/EmbySharedPlaylist.csproj",
+  "stack": {
+    "backend": {
+      "language": "csharp",
+      "framework": ".NET 6"
+    },
+    "frontend": null,
+    "mobile": null,
+    "firmware": null,
+    "plugin": {
+      "platform": "Emby Media Server plugin"
+    },
+    "database": null
+  },
+  "infrastructure": {
+    "cicd": "github-actions",
+    "environments": [
+      {
+        "name": "QUALIF",
+        "order": 1,
+        "publish": {
+          "mode": "promote",
+          "target": "build/qualif_v{X.Y.Z}/"
+        },
+        "deploy": {
+          "mechanism": "kubernetes",
+          "target": "deployment/emby2 (namespace media)"
+        }
+      },
+      {
+        "name": "PROD",
+        "order": 2,
+        "publish": {
+          "mode": "rebuild-ci",
+          "trigger": "git-tag",
+          "pipeline": ".github/workflows/release.yml"
+        },
+        "deploy": {
+          "mechanism": "kubernetes",
+          "target": "deployment/emby (namespace media)"
+        }
+      }
+    ]
+  },
+  "testing": {
+    "backend": [
+      "xunit",
+      "moq"
+    ],
+    "frontend": [],
+    "e2e": [],
+    "components": {
+      "plugin": [
+        "src/EmbySharedPlaylist/**"
+      ]
+    },
+    "regression_at_qa": "gated",
+    "full_regression_at": "qualif",
+    "coverage_min": 70
+  },
+  "security": {
+    "concerns": [
+      "user-data-sharing",
+      "library-permissions"
+    ]
+  },
+  "commands": {
+    "build": "dotnet build src/EmbySharedPlaylist/EmbySharedPlaylist.csproj --configuration Release --output dist/",
+    "test": "dotnet test tests/EmbySharedPlaylist.Tests/",
+    "lint": "",
+    "audit": "dotnet list src/EmbySharedPlaylist package --vulnerable",
+    "typecheck": "",
+    "coverage": "dotnet test tests/EmbySharedPlaylist.Tests/ --collect:\"XPlat Code Coverage\"",
+    "test_fast": "dotnet test tests/EmbySharedPlaylist.Tests/ --filter \"Category!=slow\"",
+    "test_targeted": "dotnet test tests/EmbySharedPlaylist.Tests/ --filter {TARGETS}"
+  },
+  "docs": {
+    "mockup_dir": "docs/mockup"
+  },
+  "marketing": {
+    "site": "auto"
+  },
+  "agents": {
+    "idle_ttl_minutes": 15,
+    "idle_warning_interval_minutes": 5
+  }
+}
