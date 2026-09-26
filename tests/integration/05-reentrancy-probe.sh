@@ -86,7 +86,7 @@ wait_probes() { # LISTE_SCENARIOS [TIMEOUT_S] -> $EV
     EV=$(ev_get); if probes_seen "$EV" "$1"; then return 0; fi; sleep 1
   done; return 1
 }
-unmark_all() { api DELETE "/Users/$U2/PlayedItems/$1" "" "$T2" >/dev/null; }
+unmark_all() { api DELETE "/Users/$U2/PlayedItems/$1" "" "$T2" >/dev/null; api DELETE "/Users/$U3/PlayedItems/$1" "" "$T3" >/dev/null; api DELETE "/Users/$U1/PlayedItems/$1" "" "$T1" >/dev/null; }
 
 # ---------------------------------------------------------------- restauration / preuves partielles
 write_out() { # PARTIAL
@@ -96,8 +96,11 @@ write_out() { # PARTIAL
 }
 restore_config() {
   if [[ $CONFIG_CHANGED == 1 && -s $CONFIG_BAK ]]; then
-    local st; st=$(api POST "/Plugins/$PLUGIN_ID/Configuration" "$(cat "$CONFIG_BAK")")
-    if [[ $st == 2* || $st == 204 ]]; then rm -f "$CONFIG_BAK"; CONFIG_CHANGED=0; echo "  configuration du plugin restaurée (sonde désactivée)"
+    local st was_probe was_spike
+    was_probe=$(jq -r 'to_entries[]|select(.key|ascii_downcase=="enablereentrancyprobe")|.value' "$CONFIG_BAK")
+    was_spike=$(jq -r 'to_entries[]|select(.key|ascii_downcase=="enablespikeendpoints")|.value' "$CONFIG_BAK")
+    st=$(api POST "/Plugins/$PLUGIN_ID/Configuration" "$(cat "$CONFIG_BAK")")
+    if [[ $st == 2* || $st == 204 ]]; then rm -f "$CONFIG_BAK"; CONFIG_CHANGED=0; echo "  configuration d'origine restaurée (EnableReentrancyProbe=$was_probe, EnableSpikeEndpoints=$was_spike)"
     else echo "  ATTENTION : restauration de la configuration échouée (HTTP $st) — copie dans private/reentrancy-config.bak.json" >&2; fi
   fi
 }
@@ -121,9 +124,14 @@ T3=$(login test_u3 "$(envget "$USERS_ENV" TEST_U3_PW)")
 
 st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&SortBy=SortName&Limit=50")
 [[ $st == 200 ]] || die "GET /Items -> $st"
-mapfile -t M < <(jq -r '.Items[0:6][].Id' "$RESP")
-[[ ${#M[@]} -ge 5 ]] || die "moins de 5 médias : la rafale P5 exige >= 5 transitions (demander à l'utilisateur)"
-echo "  [OK] ${#M[@]} médias disponibles"
+mapfile -t M < <(jq -r '.Items[0:12][].Id' "$RESP")
+# La sonde ne traite qu'UNE playlist de sonde par transition (la 1re trouvée contenant le média) : chaque playlist de
+# sonde reçoit donc des médias DISTINCTS. P1, P2, P3, P6 : 1 média chacun ; P5 : 5 à 6 médias -> >= 9 médias au total.
+[[ ${#M[@]} -ge 9 ]] || die "moins de 9 médias : médias distincts exigés par playlist de sonde (P1, P2, P3, P6 + >= 5 pour P5) ; demander à l'utilisateur"
+declare -A ITEM=([P1]=${M[0]} [P2]=${M[1]} [P3]=${M[2]} [P6]=${M[3]})
+P5M=("${M[@]:4:6}")
+echo "  [OK] ${#M[@]} médias disponibles : 1 distinct par playlist P1/P2/P3/P6, ${#P5M[@]} pour P5"
+for m in "${M[@]}"; do unmark_all "$m"; done   # tous les médias de l'essai démarrent « non lus » pour les 3 comptes
 
 # Sonde : option de configuration du plugin (sauvegarde -> activation ; restauration par trap)
 st=$(api GET "/Plugins/$PLUGIN_ID/Configuration"); [[ $st == 200 ]] || die "configuration du plugin illisible (HTTP $st) : plugin non chargé ?"
@@ -156,9 +164,9 @@ share_pl() { # PLAYLIST
   apiok 204 POST /Items/Access "$(jq -nc --arg p "$1" --arg a "$U2" '{ItemIds:[$p],UserIds:[$a],ItemAccess:"Write"}')" "$T1"
   apiok 204 POST /Items/Access "$(jq -nc --arg p "$1" --arg a "$U3" '{ItemIds:[$p],UserIds:[$a],ItemAccess:"Read"}')" "$T1"
 }
-ALLM=$(IFS=,; echo "${M[*]}")
+ALLM=$(IFS=,; echo "${P5M[*]}")
 declare -A PLS
-for sc in P1 P2 P3 P6; do PLS[$sc]=$(new_pl "SPIKE-$sc" "${M[0]}"); share_pl "${PLS[$sc]}"; done
+for sc in P1 P2 P3 P6; do PLS[$sc]=$(new_pl "SPIKE-$sc" "${ITEM[$sc]}"); share_pl "${PLS[$sc]}"; done
 PLS[P5]=$(new_pl "SPIKE-P5" "$ALLM"); share_pl "${PLS[P5]}"
 echo "  [OK] playlists SPIKE-P1/P2/P3/P5/P6 créées et partagées (P4 : créées à la volée)"
 
@@ -168,16 +176,16 @@ for sc in P1 P2 P3; do
   pl=${PLS[$sc]}; MISS[$sc]=0; NOTREM[$sc]=0; DUPREM[$sc]=0
   echo "== $sc — $( case $sc in P1) echo "RemoveFromPlaylist";; P2) echo "mise à jour de métadonnées";; P3) echo "SaveUserData d'un autre compte test_*";; esac ) depuis UserDataSaved ($PITER itérations)"
   for ((i=1; i<=PITER; i++)); do
-    unmark_all "${M[0]}"; add_item "$pl" "${M[0]}"
+    unmark_all "${ITEM[$sc]}"; add_item "$pl" "${ITEM[$sc]}"
     ev_clear
-    st=$(tapi trigger$sc POST "/Users/$U2/PlayedItems/${M[0]}" "" "$T2")
+    st=$(tapi trigger$sc POST "/Users/$U2/PlayedItems/${ITEM[$sc]}" "" "$T2")
     if [[ $st != 2* ]]; then NOTES+=("$sc it$i : déclencheur HTTP $st"); fi
     if wait_probes "$sc" 10; then :; else MISS[$sc]=$((MISS[$sc]+1)); fi
     collect_probes "$EV"
     rem=$(jq -r --arg p "$pl" "$DEFS"'[.[]|select(.kind=="PlaylistItemsRemoved" and (.playlistId|n)==($p|n))]|length' <<<"$EV")
     if [[ $sc == P1 ]]; then   # seul P1 retire l'entrée
       x=$(entries "$pl" "$T1" "$U1")
-      if has_item "$x" "${M[0]}"; then NOTREM[$sc]=$((NOTREM[$sc]+1)); fi
+      if has_item "$x" "${ITEM[$sc]}"; then NOTREM[$sc]=$((NOTREM[$sc]+1)); fi
       if [[ $rem -gt 1 ]]; then DUPREM[$sc]=$((DUPREM[$sc]+1)); fi
     fi
     if (( i % 10 == 0 )); then echo "  … $i/$PITER"; fi
@@ -191,11 +199,11 @@ echo "== P4 — métadonnées depuis PlaylistItemsAdded/ItemUpdated, 1re détect
 p4_missing=0
 for ((i=1; i<=PITER; i++)); do
   ev_clear
-  st=$(tapi trigger4 POST "/Playlists?Name=$(qs "SPIKE-P4-$i")&MediaType=Video&Ids=${M[1]}&UserId=$U1" "" "$T1")
+  st=$(tapi trigger4 POST "/Playlists?Name=$(qs "SPIKE-P4-$i")&MediaType=Video&Ids=${ITEM[P6]}&UserId=$U1" "" "$T1")
   pid=$(jq -r '.Id // empty' "$RESP")
   if [[ -n $pid ]]; then
     register_playlist "$pid"
-    tapi trigger4 POST "/Playlists/$pid/Items?Ids=${M[2]}&UserId=$U1" "" "$T1" >/dev/null   # ajout d'une entrée = PlaylistItemsAdded
+    tapi trigger4 POST "/Playlists/$pid/Items?Ids=${ITEM[P1]}&UserId=$U1" "" "$T1" >/dev/null   # ajout d'une entrée = PlaylistItemsAdded
   fi
   if wait_probes "P4" 10; then :; else p4_missing=$((p4_missing+1)); fi
   sleep 2; EV=$(ev_get); collect_probes "$EV"
@@ -205,21 +213,21 @@ done
 echo "  scénarios non observés : $p4_missing"
 
 # ---------------------------------------------------------------- P5 : rafale concurrente
-echo "== P5 — rafale : ${#M[@]} médias, transitions simultanées (3 utilisateurs, dont doublons sur le 1er média), $PROUNDS rondes"
+echo "== P5 — rafale : ${#P5M[@]} médias, transitions simultanées (3 utilisateurs, dont doublons sur le 1er média), $PROUNDS rondes"
 PL5=${PLS[P5]}; p5_missing=0; p5_bad=0
 TOKS=("$T2" "$T3" "$T1"); UIDS=("$U2" "$U3" "$U1")
 for ((r=1; r<=PROUNDS; r++)); do
-  for k in "${!M[@]}"; do
-    for u in 0 1 2; do api DELETE "/Users/${UIDS[$u]}/PlayedItems/${M[$k]}" "" "${TOKS[$u]}" >/dev/null; done
-    add_item "$PL5" "${M[$k]}"
+  for k in "${!P5M[@]}"; do
+    for u in 0 1 2; do api DELETE "/Users/${UIDS[$u]}/PlayedItems/${P5M[$k]}" "" "${TOKS[$u]}" >/dev/null; done
+    add_item "$PL5" "${P5M[$k]}"
   done
   x=$(entries "$PL5" "$T1" "$U1"); before=$(jq 'length' <<<"$x")
   ev_clear; rm -f "$SCRATCH"/bg.*.st
-  for k in "${!M[@]}"; do   # un média par fil (utilisateur tournant)
-    u=$((k%3)); bg_call "$r-$k" trigger5 POST "/Users/${UIDS[$u]}/PlayedItems/${M[$k]}" "" "${TOKS[$u]}"
+  for k in "${!P5M[@]}"; do   # un média par fil (utilisateur tournant)
+    u=$((k%3)); bg_call "$r-$k" trigger5 POST "/Users/${UIDS[$u]}/PlayedItems/${P5M[$k]}" "" "${TOKS[$u]}"
   done
   for u in 0 1 2; do        # le même premier média demandé par les 3 utilisateurs : une seule entrée à retirer
-    if [[ $u -ne 0 ]]; then bg_call "$r-dup$u" trigger5 POST "/Users/${UIDS[$u]}/PlayedItems/${M[0]}" "" "${TOKS[$u]}"; fi
+    if [[ $u -ne 0 ]]; then bg_call "$r-dup$u" trigger5 POST "/Users/${UIDS[$u]}/PlayedItems/${P5M[0]}" "" "${TOKS[$u]}"; fi
   done
   wait
   if wait_probes "P5" 12; then :; else p5_missing=$((p5_missing+1)); fi
@@ -238,9 +246,9 @@ echo "  rondes anormales : $p5_bad ; scénario non observé : $p5_missing"
 echo "== P6 — étiquette du propriétaire pendant le gestionnaire ($PITER6 itérations)"
 PL6=${PLS[P6]}; p6_missing=0; p6_lost=0; p6_err=0; EXPECTED_TAGS=()
 for ((i=1; i<=PITER6; i++)); do
-  unmark_all "${M[0]}"; add_item "$PL6" "${M[0]}"
+  unmark_all "${ITEM[P6]}"; add_item "$PL6" "${ITEM[P6]}"
   tag="p6-tag-$i"; ev_clear; rm -f "$SCRATCH"/bg.p6*.st
-  bg_call "p6t$i" trigger6 POST "/Users/$U2/PlayedItems/${M[0]}" "" "$T2"
+  bg_call "p6t$i" trigger6 POST "/Users/$U2/PlayedItems/${ITEM[P6]}" "" "$T2"
   sleep 0.4                              # le gestionnaire attend 2 s : l'édition tombe pendant son attente
   bg_owner_tag "p6o$i" "$PL6" "$tag"
   wait

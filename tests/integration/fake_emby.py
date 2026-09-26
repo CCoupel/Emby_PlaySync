@@ -14,7 +14,7 @@ PLAYED = set()
 EV = []
 SEEN = set()
 CFG = {"EnableSpikeEndpoints": False, "EnableReentrancyProbe": False, "GracePasses": 2}
-MEDIA = [str(100 + i) for i in range(6)]
+MEDIA = [str(100 + i) for i in range(12)]
 
 def ev(kind, **kw):
     e = {"Ts": "2026-09-26T12:00:00.000Z", "Kind": kind, "PluginWrite": False}
@@ -94,6 +94,7 @@ class H(http.server.BaseHTTPRequestHandler):
                             probe(sc, d, removed=len(es), note=("absent" if not es else None))
                     elif es:
                         probe(sc, d)
+                    if es or sc == "P5": break     # une playlist de sonde par transition (comme ReentrancyProbe)
             return self.out(200, {})
         r = re.fullmatch(r"/Users/(\w+)/Items/(\d+)", p)
         if r and m == "GET":

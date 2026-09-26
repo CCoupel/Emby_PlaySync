@@ -51,7 +51,7 @@ decision() { grep -o 'DECISION : .*' <<<"$OUT" | sed 's/DECISION : //'; }
 echo "== 1. tout OK (kubectl factice propre)"
 run ok "PATH=$W/bin:$PATH"
 [[ $(decision) == "immédiat" && $RC == 0 ]] && ok "décision immédiat, code 0" || { ko "décision '$(decision)' rc=$RC"; echo "$OUT" | tail -120; }
-grep -q "configuration du plugin restaurée" <<<"$OUT" && ok "configuration restaurée en fin de script" || ko "restauration absente"
+grep -q "configuration d.origine restaurée (EnableReentrancyProbe=false, EnableSpikeEndpoints=false)" <<<"$OUT" && ok "configuration restaurée, valeurs d'origine indiquées" || ko "restauration absente ou message trompeur"
 grep -q "SECRET" <<<"$OUT" && ko "secret de log affiché" || ok "aucun secret de log dans la sortie"
 [[ -s $(ls "$W"/out/reentrancy-*.json | head -1) ]] && ok "JSON de preuves écrit" || ko "pas de JSON"
 jq -e '.partial==false and (.scenarios|keys==["P1","P2","P3","P4","P5","P6"]) and .criteria.burstOnce.ok==true' "$W"/out/reentrancy-*.json >/dev/null && ok "P1–P6 observés, rafale OK" || ko "contenu du JSON"
