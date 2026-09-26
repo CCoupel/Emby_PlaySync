@@ -17,8 +17,9 @@ public readonly record struct LogSettings(bool ToConsole, LogLevel Level)
 /// <c>[EmbySharedPlaylist]</c> (visible par <c>kubectl logs</c> : après le démarrage, la console d'Emby ne reçoit
 /// plus rien de l'ILogger). Options appliquées ICI (pas dans l'adaptateur) : <c>LogToConsole</c> (la console) et
 /// <c>LogLevel</c> (Off : aucune ligne Info/Debug ; Info : Info+Error ; Debug : + lignes Debug, fichier seulement).
-/// Debug : jamais sur la console. Ne lève jamais d'exception. Les lignes ne contiennent que des identifiants ; une
-/// exception n'est rapportée sur la console que par son type (la pile complète reste dans le fichier).
+/// Debug : jamais sur la console. Ne lève jamais d'exception. « Ids seulement, jamais de chemin » vaut pour les LIGNES du plugin et
+/// pour la CONSOLE : une exception n'y est rapportée que par son type. La pile complète, elle, va dans embyserver.txt (ILogger) et peut
+/// contenir des chemins ou des noms : le fichier de log d'Emby est un fichier d'administration, pas une sortie publique.
 /// </summary>
 public sealed class Log
 {

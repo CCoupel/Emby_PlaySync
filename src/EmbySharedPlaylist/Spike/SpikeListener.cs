@@ -11,7 +11,8 @@ namespace EmbySharedPlaylist.Spike;
 
 /// <summary>
 /// Écoute UserDataSaved, PlaylistItemsAdded/Removed/Moved et ItemUpdated (playlists) et alimente le journal du spike.
-/// Les abonnements sont permanents ; l'enregistrement n'a lieu que si EnableSpikeEndpoints est vrai.
+/// Les abonnements sont permanents. Deux options INDÉPENDANTES : le journal du spike n'est alimenté que si EnableSpikeEndpoints est vrai ;
+/// la sonde de réentrance ne dépend que de EnableReentrancyProbe (elle écrit ses résultats dans le journal même si le spike est désactivé).
 /// </summary>
 public sealed class SpikeListener : IServerEntryPoint
 {
@@ -69,26 +70,36 @@ public sealed class SpikeListener : IServerEntryPoint
 
     private void OnUserDataSaved(object? sender, UserDataSaveEventArgs e)
     {
-        if (!Enabled) return;
+        // La sonde ne dépend QUE de EnableReentrancyProbe, le journal du spike QUE de EnableSpikeEndpoints : deux options indépendantes.
+        var spike = Enabled;
+        var probe = ReentrancyProbe.Enabled;
+        if (!spike && !probe) return;
         try
         {
-            var played = e.UserData?.Played;
-            // Tout est journalisé (dont PlaybackProgress, périodique) pour observer arrêt/pause/progression ;
-            // filtrer par saveReason à la lecture et vider (clear) régulièrement : le journal est borné à 500.
-            var entry = NewEntry("UserDataSaved");
-            entry.UserId = e.User.Id.ToString("N");
-            entry.ItemId = e.Item.InternalId.ToString();
-            entry.Played = played;
-            entry.PositionTicks = e.UserData?.PlaybackPositionTicks;
-            entry.LastPlayedDate = e.UserData?.LastPlayedDate?.ToString("o");
-            entry.SaveReason = e.SaveReason.ToString();
-            entry.PluginWrite = SpikeRuntime.Tracker.TryConsume(e.User.InternalId, e.Item.InternalId);
-            SpikeRuntime.Journal.Add(entry);
-            LogEntry(entry);
-            if (ReentrancyProbe.Enabled)
+            var userId = e.User.Id.ToString("N");
+            var itemId = e.Item.InternalId.ToString();
+            var pluginWrite = SpikeRuntime.Tracker.TryConsume(e.User.InternalId, e.Item.InternalId);
+
+            if (spike)
             {
-                _probe.ObserveEcho("UserDataSaved", null, entry.UserId, entry.ItemId);
-                _probe.OnUserDataSaved(e, entry.PluginWrite);
+                // Tout est journalisé (dont PlaybackProgress, périodique) pour observer arrêt/pause/progression ;
+                // filtrer par saveReason à la lecture et vider (clear) régulièrement : le journal est borné à 500.
+                var entry = NewEntry("UserDataSaved");
+                entry.UserId = userId;
+                entry.ItemId = itemId;
+                entry.Played = e.UserData?.Played;
+                entry.PositionTicks = e.UserData?.PlaybackPositionTicks;
+                entry.LastPlayedDate = e.UserData?.LastPlayedDate?.ToString("o");
+                entry.SaveReason = e.SaveReason.ToString();
+                entry.PluginWrite = pluginWrite;
+                SpikeRuntime.Journal.Add(entry);
+                LogEntry(entry);
+            }
+
+            if (probe)
+            {
+                _probe.ObserveEcho("UserDataSaved", null, userId, itemId);
+                _probe.OnUserDataSaved(e, pluginWrite);
             }
         }
         catch (Exception ex)
@@ -99,19 +110,24 @@ public sealed class SpikeListener : IServerEntryPoint
 
     private void OnItemsAdded(object? sender, PlaylistItemsAddedEventArgs e)
     {
-        if (!Enabled) return;
+        var spike = Enabled;
+        var probe = ReentrancyProbe.Enabled;
+        if (!spike && !probe) return;
         try
         {
-            foreach (var li in e.ListItems ?? Array.Empty<ListItem>())
+            if (spike)
             {
-                var entry = NewEntry("PlaylistItemsAdded");
-                entry.PlaylistId = e.Playlist.InternalId.ToString();
-                entry.ItemId = li.ListItemId.ToString();
-                entry.EntryId = li.ListItemEntryId.ToString();
-                SpikeRuntime.Journal.Add(entry);
-                LogEntry(entry);
+                foreach (var li in e.ListItems ?? Array.Empty<ListItem>())
+                {
+                    var entry = NewEntry("PlaylistItemsAdded");
+                    entry.PlaylistId = e.Playlist.InternalId.ToString();
+                    entry.ItemId = li.ListItemId.ToString();
+                    entry.EntryId = li.ListItemEntryId.ToString();
+                    SpikeRuntime.Journal.Add(entry);
+                    LogEntry(entry);
+                }
             }
-            if (ReentrancyProbe.Enabled)
+            if (probe)
             {
                 _probe.ObserveEcho("PlaylistItemsAdded", e.Playlist.InternalId.ToString(), null, null);
                 _probe.OnPlaylistItemsAdded(e);
@@ -131,10 +147,13 @@ public sealed class SpikeListener : IServerEntryPoint
 
     private void AddEntries(string kind, Playlist playlist, long[]? entryIds)
     {
-        if (!Enabled) return;
+        var spike = Enabled;
+        var probe = ReentrancyProbe.Enabled;
+        if (!spike && !probe) return;
         try
         {
-            if (ReentrancyProbe.Enabled) _probe.ObserveEcho(kind, playlist.InternalId.ToString(), null, null);
+            if (probe) _probe.ObserveEcho(kind, playlist.InternalId.ToString(), null, null);
+            if (!spike) return;
             foreach (var id in entryIds ?? Array.Empty<long>())
             {
                 var entry = NewEntry(kind);
@@ -152,17 +171,24 @@ public sealed class SpikeListener : IServerEntryPoint
 
     private void OnItemUpdated(object? sender, ItemChangeEventArgs e)
     {
-        if (!Enabled || e.Item is not Playlist playlist) return;
+        if (e.Item is not Playlist playlist) return;
+        var spike = Enabled;
+        var probe = ReentrancyProbe.Enabled;
+        if (!spike && !probe) return;
         try
         {
-            var entry = NewEntry("ItemUpdated");
-            entry.PlaylistId = playlist.InternalId.ToString();
-            entry.SaveReason = e.UpdateReason.ToString();
-            SpikeRuntime.Journal.Add(entry);
-            LogEntry(entry);
-            if (ReentrancyProbe.Enabled)
+            var playlistId = playlist.InternalId.ToString();
+            if (spike)
             {
-                _probe.ObserveEcho("ItemUpdated", entry.PlaylistId, null, null);
+                var entry = NewEntry("ItemUpdated");
+                entry.PlaylistId = playlistId;
+                entry.SaveReason = e.UpdateReason.ToString();
+                SpikeRuntime.Journal.Add(entry);
+                LogEntry(entry);
+            }
+            if (probe)
+            {
+                _probe.ObserveEcho("ItemUpdated", playlistId, null, null);
                 _probe.OnItemUpdated(e);
             }
         }

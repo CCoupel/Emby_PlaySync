@@ -33,6 +33,7 @@ public static class PluginRuntime
     public static ReconciliationService? Reconciliation { get; private set; }
     public static FirstDetectionCoordinator? FirstDetection { get; private set; }
     public static ReadRemovalEngine? RemovalEngine { get; private set; }
+    public static PlaybackEventProcessor? PlaybackProcessor { get; private set; }
 
     /// <summary>
     /// Vrai pendant l'essai technique de réentrance U11 (option <c>EnableReentrancyProbe</c>, temporaire) : le moteur n'écrit
@@ -70,6 +71,8 @@ public static class PluginRuntime
             Reconciliation = new ReconciliationService(gateway, defaults, Seen, Locks, journal, clock, null, () => EngineSuspended);
             FirstDetection = new FirstDetectionCoordinator(gateway, defaults, Seen, journal, clock, () => EngineSuspended);
             RemovalEngine = new ReadRemovalEngine(gateway, defaults, Seen, Locks, journal, clock, null, () => EngineSuspended, ReadRemovalEngine.DefaultBudget);
+            var engine = RemovalEngine;
+            PlaybackProcessor = new PlaybackEventProcessor(PlayedTransitions, (u, i) => engine!.Handle(u, i), Handler, () => EngineSuspended);
             _initialized = true;
         }
     }

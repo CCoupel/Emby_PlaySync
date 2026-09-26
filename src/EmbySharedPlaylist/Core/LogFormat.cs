@@ -3,7 +3,8 @@ namespace EmbySharedPlaylist.Core;
 /// <summary>
 /// Formatage pur des lignes de journal Emby. Fichier : préfixe « EmbySharedPlaylist : » (Emby ajoute horodatage et niveau) ;
 /// console : préfixe court « [EmbySharedPlaylist] » comme « [VirtualLib] » (l'horodatage vient de <c>kubectl logs --timestamps</c>).
-/// Ids seulement : jamais de nom d'utilisateur, jeton, IP, chemin ni contenu d'étiquette ou de description.
+/// Ids seulement : jamais de nom d'utilisateur, jeton, IP, chemin ni contenu d'étiquette ou de description dans les LIGNES du plugin
+/// et sur la console. Cela ne s'applique pas à la pile d'une exception écrite par l'ILogger dans embyserver.txt (chemins possibles).
 /// </summary>
 public static class LogFormat
 {

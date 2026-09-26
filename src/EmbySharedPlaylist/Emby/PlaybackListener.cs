@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using EmbySharedPlaylist.Core;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
@@ -33,18 +32,9 @@ public sealed class PlaybackListener : IServerEntryPoint
     {
         try
         {
-            if (PluginRuntime.EngineSuspended || WriteScope.Active) return;
-
-            var userId = e.User.Id.ToString("N");
-            var itemId = e.Item.InternalId.ToString();
-            var played = e.UserData?.Played ?? false;
-
-            // Chemin rapide : mémoire seulement. Hors transition on retourne immédiatement.
-            if (!PluginRuntime.PlayedTransitions.OnUserData(userId, itemId, e.SaveReason.ToString(), played)) return;
-
-            var sw = Stopwatch.StartNew();
-            PluginRuntime.RemovalEngine?.Handle(userId, itemId);
-            PluginRuntime.Handler.Record(sw.ElapsedMilliseconds);
+            // Garde suspension/WriteScope → tracker (mémoire) → moteur : logique pure testée dans PlaybackEventProcessor.
+            PluginRuntime.PlaybackProcessor?.Process(e.User.Id.ToString("N"), e.Item.InternalId.ToString(),
+                e.SaveReason.ToString(), e.UserData?.Played ?? false);
         }
         catch (Exception ex)
         {
