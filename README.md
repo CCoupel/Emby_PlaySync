@@ -9,9 +9,10 @@ Plugin Emby Media Server pour partager une playlist « À voir » entre plusieur
 Une playlist appartient à un utilisateur (le propriétaire), qui la partage avec d'autres utilisateurs. Le plugin s'appuie sur le partage natif de playlists d'Emby et ajoute la gestion de l'état « vu » :
 
 - Quand un membre termine un média, il est **retiré de la liste**.
-- L'état **lu** est **propagé aux autres membres** du groupe (option par liste, activée par défaut).
+- L'état **lu** peut être **propagé aux autres membres** du groupe : option désactivée par défaut, activée par le propriétaire en posant l'étiquette `propager-lu` sur sa playlist.
 - Un propriétaire peut avoir **plusieurs listes**, chacune avec ses propres membres. Un média lu n'est retiré que des listes dont son lecteur est membre.
 - Seul le propriétaire gère les membres ; les autres peuvent ajouter et retirer des médias.
+- Prérequis : le propriétaire doit avoir la permission de partage de contenus personnels (désactivée par défaut). Voir le guide utilisateur dans la spécification.
 
 Ce n'est pas une wishlist de demandes de médias (comme Ombi ou Seerr) : la liste ne contient que des médias déjà présents dans la bibliothèque.
 
