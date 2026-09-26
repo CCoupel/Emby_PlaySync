@@ -1,5 +1,7 @@
 # Procédure manuelle — spike partage natif (issue #1, QUALIF emby2 uniquement)
 
+> v0.2.0 : la procédure manuelle du retrait du média lu est dans `tests/integration/MANUAL.md`.
+
 Prérequis : `00-setup-users.sh` et `10-run-spike.sh` exécutés (comptes `test_u1/u2/u3`, mots de passe dans `private/spike-users.env`, jamais à recopier ailleurs). Ne jamais utiliser `user2` ni un compte réel.
 
 ## 1. Activer le partage pour le propriétaire (test_u1 seulement)

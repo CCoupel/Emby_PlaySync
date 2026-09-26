@@ -65,9 +65,9 @@ api() {
   : > "$RESP"
   local code
   code=$(curl -sS -K "$CFG" -X "$m" -o "$RESP" -w '%{http_code}' --max-time 30 2>/dev/null) || code=000
-  # Les endpoints Spike/* renvoient du PascalCase (sérialiseur Emby) : on normalise les clés en
+  # Les endpoints /SharedPlaylist/* (Spike, Diagnostics) renvoient du PascalCase (sérialiseur Emby) : on normalise les clés en
   # camelCase (1re lettre en minuscule) pour que les filtres jq ne dépendent pas de la casse.
-  if [[ $p == /SharedPlaylist/Spike* && -s $RESP ]]; then
+  if [[ $p == /SharedPlaylist/* && -s $RESP ]]; then
     if jq -c 'walk(if type=="object" then with_entries(.key |= ((.[0:1]|ascii_downcase) + .[1:])) else . end)' "$RESP" > "$RESP.n" 2>/dev/null; then
       mv "$RESP.n" "$RESP"
     else

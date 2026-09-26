@@ -38,7 +38,7 @@ K
 chmod +x "$W/bin/kubectl"
 
 run() { # MODE [env...] -> stdout du script ; code de retour dans RC
-  python3 "$HERE/fake_emby.py" "$PORT" "$1" & SRV=$!
+  python3 -W ignore "$HERE/fake_emby.py" "$PORT" "$1" & SRV=$!
   for _ in $(seq 25); do curl -s -o /dev/null "http://127.0.0.1:$PORT/emby/System/Info" && break; sleep 0.2; done
   shift
   set +e

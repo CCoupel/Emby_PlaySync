@@ -16,7 +16,7 @@ class H(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(n).decode() if n else ''
         with open(cap, 'a') as f:
             f.write(json.dumps({"path": self.path, "method": self.command, "headers": dict(self.headers), "body": body}) + "\n")
-        m = re.search(r'/SharedPlaylist/Spike/(\w+)', self.path)
+        m = re.search(r'/SharedPlaylist/(?:Spike|Diagnostics)/(\w+)', self.path)
         f = os.path.join(fake, m.group(1) + '.json') if m else None
         if f and os.path.exists(f):
             out = open(f, 'rb').read()
@@ -141,6 +141,19 @@ miss=$(missing_fields shares "$(jq -c . "$RESP")")
 [[ $miss == playlistId ]] && ok "champ absent nommé : « $miss »" || ko "champ manquant mal détecté : '$miss'"
 [[ $(missing_fields shares 'not json{') == "(réponse non JSON)" ]] && ok "réponse non JSON signalée" || ko "réponse non JSON non signalée"
 [[ -z $(missing_fields events '[]') ]] && ok "tableau vide : rien à vérifier (pas de faux KO)" || ko "tableau vide jugé incomplet"
+
+# --- Diagnostics/* (v0.2.0) : PascalCase normalisé, clés d'identifiants et de familles préservées
+echo "== Diagnostics PascalCase"
+cat > "$FAKE/State.json" <<'J'
+{"SeenPlaylistIds":["1001"],"GraceCounters":{"1001":{"remove-si-lu":1,"propager-lu":0,"description":0}},"LastPass":{"Ts":"2026-09-26T12:00:00Z","DurationMs":5,"PlaylistsSeen":2,"SharedManaged":1},"Handler":{"Count":3,"LastMs":4,"MaxMs":9},"GracePasses":2}
+J
+cat > "$FAKE/Journal.json" <<'J'
+[{"Ts":"t","Kind":"Removal","UserId":"u","ItemId":"7","PlaylistId":"1001","Detail":"entries=1 durationMs=4"}]
+J
+api GET "/SharedPlaylist/Diagnostics/State" >/dev/null
+jq -e '.seenPlaylistIds[0]=="1001" and .graceCounters["1001"]["remove-si-lu"]==1 and .lastPass.durationMs==5 and .handler.maxMs==9 and .gracePasses==2' "$RESP" >/dev/null && ok "State : clés camelCase, ids et noms de familles préservés" || ko "State : normalisation"
+api GET "/SharedPlaylist/Diagnostics/Journal?clear=false&kind=Removal" >/dev/null
+jq -e '.[0].kind=="Removal" and .[0].playlistId=="1001" and (.[0].detail|test("durationMs=4"))' "$RESP" >/dev/null && ok "Journal : ts/kind/playlistId/detail extraits" || ko "Journal : normalisation"
 echo "  (aucune valeur réelle utilisée : serveur local, clé factice)"
 
 [[ $fail == 0 ]] || { echo "ECHEC test-lib-offline" >&2; exit 1; }
