@@ -11,7 +11,7 @@
 
 ### GET /SharedPlaylist/Diagnostics/Journal?clear={bool}&kind={liste}
 
-**Description** : journal mémoire borné (500 entrées, plus récent en dernier) des décisions du plugin. `clear=true` vide après lecture. `kind` (liste séparée par des virgules) filtre.
+**Description** : journal mémoire borné (500 entrées, plus récent en dernier) des décisions du plugin. `clear=true` vide après lecture (tout le journal). `kind` (liste séparée par des virgules, insensible à la casse) filtre : **sans `kind`, seules les décisions du moteur sont renvoyées** (`ScanPass`, `MarkerPosed`, `DescriptionWritten`, `MarkerSeen`, `Removal`, `Skipped`, `Error`) ; avec `kind`, exactement les kinds demandés (le journal est partagé avec `Spike/Events` tant que `Spike/*` existe : `kind=Probe` ou `kind=UserDataSaved` restent lisibles).
 
 **Response 200** :
 ```json
@@ -24,7 +24,7 @@
 - `DescriptionWritten` : message d'aide écrit, description vide (`Detail` = `cause=first-detection|grace-elapsed`).
 - `MarkerSeen` : état d'une famille lu à l'événement de retrait (`Detail` = `family=remove-si-lu state=Oui|Non|Both|None`).
 - `Removal` : `PlaylistId`, `ItemId`, `UserId` (déclencheur), `Detail` = `entries=<n> durationMs=<n>` (durée du traitement dans le gestionnaire, verrou compris).
-- `Skipped` : pas d'action (`Detail` = `inactive|not-member|not-shared|already-seen|marker-present|description-not-empty|no-transition|unknown-owner|reentrant|lock-busy`).
+- `Skipped` : pas d'action (`Detail` = `inactive|not-member|not-shared|already-seen|already-removed|marker-present|description-not-empty|no-transition|unknown-owner|reentrant|lock-busy|suspended`).
 - `Error` : exception isolée (`Detail` = type d'exception, sans message brut si celui-ci peut contenir des noms).
 
 ### GET /SharedPlaylist/Diagnostics/State
