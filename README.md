@@ -2,7 +2,7 @@
 
 Plugin Emby Media Server pour partager une playlist « À voir » entre plusieurs utilisateurs.
 
-> **État : en cours de conception.** La spécification est validée, le code du plugin n'est pas encore écrit.
+> **État : en développement (v0.1.0, spike technique).** La spécification est validée et le spike a confirmé la faisabilité sur QUALIF (simulation API, sans lecture réelle ni clients TV/mobile). Le moteur de retrait et de propagation n'est pas encore livré.
 
 ## Principe
 

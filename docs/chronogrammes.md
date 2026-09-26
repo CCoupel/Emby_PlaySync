@@ -42,14 +42,31 @@ Le partage est **masqué** tant que la permission utilisateur `Policy.AllowShari
 - Le niveau `ManageDelete` n'est pas la clé : il ne débloque pas le partage.
 - Les champs `CanManageAccess`, `CanEditItems`, `CanLeaveContent` dépendent des `Fields` demandés : ne pas les interpréter sans préciser `Fields`.
 
-### Non vérifié
+### Résultats du spike v0.1.0 (plugin 0.1.0.1, QUALIF `emby2`)
 
+> **Tout ce tableau est vérifié en simulation API** (appels REST, `Sessions/Playing*`, endpoints de diagnostic `Spike/*`) avec les comptes `test_u1..u3`. **Aucune lecture réelle avec un client** n'a encore été faite. Source : `_work/reports/qa-spike-20260926-144953.md` (verdict : validé avec réserves, aucun blocage de design).
+
+| # | Incertitude | Verdict | Conséquence de design |
+|---|---|---|---|
+| U1 | `UserDataSaved`, `SaveReason`, distinction plugin/utilisateur | **OK** | Le moteur se déclenche sur `UserDataSaved` avec `played=true` et `SaveReason` = `PlaybackFinished` (lecture terminée, ≥ ~98 %) ou `TogglePlayed` (marquage manuel). `PlaybackFinished` est **aussi émis à l'arrêt d'une lecture non terminée** (`played=false`) : toujours lire `played`. Anti-écho : une écriture du plugin est reconnue puis consommée ; l'écriture utilisateur suivante sur le même couple est vue comme utilisateur. Réserve : une écriture enregistrée dont l'événement n'est jamais émis (donnée inchangée) reste 5 min et peut marquer à tort la suivante. |
+| U2 | Retrait par le plugin sur la playlist d'un autre | **OK partiel** | Le retrait est visible immédiatement par tous les membres. Les `PlaylistItemId` **ne sont pas stables** (renumérotés à chaque modification) : résoudre l'entrée **à l'instant du retrait, par `ItemId`**, et retirer les doublons **un par un** avec relecture entre chaque. L'événement `PlaylistItemsRemoved` n'expose ni utilisateur ni média. Défauts de code du spike à corriger avant le moteur (réponse `entries` toujours vide, pas de validation d'une entrée inexistante). |
+| U3 | Étiquettes et description écrites par le plugin | **OK** | Format `propager-lu=NON` / `propager-lu=OUI` **validé tel quel** (`=` et casse acceptés, retrouvé par la recherche serveur `Tags=`, coexiste avec les étiquettes du propriétaire, pas de boucle : un seul `ItemUpdated` après l'écriture du plugin). « Retirer NON puis ajouter OUI » passe par un état **sans aucune étiquette** `propager-lu*` : ne jamais poser NON sur `ItemUpdated`. « Ajouter OUI puis retirer NON » passe par {NON, OUI} (inactif, sans risque). Écart mesuré entre deux sauvegardes scriptées : 1,2 s (plancher). **Délai de grâce : au moins 2 passes de réconciliation sans étiquette, soit 10 min au défaut de 5 min.** |
+| U4 | Découverte des playlists partagées | **OK partiel** | **Aucun événement** n'est émis à la création d'un partage : découverte par **scan planifié** (réconciliation), dont la période borne le délai de prise en compte. `GetUserItemShares` fonctionne côté plugin sans contexte utilisateur (propriétaire `ManageDelete`, membres `Write`/`Read`, `ownerUserId` renseigné). Un utilisateur voit aussi les playlists **publiques** d'autres comptes : à considérer à la découverte. |
+| U5 | Pose de `AllowSharingPersonalItems` par le plugin | **OK** | Faisable via `IUserManager` : valeur relue par REST, aucun autre champ de `UserPolicy` modifié, restauration identique à l'état initial (D8 réalisable). L'existence d'un événement de création d'utilisateur n'est pas établie : pose au démarrage et à chaque réconciliation. |
+| U6 | Création de partages par le plugin | **OK** | Non bloquant (le propriétaire partage via l'interface native). |
+| U7 | Signatures SDK réelles | **OK** | Compilation Release sans erreur ni avertissement contre les DLL du SDK 4.10 ; toutes les API utilisées ont été appelées avec succès. |
+| U8 | Clients TV/mobile | **Non évalué** | Manuel (voir ci-dessous). |
+| U9 | Environnement de build | **OK** | Build et tests via le SDK .NET 6 Windows en local ; CI Ubuntu inchangée. |
+| U10 | Avancement de lecture | **OK** | À l'**arrêt** : `SaveReason=PlaybackFinished` avec la position d'arrêt, **même non terminé** (`played=false` ; `played=true` seulement à ≥ ~98 %). À la **pause** : `PlaybackProgress` avec la position (`IsPaused`), pas de `SaveReason` dédié. Au démarrage : `PlaybackStart`. Le plugin peut écrire la position d'un **autre** utilisateur sans toucher `Played` ni `PlayCount` ; l'écriture est reconnue comme écriture du plugin ; le média apparaît dans « reprendre la lecture » de cet utilisateur, dans les deux sens ; un tiers n'est pas affecté. Aucun arbitrage de conflit : « dernière lecture gagne ». |
+
+### Reste à vérifier avec un vrai client (manuel, `MANUAL.md`)
+
+- Lecture **réelle** jusqu'au bout (web, puis TV/mobile) : `UserDataSaved` avec les `SaveReason` et `played=true` réels (U1).
+- Clients TV/mobile (U8) : visibilité de la playlist partagée, ajout/retrait, refus pour un membre `Read`, édition des étiquettes possible ou non.
+- Éditeur d'étiquettes du client web (« Modifier les métadonnées » > Mot-clé) : acceptation de `=` et de la casse, remplacement NON → OUI en une ou deux sauvegardes.
+- Avancement avec un vrai client : arrêt à mi-parcours par un membre, puis vérification de « reprendre » chez l'autre après l'écriture du plugin.
+- Ouverture de la page de configuration du plugin (Tableau de bord > Plugins) : des requêtes `configurationpage?name=EmbySharedPlaylist` ont renvoyé 404 pendant le spike (non élucidé).
 - Rendu réel de l'interface (analyse du code du client web uniquement, pas de navigateur).
-- Applis TV et mobile.
-- **U3** : remplacement `propager-lu=NON` → `propager-lu=OUI` par le propriétaire en deux sauvegardes successives, dans les deux ordres (état intermédiaire, événements `ItemUpdated`, absence de boucle) ; acceptation du `=` dans le nom de l'étiquette ; calibrage du délai de grâce.
-- **U5** : pose de `AllowSharingPersonalItems` depuis le plugin C# (`IUserManager`, `UserPolicy`) et existence d'un événement de création d'utilisateur exploitable.
-- **U10** (avancement) : valeurs de `SaveReason` à l'arrêt et à la pause d'une lecture, écriture de `PlaybackPositionTicks` pour un autre utilisateur sans marquer le média lu, apparition du média dans « reprendre la lecture » de cet utilisateur.
-- Création des partages par le plugin (`SaveUserItemShares`), retrait par le plugin sur la playlist d'un autre (`RemoveFromPlaylist`, U2), `UserDataSaved` et `SaveReason` pour le lu (U1), découverte des playlists partagées (U4).
 
 ## 1. Vocabulaire
 
@@ -78,7 +95,7 @@ Règles complémentaires :
 
 - Le plugin **ne supprime jamais** une étiquette.
 - Une playlist non partagée (aucun membre) n'est jamais gérée, quelle que soit l'étiquette.
-- Le plugin ne pose **jamais** NON sur un événement `ItemUpdated`. Il ne le fait qu'à la première détection du partage et lors de la réconciliation planifiée ; pour une playlist déjà connue, seulement si elle est restée sans étiquette `propager-lu*` sur deux passes consécutives (délai de grâce, valeur par défaut 5 min, à calibrer d'après U3).
+- Le plugin ne pose **jamais** NON sur un événement `ItemUpdated`. Il ne le fait qu'à la première détection du partage et lors de la réconciliation planifiée (les partages sont découverts par scan : aucun événement n'est émis à leur création) ; pour une playlist déjà connue, seulement si elle est restée sans étiquette `propager-lu*` sur deux passes consécutives (délai de grâce : 2 passes, soit 10 min au défaut de 5 min, calibré par le spike U3).
 - Conséquence pour le propriétaire : il doit **ajouter OUI et retirer NON dans la même édition** (ou ajouter OUI d'abord). Retirer NON seul, puis enregistrer, laisse la playlist sans étiquette : NON est reposé après le délai de grâce.
 - Si le propriétaire supprime toutes les étiquettes `propager-lu*`, NON est reposé après le délai de grâce.
 - Le plugin lit les étiquettes au moment de l'événement (pas de cache long).
@@ -100,7 +117,7 @@ Règles complémentaires :
 | R7 | Si un membre a déjà le flag lu, le plugin n'y touche pas (compteur et date intacts). |
 | R8 | Un média auquel un membre n'a pas accès (droits de bibliothèque) est ignoré silencieusement pour ce membre : le flag lu n'est pas posé chez lui. |
 | R9 | Retirer un média (explicite ou parce que lu) ne modifie aucun flag ; les deux causes donnent le même état de liste. |
-| R10 | **Avancement (D9)** : à l'arrêt ou à la pause d'une lecture par un membre (origine utilisateur), pour chaque playlist partagée contenant le média, dont il est membre et dont le marqueur est actif, la position de lecture (`PlaybackPositionTicks`) est écrite chez les autres membres. La **dernière lecture gagne**, dans les deux sens. Pas de transitivité entre listes. Anti-écho identique au lu (R5). Quand le média est terminé, la règle du lu (R4) prend le relais. Sans marqueur actif : aucune écriture. Les autres données utilisateur (favori, note) ne sont pas touchées. Livrée en **v0.3.1** (issues #44–#48, spike #44). |
+| R10 | **Avancement (D9)** : à l'arrêt ou à la pause d'une lecture par un membre (origine utilisateur ; arrêt = `PlaybackFinished` avec la position même si `played=false`, pause = `PlaybackProgress`), pour chaque playlist partagée contenant le média, dont il est membre et dont le marqueur est actif, la position de lecture (`PlaybackPositionTicks`) est écrite chez les autres membres. La **dernière lecture gagne**, dans les deux sens. Pas de transitivité entre listes. Anti-écho identique au lu (R5). Quand le média est terminé, la règle du lu (R4) prend le relais. Sans marqueur actif : aucune écriture. Les autres données utilisateur (favori, note) ne sont pas touchées. Livrée en **v0.3.1** (issues #44–#48, spike #44). |
 
 ## 3. Notation
 
@@ -311,17 +328,17 @@ Sans marqueur actif, seules les lignes des actions utilisateur ont lieu : aucune
 ## 5. Algorithme de référence (lecture)
 
 ```
-sur UserDataSaved(user, item):
+sur UserDataSaved(user, item, saveReason):
     si (user, item) ∈ écritures_plugin:
         retirer de l'ensemble ; return                    # R5
     pour chaque playlist L partagée où user ∈ L.membres et item ∈ L:
         si marqueur(L) ≠ ACTIF: continuer                 # legacy : ne rien faire
-        si item.Played:                                   # R4, R6
-            retirer item de L                              # marqué plugin
+        si item.Played et saveReason ∈ {PlaybackFinished, TogglePlayed}:   # R4, R6
+            retirer item de L  # entrée résolue par ItemId à l'instant du retrait, doublons un par un
             pour chaque m ∈ L.membres \ {user}:
                 si non Played(m, item) et accès(m, item):
                     marquer (m, item) ; SaveUserData(m, item, Played)   # R7, R8
-        sinon si arrêt/pause de lecture:                  # R10
+        sinon si saveReason ∈ {PlaybackFinished, PlaybackProgress} avec position:   # R10 (arrêt ; pause = PlaybackProgress avec IsPaused, pas les Progress périodiques)
             pour chaque m ∈ L.membres \ {user}:
                 si accès(m, item):
                     marquer (m, item) ; SaveUserData(m, item, PlaybackPositionTicks)
@@ -338,6 +355,7 @@ réconciliation planifiée (période configurable, défaut 5 min):
             si L nouvellement détectée, ou sans étiquette sur deux passes consécutives:
                 ajouter "propager-lu=NON" ; écrire le message d'aide si description vide et jamais écrit
         # jamais de suppression d'étiquette, jamais de pose sur ItemUpdated
+        # découverte par scan (aucun événement de partage) : GetUserItemShares
 ```
 
 ## 6. Décisions (2026-09-26)
@@ -356,12 +374,14 @@ réconciliation planifiée (période configurable, défaut 5 min):
 
 ## 7. Points ouverts
 
-1. Anti-écho sur les flags et positions : `UserDataSaved` et moyen de distinguer une écriture du plugin d'une action utilisateur (`SaveReason` ou ensemble d'écritures en cours) — spikes U1 et U10.
-2. Pose de la permission depuis le plugin C# (`IUserManager`) et événement de création d'utilisateur — spike U5. D8 : comptes désactivés et profils enfants inclus ? Appliquer une seule fois par utilisateur pour respecter un décochage volontaire de l'administrateur ?
-3. Remplacement NON → OUI en deux sauvegardes, et durée du délai de grâce (défaut proposé 5–10 min) — spike U3.
-4. Rendu réel de l'écran d'édition des métadonnées et comportement des applis TV/mobile (non testés).
-5. Langue du message d'aide : français seul jusqu'à la localisation FR/EN.
-6. Avancement : seuil minimal de position, lectures simultanées, comportement près de la fin (considéré comme lu ?) — spike U10.
+Le spike v0.1.0 (§0) a levé U1, U3, U5, U6, U7, U9 et U10 en simulation API ; U2 et U4 sont partiels. Il reste :
+
+1. **Lecture réelle et clients** : `SaveReason` en conditions réelles (web, TV, mobile), édition des étiquettes (`=`, casse) et remplacement NON → OUI dans l'éditeur, applis TV/mobile (U8), avancement avec un vrai client, ouverture de la page de configuration (404 observé).
+2. **Anti-écho** : l'ensemble d'écritures plugin garde une entrée 5 min si l'événement n'est jamais émis (donnée inchangée) et peut alors marquer à tort l'écriture utilisateur suivante (#21).
+3. **Découverte** : période du scan de réconciliation (borne le délai de prise en compte d'un nouveau partage) ; exclusion des playlists publiques d'autres comptes.
+4. **D8** : comptes désactivés et profils enfants inclus ? Appliquer une seule fois par utilisateur pour respecter un décochage volontaire de l'administrateur ? Événement de création d'utilisateur non établi (pose au démarrage et à la réconciliation).
+5. **Avancement (D9)** : seuil minimal de position, lectures simultanées, comportement près de la fin (considéré comme lu ?).
+6. **Langue du message d'aide** : français seul jusqu'à la localisation FR/EN.
 
 ## 8. Guide utilisateur
 
