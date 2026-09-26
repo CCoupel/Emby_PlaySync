@@ -139,11 +139,36 @@ public class SpikeService : IService
     // ---- Events ------------------------------------------------------------------------------
 
     public object Get(SpikeEvents request) => Run(() =>
-        SpikeRuntime.Journal.Snapshot(request.Clear).Select(e => new SpikeEventDto
+        SpikeRules.FilterBySaveReason(SpikeRuntime.Journal.Snapshot(request.Clear), request.SaveReason).Select(e => new SpikeEventDto
         {
             Ts = e.Ts, Kind = e.Kind, UserId = e.UserId, ItemId = e.ItemId, PlaylistId = e.PlaylistId,
-            EntryId = e.EntryId, Played = e.Played, SaveReason = e.SaveReason, PluginWrite = e.PluginWrite
+            EntryId = e.EntryId, Played = e.Played, PositionTicks = e.PositionTicks, LastPlayedDate = e.LastPlayedDate,
+            SaveReason = e.SaveReason, PluginWrite = e.PluginWrite
         }).ToList());
+
+    // ---- SetPosition -------------------------------------------------------------------------
+
+    public object Post(SpikeSetPosition request) => Run(() =>
+    {
+        if (request.PositionTicks < 0) throw new ArgumentException("positionTicks doit être >= 0");
+        var user = RequireTestUser(request.UserId);
+        var item = RequireItem(request.ItemId);
+        var data = _userDataManager.GetUserData(user, item);
+        // Position et date de dernière lecture uniquement : Played et PlayCount ne sont pas modifiés.
+        data.PlaybackPositionTicks = request.PositionTicks;
+        data.LastPlayedDate = DateTimeOffset.UtcNow;
+        SpikeRuntime.Tracker.Register(user.InternalId, item.InternalId);
+        _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.PlaybackProgress, CancellationToken.None);
+        var after = _userDataManager.GetUserData(user, item);
+        return new SpikeSetPositionResult
+        {
+            Saved = true,
+            PositionTicks = after.PlaybackPositionTicks,
+            Played = after.Played,
+            PlayCount = after.PlayCount,
+            LastPlayedDate = after.LastPlayedDate?.ToString("o")
+        };
+    });
 
     // ---- Shares ------------------------------------------------------------------------------
 

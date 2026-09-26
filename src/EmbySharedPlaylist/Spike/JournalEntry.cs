@@ -11,6 +11,10 @@ public sealed class JournalEntry
     /// <summary>Identifiant d'entrée de playlist (PlaylistItemId), pour les événements PlaylistItems*.</summary>
     public string? EntryId { get; set; }
     public bool? Played { get; set; }
+    /// <summary>PlaybackPositionTicks des données utilisateur (UserDataSaved).</summary>
+    public long? PositionTicks { get; set; }
+    /// <summary>LastPlayedDate des données utilisateur (ISO-8601), si présente.</summary>
+    public string? LastPlayedDate { get; set; }
     /// <summary><c>SaveReason</c> pour UserDataSaved ; <c>UpdateReason</c> pour ItemUpdated.</summary>
     public string? SaveReason { get; set; }
     public bool PluginWrite { get; set; }

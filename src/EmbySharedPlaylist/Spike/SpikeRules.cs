@@ -20,6 +20,17 @@ public static class SpikeRules
         return IsSpikePlaylist(name) ? name : PlaylistPrefix + "-" + name;
     }
 
+    /// <summary>Garde les entrées dont SaveReason figure dans la liste (séparée par des virgules, insensible à la casse) ; liste vide = tout.</summary>
+    public static JournalEntry[] FilterBySaveReason(IEnumerable<JournalEntry> entries, string? saveReasons)
+    {
+        var wanted = (saveReasons ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return wanted.Count == 0
+            ? entries.ToArray()
+            : entries.Where(e => e.SaveReason != null && wanted.Contains(e.SaveReason)).ToArray();
+    }
+
     /// <summary>
     /// Ajoute puis retire uniquement les étiquettes nommées ; les autres sont conservées dans leur ordre.
     /// Comparaison insensible à la casse. Un nom présent dans <paramref name="remove"/> est retiré même s'il est aussi ajouté.

@@ -60,13 +60,14 @@ public sealed class SpikeListener : IServerEntryPoint
         try
         {
             var played = e.UserData?.Played;
-            // PlaybackProgress arrive toutes les quelques secondes : on ne garde que ceux qui portent Played=true.
-            if (e.SaveReason == UserDataSaveReason.PlaybackProgress && played != true) return;
-
+            // Tout est journalisé (dont PlaybackProgress, périodique) pour observer arrêt/pause/progression ;
+            // filtrer par saveReason à la lecture et vider (clear) régulièrement : le journal est borné à 500.
             var entry = NewEntry("UserDataSaved");
             entry.UserId = e.User.Id.ToString("N");
             entry.ItemId = e.Item.InternalId.ToString();
             entry.Played = played;
+            entry.PositionTicks = e.UserData?.PlaybackPositionTicks;
+            entry.LastPlayedDate = e.UserData?.LastPlayedDate?.ToString("o");
             entry.SaveReason = e.SaveReason.ToString();
             entry.PluginWrite = SpikeRuntime.Tracker.TryConsume(e.User.InternalId, e.Item.InternalId);
             SpikeRuntime.Journal.Add(entry);

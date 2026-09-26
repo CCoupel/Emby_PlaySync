@@ -9,7 +9,7 @@ Tous : **Auth** : Admin (`[Authenticated(Roles = "Admin")]`) ; **404** si `Plugi
 
 **Identifiants** : les ids d'items (playlist, média, entrée `playlistItemId`) sont les identifiants internes Emby (entiers, en chaîne) ; les ids d'utilisateurs sont des GUID hexadécimaux sans tirets (`N`).
 
-**Garde-fous (implémentés)** : les écritures (`Setup`, `MarkPlayed`, `Policy` POST) sont **refusées (400)** pour tout compte dont le nom ne commence pas par `test_` (jamais `admin`, `cyril`, `user2`) ; `RemoveItem` et `Tags` POST sont refusés (400) pour une playlist dont le nom ne commence pas par `SPIKE`. `Setup` préfixe le nom demandé par `SPIKE-` s'il ne commence pas déjà par `SPIKE` (défaut : « SPIKE À voir »).
+**Garde-fous (implémentés)** : les écritures (`Setup`, `MarkPlayed`, `SetPosition`, `Policy` POST) sont **refusées (400)** pour tout compte dont le nom ne commence pas par `test_` (jamais `admin`, `cyril`, `user2`) ; `RemoveItem` et `Tags` POST sont refusés (400) pour une playlist dont le nom ne commence pas par `SPIKE`. `Setup` préfixe le nom demandé par `SPIKE-` s'il ne commence pas déjà par `SPIKE` (défaut : « SPIKE À voir »).
 
 ### POST /SharedPlaylist/Spike/Setup
 
@@ -48,15 +48,22 @@ Tous : **Auth** : Admin (`[Authenticated(Roles = "Admin")]`) ; **404** si `Plugi
 **Request body** : `{ "userId": "string", "itemId": "string", "played": true, "asPlugin": true }`
 **Response 200** : `{ "saved": true, "playedAfter": true }`
 
-### GET /SharedPlaylist/Spike/Events?clear={bool}
+### GET /SharedPlaylist/Spike/Events?clear={bool}&saveReason={liste}
 
-**Description** : journal mémoire (borné à 500 entrées, plus récent en dernier) des événements captés : `UserDataSaved`, `PlaylistItemsAdded/Removed/Moved` et `ItemUpdated` (playlists seulement). `clear=true` vide après lecture. Points 2, 3, 4. Rien n'est journalisé si `EnableSpikeEndpoints` est faux. Les `UserDataSaved` de `SaveReason=PlaybackProgress` ne sont journalisés que si `played=true` (sinon ils saturent le journal). Pour `ItemUpdated`, `saveReason` porte le `ItemUpdateType` (ex. `MetadataEdit`) : c'est ce qui permet de détecter une boucle après une écriture d'étiquette. Pour `PlaylistItems*`, `entryId` porte le `PlaylistItemId` (`itemId` n'est renseigné que pour `Added` ; `Moved` ne journalise pas le nouvel index).
+**Description** : journal mémoire (borné à 500 entrées, plus récent en dernier) des événements captés : `UserDataSaved`, `PlaylistItemsAdded/Removed/Moved` et `ItemUpdated` (playlists seulement). `clear=true` vide après lecture. Points 2, 3, 4. Rien n'est journalisé si `EnableSpikeEndpoints` est faux. Tous les `UserDataSaved` sont journalisés, y compris `PlaybackProgress` (périodique, il sature vite le journal borné : filtrer et vider régulièrement). `saveReason` (optionnel) = liste de `SaveReason` séparés par des virgules (insensible à la casse) pour ne renvoyer que ceux-là (ex. `PlaybackFinished,PlaybackProgress`) ; `clear` vide tout le journal, filtré ou non. Issue #44. Pour `ItemUpdated`, `saveReason` porte le `ItemUpdateType` (ex. `MetadataEdit`) : c'est ce qui permet de détecter une boucle après une écriture d'étiquette. Pour `PlaylistItems*`, `entryId` porte le `PlaylistItemId` (`itemId` n'est renseigné que pour `Added` ; `Moved` ne journalise pas le nouvel index).
 
 **Response 200** :
 ```json
-[ { "ts": "ISO-8601", "kind": "UserDataSaved|PlaylistItemsAdded|PlaylistItemsRemoved|PlaylistItemsMoved|ItemUpdated", "userId": "string|null", "itemId": "string|null", "playlistId": "string|null", "entryId": "string|null", "played": true, "saveReason": "string|null", "pluginWrite": false } ]
+[ { "ts": "ISO-8601", "kind": "UserDataSaved|PlaylistItemsAdded|PlaylistItemsRemoved|PlaylistItemsMoved|ItemUpdated", "userId": "string|null", "itemId": "string|null", "playlistId": "string|null", "entryId": "string|null", "played": true, "positionTicks": 0, "lastPlayedDate": "ISO-8601|null", "saveReason": "string|null", "pluginWrite": false } ]
 ```
 `pluginWrite` = vrai si (userId, itemId) était dans l'ensemble « écritures plugin » (l'entrée est alors consommée).
+
+### POST /SharedPlaylist/Spike/SetPosition
+
+**Description** (issue #44, temporaire) : écrit `PlaybackPositionTicks` et `LastPlayedDate` d'un utilisateur `test_*` via `IUserDataManager.SaveUserData` (`SaveReason=PlaybackProgress`), **sans** modifier `Played` ni `PlayCount`. L'écriture est enregistrée dans l'ensemble « écritures plugin » avant l'appel (`pluginWrite=true` dans `Events`). Sert à trancher : le plugin peut-il écrire la position d'un autre utilisateur, et le média apparaît-il dans « reprendre » (`GET /Users/{id}/Items/Resume`, à lire par le script) ?
+
+**Request body** : `{ "userId": "string", "itemId": "string", "positionTicks": 0 }` (400 si `positionTicks` < 0)
+**Response 200** : `{ "saved": true, "positionTicks": 0, "played": false, "playCount": 0, "lastPlayedDate": "ISO-8601|null" }` (valeurs relues après écriture)
 
 ### GET /SharedPlaylist/Spike/Shares?playlistId={id}
 

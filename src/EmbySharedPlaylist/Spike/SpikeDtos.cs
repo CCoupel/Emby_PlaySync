@@ -89,6 +89,8 @@ public class SpikeMarkPlayedResult
 public class SpikeEvents : IReturn<List<SpikeEventDto>>
 {
     public bool Clear { get; set; }
+    /// <summary>Filtre optionnel : SaveReason(s) séparés par des virgules (ex. PlaybackFinished,PlaybackProgress).</summary>
+    public string? SaveReason { get; set; }
 }
 
 public class SpikeEventDto
@@ -100,8 +102,28 @@ public class SpikeEventDto
     [JsonPropertyName("playlistId")] public string? PlaylistId { get; set; }
     [JsonPropertyName("entryId")] public string? EntryId { get; set; }
     [JsonPropertyName("played")] public bool? Played { get; set; }
+    [JsonPropertyName("positionTicks")] public long? PositionTicks { get; set; }
+    [JsonPropertyName("lastPlayedDate")] public string? LastPlayedDate { get; set; }
     [JsonPropertyName("saveReason")] public string? SaveReason { get; set; }
     [JsonPropertyName("pluginWrite")] public bool PluginWrite { get; set; }
+}
+
+[Route("/SharedPlaylist/Spike/SetPosition", "POST")]
+[Authenticated(Roles = "Admin")]
+public class SpikeSetPosition : IReturn<SpikeSetPositionResult>
+{
+    [JsonPropertyName("userId")] public string UserId { get; set; } = string.Empty;
+    [JsonPropertyName("itemId")] public string ItemId { get; set; } = string.Empty;
+    [JsonPropertyName("positionTicks")] public long PositionTicks { get; set; }
+}
+
+public class SpikeSetPositionResult
+{
+    [JsonPropertyName("saved")] public bool Saved { get; set; }
+    [JsonPropertyName("positionTicks")] public long PositionTicks { get; set; }
+    [JsonPropertyName("played")] public bool Played { get; set; }
+    [JsonPropertyName("playCount")] public int PlayCount { get; set; }
+    [JsonPropertyName("lastPlayedDate")] public string? LastPlayedDate { get; set; }
 }
 
 [Route("/SharedPlaylist/Spike/Shares", "GET")]

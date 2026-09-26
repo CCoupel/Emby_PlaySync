@@ -34,6 +34,30 @@ public class SpikeRulesTests
     public void EnsureSpikeName_AlwaysProducesSpikeName(string? input, string expected) =>
         Assert.Equal(expected, SpikeRules.EnsureSpikeName(input));
 
+    private static JournalEntry R(string? reason) => new() { SaveReason = reason };
+
+    [Fact]
+    public void FilterBySaveReason_EmptyFilterKeepsEverything()
+    {
+        var all = new[] { R("PlaybackFinished"), R(null) };
+        Assert.Equal(2, SpikeRules.FilterBySaveReason(all, null).Length);
+        Assert.Equal(2, SpikeRules.FilterBySaveReason(all, " , ").Length);
+    }
+
+    [Fact]
+    public void FilterBySaveReason_KeepsOnlyListedReasons_CaseInsensitive()
+    {
+        var all = new[] { R("PlaybackFinished"), R("PlaybackProgress"), R("TogglePlayed"), R(null) };
+        var r = SpikeRules.FilterBySaveReason(all, "playbackfinished, PlaybackProgress");
+        Assert.Equal(new[] { "PlaybackFinished", "PlaybackProgress" }, r.Select(e => e.SaveReason));
+    }
+
+    [Fact]
+    public void FilterBySaveReason_UnknownReasonYieldsNothing()
+    {
+        Assert.Empty(SpikeRules.FilterBySaveReason(new[] { R("PlaybackFinished") }, "Nope"));
+    }
+
     [Fact]
     public void ApplyTagChanges_AddsWithoutTouchingOtherTags()
     {
