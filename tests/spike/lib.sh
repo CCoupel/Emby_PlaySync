@@ -11,7 +11,8 @@ QUALIF_ENV="$PRIVATE/qualif.env"
 USERS_ENV="$PRIVATE/spike-users.env"      # ids + mots de passe des comptes test_* (gitignoré)
 SNAPSHOT="$PRIVATE/spike-snapshot.json"   # état avant setup : utilisateurs + politiques protégées
 STATE="$PRIVATE/spike-state.json"         # ids des playlists créées par le spike
-EXPECTED_SERVER_NAME=${EXPECTED_SERVER_NAME:-emby2-Testing}
+# Figé (non surchargeable). « emby2-Testing » = nom de QUALIF, confirmé le 2026-09-26 via /System/Info (dev-plugin).
+readonly EXPECTED_SERVER_NAME="emby2-Testing"
 PROTECTED_USERS=(admin cyril user2)       # comptes réels : lecture seule, JAMAIS modifiés
 TEST_USERS=(test_u1 test_u2 test_u3)
 
@@ -72,7 +73,16 @@ guard_target() {
   [[ $st == 200 ]] || die "serveur injoignable ou clé refusée (HTTP $st)"
   local name; name=$(jq -r '.ServerName // ""' "$RESP")
   [[ $name == "$EXPECTED_SERVER_NAME" ]] || die "cible '$name' != '$EXPECTED_SERVER_NAME' : arrêt (QUALIF uniquement)"
-  echo "Cible vérifiée : $name"
+  # Garde complémentaire : hôte attendu, lu dans private/qualif.env (clé EXPECTED_HOST, non versionné).
+  local want_host have_host
+  want_host=$(envget "$SCRATCH/qualif.env" EXPECTED_HOST)
+  have_host=$(printf '%s' "$EMBY_URL" | sed -E 's#^[a-zA-Z]+://##; s#[/:].*$##')
+  if [[ -n $want_host ]]; then
+    [[ $have_host == "$want_host" ]] || die "hôte de EMBY_URL différent de EXPECTED_HOST (private/qualif.env) : arrêt"
+    echo "Cible vérifiée : $name (hôte conforme à EXPECTED_HOST)"
+  else
+    echo "Cible vérifiée : $name (ATTENTION : EXPECTED_HOST absent de private/qualif.env, garde d'hôte inactive)"
+  fi
 }
 
 check_ignored() {

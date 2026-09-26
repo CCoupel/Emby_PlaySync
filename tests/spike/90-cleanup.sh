@@ -14,6 +14,7 @@ case "${1:-}" in
   *) die "usage : $0 [--delete-users]" ;;
 esac
 
+check_ignored "$USERS_ENV" "$SNAPSHOT" "$STATE" "$QUALIF_ENV"
 guard_target
 
 echo "== Playlists SPIKE"
@@ -35,6 +36,11 @@ done
 count=0
 while IFS= read -r id; do
   if [[ -z $id ]]; then continue; fi
+  # garde : ne supprimer que ce qui s'appelle SPIKE* (relu côté serveur)
+  st=$(api GET "/Items?Ids=$id")
+  nm=$(jq -r '.Items[0].Name // empty' "$RESP" 2>/dev/null || true)
+  if [[ -z $nm ]]; then echo "  [--] $id introuvable (déjà supprimée)"; continue; fi
+  if [[ $nm != SPIKE* ]]; then echo "  [SKIP] $id (« $nm ») ne commence pas par SPIKE : non supprimée"; continue; fi
   st=$(api DELETE "/Items/$id")
   case $st in
     2*) count=$((count+1)); echo "  [OK] playlist $id supprimée" ;;

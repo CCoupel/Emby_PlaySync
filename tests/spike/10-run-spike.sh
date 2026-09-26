@@ -3,14 +3,16 @@
 # Prérequis : 00-setup-users.sh exécuté ; plugin déployé avec EnableSpikeEndpoints=true.
 # Sortie : tableau console + JSON de preuves (SPIKE_OUT, défaut _work/spike-out/spike-evidence-<ts>.json).
 # Aucun secret dans la sortie (tokens/mots de passe jamais journalisés).
-# Assertions : `hard` = comportement déjà acquis ou règle produit (KO => code de sortie 1) ;
+# Assertions : `hard` = acquis REST uniquement (KO => code de sortie 1) ;
 #              `probe` = incertitude à lever (KO = résultat du spike, pas une erreur du script).
 #
 # Règles produit testées (décisions utilisateur), lecture retenue :
 #   - propagation du « lu » seulement si `propager-lu=OUI` présent ET `propager-lu=NON` absent ;
 #     sans OUI, le plugin ne propage rien (legacy) ; NON l'emporte en cas de conflit ;
-#   - le plugin ne supprime JAMAIS une étiquette ; seule action d'écriture : poser NON quand
-#     aucune étiquette `propager-lu*` n'existe.
+#   - le plugin ne supprime JAMAIS une étiquette ; sa seule écriture : poser NON quand aucune
+#     étiquette `propager-lu*` n'existe, jamais en réaction à ItemUpdated (état intermédiaire d'une
+#     édition du propriétaire) ; le propriétaire ajoute OUI et retire NON dans la même édition.
+#   - les blocs « spec » (jq local) documentent ces règles mais ne sont PAS une preuve (non bloquants).
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 OUT_DIR=${SPIKE_OUT:-$ROOT/_work/spike-out}
@@ -19,6 +21,29 @@ TS=$(date +%Y%m%d-%H%M%S)
 OUT_FILE="$OUT_DIR/spike-evidence-$TS.json"
 RES="$SCRATCH/results.jsonl"; : > "$RES"
 HARD_FAIL=0
+EVID_DONE=0
+PROT=null
+U5_POLICY_BACKUP=""   # politique complète de u2 avant U5 (restaurée par le trap si U5 est interrompu)
+
+write_evidence() { # [partial]
+  local partial=${1:-false}
+  jq -s --arg ts "$TS" --arg srv "$EXPECTED_SERVER_NAME" --argjson prot "$PROT" --argjson partial "$partial" '
+    def cnt(k): map(select(.status==k))|length;
+    {run:$ts, server:$srv, partial:$partial, protectedAccountsUnchanged:$prot,
+     summary:([.[]|select(.kind!="spec")]|group_by(.u)|map({u:.[0].u, ok:cnt("OK"), ko:cnt("KO"), verdict:(if all(.status=="OK") then "OK" else "KO" end)})),
+     specifications:{notEvidence:true, ok:([.[]|select(.kind=="spec")]|cnt("OK")), ko:([.[]|select(.kind=="spec")]|cnt("KO"))},
+     results:.}' "$RES" > "$OUT_FILE" 2>/dev/null && EVID_DONE=1
+}
+on_exit() {
+  local rc=$?; set +e
+  if [[ -n $U5_POLICY_BACKUP && -n ${U2:-} && -n ${EMBY_URL:-} ]]; then
+    api POST "/Users/$U2/Policy" "$U5_POLICY_BACKUP" >/dev/null && echo "  (trap) politique de test_u2 restaurée" >&2
+  fi
+  if [[ $EVID_DONE == 0 && -s $RES ]]; then write_evidence true; echo "  (trap) preuves partielles : $OUT_FILE" >&2; fi
+  rm -rf "$SCRATCH"
+  exit $rc
+}
+trap on_exit EXIT
 SPK=/SharedPlaylist/Spike
 DEFS='def n: (.//"")|tostring|ascii_downcase|gsub("-";"");'
 
@@ -206,7 +231,7 @@ for pair in "$T1:$U1" "$T2:$U2" "$T3:$U3"; do
   x=$(entries "$PLA" "${pair%%:*}" "${pair##*:}")
   jq -e --arg i "$M1" "$DEFS"'map(select((.itemId|n)==($i|n)))|length==0' <<<"$x" >/dev/null || ok=false
 done
-ck U2 remove-visible hard "après retrait par le plugin, M1 a disparu pour u1, u2 et u3 (même playlist)" "{\"allGone\":$ok}" test "$ok" = true
+ck U2 remove-visible probe "après retrait par le plugin, M1 a disparu pour u1, u2 et u3 (même playlist)" "{\"allGone\":$ok}" test "$ok" = true
 ev_wait "[.[]|select(.kind==\"PlaylistItemsRemoved\")]|length>0" 8 || true
 ck U2 remove-event probe "événement PlaylistItemsRemoved journalisé (contexte d'origine visible)" "$(jq -c '[.[]|select(.kind=="PlaylistItemsRemoved")|{playlistId,userId,itemId}]' <<<"${EV:-[]}")" \
   jq -e '[.[]|select(.kind=="PlaylistItemsRemoved")]|length>0' <<<"${EV:-[]}"
@@ -275,7 +300,7 @@ st=$(ptag_post "[\"$OUI\"]" '[]'); P=$(ptags)
 ck U3 both probe "NON et OUI coexistent ; l'étiquette du propriétaire est préservée" "$P" \
   jq -e --arg a "$NON" --arg b "$OUI" 'index($a)!=null and index($b)!=null and index("mon-etiquette")!=null' <<<"$P"
 D=$(engine_of "$P")
-ck R both hard "règle produit : NON et OUI ensemble => NON l'emporte, pas de propagation, aucune suppression" "$D" \
+ck R both spec "spécification (jq local, pas du code plugin) : NON et OUI ensemble => NON l'emporte, pas de propagation" "$D" \
   jq -e '.propagate==false and .add==[]' <<<"$D"
 
 seq_case() { # ID DESC STEP1_ADD STEP1_DEL STEP2_ADD STEP2_DEL
@@ -285,17 +310,19 @@ seq_case() { # ID DESC STEP1_ADD STEP1_DEL STEP2_ADD STEP2_DEL
   owner_tags "$5" "$6"; sleep 2; local fin; fin=$(ptags); local e; e=$(ev_get)
   local gap; gap=$(ms_between "$(itemupdated "$e")")
   local dm df; dm=$(engine_of "$mid"); df=$(engine_of "$fin")
-  rec U3 "$1" probe OK "$2 : intermédiaire $mid, final $fin, écart ItemUpdated = ${gap} ms (état intermédiaire => plugin poserait ${dm})" \
+  rec U3 "$1" probe OK "$2 : intermédiaire $mid, final $fin, écart ItemUpdated = ${gap} ms (un moteur réagissant à ItemUpdated poserait ici : ${dm} — d'où : pose de NON jamais sur ItemUpdated + délai de grâce)" \
     "$(jc -n --argjson m "$mid" --argjson f "$fin" --arg g "$gap" --argjson dm "$dm" --argjson df "$df" '{intermediate:$m, final:$f, itemUpdatedGapMs:($g|tonumber), engineAtIntermediate:$dm, engineAtFinal:$df}')"
-  ck R "$1-final" hard "règle produit : état final {OUI} sans NON => propagation active" "$df" jq -e '.propagate==true and .add==[]' <<<"$df"
+  ck U3 "$1-final" probe "état final RÉEL lu via Spike/Tags : OUI présente, NON absente" "$fin" \
+    jq -e --arg a "$NON" --arg b "$OUI" 'index($b)!=null and index($a)==null' <<<"$fin"
+  ck R "$1-spec" spec "spécification (jq local) : état final {OUI} => propagation active" "$df" jq -e '.propagate==true and .add==[]' <<<"$df"
   ck U3 "$1-keep" probe "étiquettes du propriétaire préservées pendant la séquence" "$fin" jq -e 'index("mon-etiquette")!=null and index("Autre Tag")!=null' <<<"$fin"
 }
 seq_case seq-remove-first "propriétaire : retire NON puis ajoute OUI" '[]' "[\"$NON\"]" "[\"$OUI\"]" '[]'
 seq_case seq-add-first "propriétaire : ajoute OUI puis retire NON" "[\"$OUI\"]" '[]' '[]' "[\"$NON\"]"
 
-echo "== U3 — décisions produit (table de référence)"
+echo "== Spécification exécutable des règles produit (jq local : ne prouve rien sur le plugin ; à porter en xUnit v0.2)"
 tab() { # ID DESC TAGS_JSON JQ_EXPECT
-  local d; d=$(engine_of "$3"); ck R "$1" hard "$2" "$d" jq -e "$4" <<<"$d"
+  local d; d=$(engine_of "$3"); ck R "$1" spec "$2" "$d" jq -e "$4" <<<"$d"
 }
 tab r-none  "aucune étiquette => le plugin pose NON, pas de propagation" '[]' '.propagate==false and .add==["propager-lu=NON"]'
 tab r-other "étiquettes sans propager-lu* => le plugin pose NON" '["film"]' '.propagate==false and .add==["propager-lu=NON"]'
@@ -303,12 +330,12 @@ tab r-non   "NON seule => rien à faire, pas de propagation (legacy)" '["propage
 tab r-oui   "OUI seule => propagation active" '["propager-lu=OUI","film"]' '.propagate==true and .add==[]'
 tab r-case  "casse et espaces tolérés (« Propager-Lu = oui »)" '[" Propager-Lu = oui "]' '.propagate==true'
 tab r-both  "NON l'emporte sur OUI" '["propager-lu=OUI","propager-lu=NON"]' '.propagate==false'
-tab r-noop  "le plugin ne supprime jamais d'étiquette (aucune action de retrait)" '["propager-lu=OUI","propager-lu=NON"]' 'has("remove")|not'
 
 # ---------------------------------------------------------------- U5 : politique
 echo "== U5 — AllowSharingPersonalItems via IUserManager"
 is_test_user "$U2" || die "garde : u2 n'est pas un compte de test"
 api GET "/Users/$U2" >/dev/null; P0=$(jq -S -c '.Policy' "$RESP")
+U5_POLICY_BACKUP=$P0
 st=$(api GET "$SPK/Policy?userId=$U2")
 ck U5 get probe "GET Policy?userId=u2 = false (défaut)" "$(jc . "$RESP")" jq -e '.allowSharingPersonalItems==false' "$RESP"
 st=$(api POST "$SPK/Policy" "$(jc -n --arg u "$U2" '{userId:$u,allowSharingPersonalItems:true}')")
@@ -320,6 +347,7 @@ ck U5 side-effects probe "aucun autre champ de UserPolicy modifié (P1 avec le c
 st=$(api POST "$SPK/Policy" "$(jc -n --arg u "$U2" '{userId:$u,allowSharingPersonalItems:false}')")
 api GET "/Users/$U2" >/dev/null; P2=$(jq -S -c '.Policy' "$RESP")
 ck U5 restore probe "retour à false : politique identique à l'état initial" "null" test "$P2" = "$P0"
+U5_POLICY_BACKUP=""
 
 # ---------------------------------------------------------------- U6 : partage créé par le plugin
 echo "== U6 — Setup (playlist + partages créés par le plugin)"
@@ -337,8 +365,7 @@ fi
 
 # ---------------------------------------------------------------- U10 : avancement de lecture (issue #44)
 echo "== U10 — propagation de la position de lecture (u1 commence, u2 poursuit)"
-# Hypothèse de contrat (à aligner sur contracts/http-endpoints.md) : POST Spike/SetPosition
-#   {userId, itemId, positionTicks} -> 200. Position lue côté événement : playbackPositionTicks|positionTicks.
+# Contrat : POST Spike/SetPosition {userId,itemId,positionTicks} -> 200 ; événements : champ positionTicks.
 is_test_user "$U2" && is_test_user "$U1" || die "garde : u1/u2 ne sont pas des comptes de test"
 RT3=$(runtime "$M3")
 playi() { # ITEM SESSION POSITION
@@ -360,7 +387,7 @@ in_resume() { # UID TOKEN ITEM
 }
 near() { local d=$(($1-$2)); ((d<0)) && d=$((-d)); ((d<=10000000)); }   # tolérance 1 s
 ev_user() { # UID ITEM -> événements UserDataSaved compacts
-  jq -c --arg u "$1" --arg i "$2" "$DEFS"'[.[]|select(.kind=="UserDataSaved" and (.userId|n)==($u|n) and (.itemId|n)==($i|n))|{saveReason,played,position:(.playbackPositionTicks // .positionTicks // null),pluginWrite}]' <<<"${EV:-[]}"
+  jq -c --arg u "$1" --arg i "$2" "$DEFS"'[.[]|select(.kind=="UserDataSaved" and (.userId|n)==($u|n) and (.itemId|n)==($i|n))|{saveReason,played,position:(.positionTicks // null),pluginWrite}]' <<<"${EV:-[]}"
 }
 
 P1=$((RT3*40/100)); P2=$((RT3*70/100))
@@ -412,14 +439,11 @@ ck U10 e-isolation hard "u3 (non concerné) n'est pas affecté : M3 sans positio
 echo "== Comptes protégés"
 if compare_protected "fin de run" "${TEST_USERS[@]}"; then PROT=true; else PROT=false; HARD_FAIL=1; fi
 
-jq -s --arg ts "$TS" --arg srv "$EXPECTED_SERVER_NAME" --argjson prot "$PROT" '
-  {run:$ts, server:$srv, protectedAccountsUnchanged:$prot,
-   summary:(group_by(.u)|map({u:.[0].u, ok:(map(select(.status=="OK"))|length), ko:(map(select(.status=="KO"))|length),
-                              verdict:(if all(.status=="OK") then "OK" else "KO" end)})),
-   results:.}' "$RES" > "$OUT_FILE"
+write_evidence false
 
 echo
 echo "== Synthèse par incertitude (détail : $OUT_FILE)"
 jq -r '.summary[]|"  \(.u)\t\(.verdict)\t(\(.ok) OK / \(.ko) KO)"' "$OUT_FILE"
 if [[ $HARD_FAIL == 1 ]]; then echo "ECHEC : au moins une assertion hard est KO." >&2; exit 1; fi
+jq -r '.specifications|"  spécifications jq locales (non-preuve) : \(.ok) OK / \(.ko) KO"' "$OUT_FILE"
 echo "Assertions hard : toutes OK (les KO probe sont des résultats du spike, pas des erreurs)."

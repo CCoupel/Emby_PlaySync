@@ -11,7 +11,8 @@ Créer une playlist « SPIKE-manuel » avec ≥ 2 médias > menu « … » > **�
 ## 3. Étiquette de propagation (client web, `test_u1`)
 Menu « … » > **« Modifier les métadonnées »** > section **Mot-clé** (champ « Étiquette ») :
 1. ajouter `propager-lu=OUI` **et** retirer `propager-lu=NON` dans la **même** édition, puis Enregistrer ;
-2. variante : ajouter OUI, enregistrer, puis rouvrir et retirer NON, enregistrer.
+2. variante (mesure seulement, U3) : ajouter OUI, enregistrer, puis rouvrir et retirer NON, enregistrer.
+Règle attendue : sans OUI le plugin ne propage rien ; NON l'emporte si les deux sont présentes ; le plugin ne supprime jamais d'étiquette ; s'il n'y a aucune étiquette `propager-lu*`, il pose NON (jamais en réaction à une édition en cours). Le cas normal est donc l'édition unique (1).
 Noter si l'éditeur accepte le caractère `=` et la casse (U3, H4).
 
 ## 4. Vérification TV / mobile (`test_u2`, puis `test_u3`)
