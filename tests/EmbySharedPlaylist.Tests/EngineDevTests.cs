@@ -47,14 +47,6 @@ public class PlayedTransitionTrackerDevTests
     }
 
     [Fact]
-    public void ProgressWithPlayedTrue_IsATransition_WhenNothingIsKnown()
-    {
-        var t = new PlayedTransitionTracker();
-        Assert.True(T(t, "PlaybackProgress", true)); // inconnue = transition (retrait idempotent)
-        Assert.False(T(t, "PlaybackProgress", true));
-    }
-
-    [Fact]
     public void PlayedFalse_IsNeverATransition_AndIsRemembered()
     {
         var t = new PlayedTransitionTracker();
@@ -69,11 +61,41 @@ public class PlayedTransitionTrackerDevTests
     [InlineData("UpdateHideFromResume")]
     [InlineData(null)]
     [InlineData("MotInconnu")]
-    public void OtherReasons_UseTheGenericRule(string? reason)
+    public void NonPlaybackReasons_WithUnknownMemory_RememberWithoutATransition(string? reason)
     {
         var t = new PlayedTransitionTracker();
-        Assert.True(T(t, reason!, true));
+        Assert.False(T(t, reason!, true));   // A1 : une note/un import sur un média déjà lu ne retire rien
         Assert.False(T(t, reason!, true));
+        Assert.False(T(t, "PlaybackFinished", true)); // la mémoire vaut maintenant true : la lecture qui suit n'est pas une transition
+    }
+
+    [Theory]
+    [InlineData("Import")]
+    [InlineData("UpdateUserRating")]
+    [InlineData("MotInconnu")]
+    public void NonPlaybackReasons_AfterAKnownUnplayed_AreARealChange(string reason)
+    {
+        var t = new PlayedTransitionTracker();
+        T(t, "PlaybackStart", false);        // mémoire connue : non lu
+        Assert.True(T(t, reason, true));
+    }
+
+    [Theory]
+    [InlineData("PlaybackProgress")]
+    [InlineData("PlaybackFinished")]
+    public void PlaybackReasons_WithUnknownMemory_AreATransition(string reason)
+    {
+        var t = new PlayedTransitionTracker();
+        Assert.True(T(t, reason, true));
+        Assert.False(T(t, reason, true));
+    }
+
+    [Fact]
+    public void TogglePlayedTrue_StaysCertain_EvenWhenTheMemorySaysAlreadyPlayed()
+    {
+        var t = new PlayedTransitionTracker();
+        T(t, "PlaybackStart", true);                // média déjà lu, mémorisé
+        Assert.True(T(t, "TogglePlayed", true));    // geste volontaire : décocher/recocher retire
     }
 
     [Theory]
@@ -112,8 +134,16 @@ public class PlayedTransitionTrackerDevTests
     public void IsThreadSafe_AndBounded()
     {
         var t = new PlayedTransitionTracker(50);
-        Parallel.For(0, 2000, i => t.OnUserData("u" + i % 7, "i" + i, i % 2 == 0 ? "PlaybackStart" : "PlaybackFinished", i % 3 == 0));
+        var transitions = 0;
+        Parallel.For(0, 2000, i =>
+        {
+            // couples distincts : chaque premier PlaybackFinished(true) d'un couple inconnu est une transition, exactement une fois
+            if (t.OnUserData("u", "i" + i, "PlaybackFinished", true)) Interlocked.Increment(ref transitions);
+            t.OnUserData("v", "j" + i % 5, i % 2 == 0 ? "PlaybackStart" : "PlaybackFinished", i % 3 == 0);
+        });
         Assert.True(t.Count <= 50);
+        Assert.Equal(2000, transitions);                      // valeurs cohérentes : aucun premier passage perdu ni doublé
+        Assert.False(t.OnUserData("u", "i1999", "PlaybackFinished", true)); // le plus récent est mémorisé à true
     }
 
     [Fact]

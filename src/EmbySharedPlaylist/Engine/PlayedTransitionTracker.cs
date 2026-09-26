@@ -6,8 +6,11 @@ namespace EmbySharedPlaylist.Engine;
 /// <list type="bullet">
 /// <item><c>PlaybackStart</c> : mémorise la valeur <c>played</c> courante (jamais une transition).</item>
 /// <item><c>TogglePlayed</c> avec <c>played=true</c> : transition certaine. Avec <c>played=false</c> : mémorise faux.</item>
-/// <item>Tout autre motif (PlaybackProgress, PlaybackFinished, Import…) avec <c>played=true</c> : transition si la dernière
+/// <item>Motifs de LECTURE (<c>PlaybackProgress</c>, <c>PlaybackFinished</c>) avec <c>played=true</c> : transition si la dernière
 /// valeur connue n'est pas <c>true</c> (inconnue = transition : le retrait est idempotent).</item>
+/// <item>Tout autre motif (<c>Import</c>, <c>UpdateUserRating</c>, <c>UpdateHideFromResume</c>, motif inconnu) avec <c>played=true</c> :
+/// mémoire inconnue = on MÉMORISE sans transition (une note ou un import ne doit pas retirer un média déjà lu) ; mémoire connue
+/// <c>false</c> = vrai changement, donc transition ; mémoire <c>true</c> = rien.</item>
 /// </list>
 /// Un média déjà lu, relu jusqu'au bout, ne déclenche rien (Q1) : <c>PlaybackStart</c> mémorise <c>true</c>. Après une
 /// transition la mémoire vaut <c>true</c> (un second <c>PlaybackFinished</c> ne redéclenche pas).
@@ -46,11 +49,19 @@ public sealed class PlayedTransitionTracker
                 return false;
             }
 
-            var transition = played && (string.Equals(saveReason, "TogglePlayed", StringComparison.OrdinalIgnoreCase) || known != true);
+            bool transition;
+            if (!played) transition = false;
+            else if (string.Equals(saveReason, "TogglePlayed", StringComparison.OrdinalIgnoreCase)) transition = true; // geste volontaire, même si la mémoire dit « lu »
+            else if (IsPlaybackReason(saveReason)) transition = known != true;                                            // inconnue = transition
+            else transition = known == false;                                                                             // inconnue = mémoriser seulement
             Remember(key, played);
             return transition;
         }
     }
+
+    private static bool IsPlaybackReason(string? reason) =>
+        string.Equals(reason, "PlaybackProgress", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(reason, "PlaybackFinished", StringComparison.OrdinalIgnoreCase);
 
     private void Remember(( string User, string Item) key, bool played)
     {
