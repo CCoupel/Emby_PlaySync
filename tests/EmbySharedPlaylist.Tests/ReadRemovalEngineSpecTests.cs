@@ -311,17 +311,16 @@ public class ReadRemovalEngineSpecTests
         var s = f.Playlist("p", Tags(""), null, "x");
         var coordinator = new FirstDetectionCoordinator(f.Gateway, f.Defaults, f.Seen, f.Journal, f.Clock, () => f.Suspended);
 
-        using (WriteScope.Enter()) coordinator.OnPlaylistEvent("p");    // écho pendant une écriture du plugin
-        Assert.Contains("reentrant", f.Journal.Details("Skipped"));
+        using (WriteScope.Enter()) coordinator.OnPlaylistEvent("p");    // écho pendant une écriture du plugin : ignoré (compteur agrégé, pas d'entrée de journal)
         Assert.False(f.Seen.IsSeen("p"));
         Assert.Equal(0, f.Gateway.ApplyCalls);
+        Assert.Equal(0, f.Gateway.GetCalls);                            // ni lecture ni écriture
 
         coordinator.OnPlaylistEvent("p");                               // vraie première détection
         Assert.Equal(1, f.Gateway.ApplyCalls);
         Assert.True(f.Seen.IsSeen("p"));
 
-        coordinator.OnPlaylistEvent("p");                               // écho de cette écriture : déjà vue
-        Assert.Contains("already-seen", f.Journal.Details("Skipped"));
+        coordinator.OnPlaylistEvent("p");                               // écho de cette écriture : déjà vue, aucune seconde écriture
         Assert.Equal(1, f.Gateway.ApplyCalls);
         Assert.Equal(2, s.Tags.Count);
     }

@@ -356,8 +356,7 @@ i13() {
   add_item "$pl" "${M[2]}"; nap 6
   t=$(tags_of "$pl")
   ck I13.seen "playlist déjà vue : un événement ne repose rien (propager-lu reste absente)" "$t" test "$(tag_count "$t" propager-lu)" = 0
-  j=$(journal Skipped)
-  ck I13.skipped "événement ignoré côté journal (Skipped already-seen)" "$j" test "$(jcount "$j" "$pl" Skipped 'already-seen|reentrant')" -ge 1
+  skip I13.skipped "échos already-seen/reentrant : compteurs agrégés (plus d'entrées de journal) — vérifié indirectement par l'absence de repose ci-dessus"
 }
 
 i14() {
@@ -415,20 +414,18 @@ i15() {
 i16() {
   echo "== I16 — ré-entrance : exactement un écho par écriture du plugin, aucune repose"
   assert_baseline
-  local pl jp j1 j2 e
+  local pl jp j1 j2
   # (a) écriture de pose : une seule écriture (ApplyDefaults) => un seul écho, deux étiquettes posées une fois
   pl=$(shared_pl "SPIKE-I16" "${M[0]},${M[1]}"); jclear
   prime "$pl" || true; nap 6; jp=$(journal)
-  e=$(jcount "$jp" "$pl" Skipped 'already-seen|reentrant')
   ck I16.posed "MarkerPosed : exactement une pose par famille (2), pas de repose 6 s plus tard" "$jp" test "$(jcount "$jp" "$pl" MarkerPosed)" = 2
-  ck I16.echo.pose "un seul écho (Skipped already-seen/reentrant) pour l'écriture de pose" "{\"echoes\":$e}" test "$e" = 1
+  skip I16.echo.pose "écho de l'écriture de pose : compteur agrégé (plus d'entrée de journal) ; l'absence de boucle est vérifiée par I16.posed"
   # (b) écriture de retrait
   owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1; jclear
   finish "$U2" "$T2" "${M[0]}"; wait_count "$pl" "${M[0]}" 0 10 || true
   nap 3; j1=$(journal); nap 6; j2=$(journal)
-  e=$(jcount "$j2" "$pl" Skipped 'already-seen|reentrant')
   ck I16.removal "un seul Removal pour un retrait" "$j1" test "$(jcount "$j1" "$pl" Removal)" = 1
-  ck I16.echo.removal "un seul écho pour l'écriture de retrait" "{\"echoes\":$e}" test "$e" = 1
+  skip I16.echo.removal "écho de l'écriture de retrait : compteur agrégé (plus d'entrée de journal) ; l'absence de boucle est vérifiée par I16.norepose"
   ck I16.norepose "6 s plus tard : aucune pose ni nouveau retrait (pas de boucle)" "null" \
     test "$(jcount "$j2" "$pl" MarkerPosed)/$(jcount "$j2" "$pl" Removal)" = "0/1"
   ck I16.noerror "aucune entrée Error pour cette playlist" "null" test "$(jcount "$j2" "$pl" Error)" = 0
