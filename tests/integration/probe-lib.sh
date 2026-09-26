@@ -4,7 +4,7 @@
 
 # Filtre jq : événements Kind=Probe -> [{scenario, durationMs, echoes, outcome, ...}] (clés de Detail « k=v k=v »,
 # ordre libre ; les clés d'événement sont déjà en camelCase grâce à la normalisation de lib.sh).
-PROBE_JQ='[.[]|select(.kind=="Probe")|((.detail//"")|[scan("(\\w+)=(\\S+)")]|map({(.[0]):.[1]})|add)|select(.scenario!=null)]'
+PROBE_JQ='[.[]|select(.kind=="Probe")|((.detail//"")|[scan("(\\w+)=(\\S+)")]|map({(.[0]):.[1]})|add)|select(.scenario!=null and .skipped==null)]'   # les entrées « skipped=already-seen|reentrant » (durée 0) ne sont pas des mesures
 
 # probe_rows EVENTS_JSON -> lignes « scenario durationMs echoes outcome lockWaitMs echoKinds removed » ("-" si absent)
 probe_rows() {
@@ -61,8 +61,8 @@ decide() {
 }
 
 # Programme jq d'agrégation des résultats (args : scen calls trig logs prot it rounds it6 m123 nr dr m4 m5 b5 m6 l6 e6 notes)
-RESULTS_JQ='  ([$scen[]|.handlerMs.p95]|map(select(.!=null))|max) as $p95max
-  | ([$scen[]|.handlerMs.max]|map(select(.!=null))|max) as $hmax
+RESULTS_JQ='  ([$scen|to_entries[]|select(.key!="P6")|.value.handlerMs.p95]|map(select(.!=null))|max) as $p95max
+  | ([$scen|to_entries[]|select(.key!="P6")|.value.handlerMs.max]|map(select(.!=null))|max) as $hmax
   | {iterations:{p123:$it,p4:$it,p5Rounds:$rounds,p6:$it6},
      scenarios:$scen, restCallsMs:$calls, triggerCallsMs:$trig, emby_logs:$logs, protectedAccountsUnchanged:$prot,
      observed:{missing:{P1P2P3:$m123,P4:$m4,P5:$m5,P6:$m6}, p123RemovalMissing:$nr, p123RemovalDuplicated:$dr, p5BadRounds:$b5, p6LostTags:$l6, p6OwnerEditErrors:$e6},
@@ -71,7 +71,7 @@ RESULTS_JQ='  ([$scen[]|.handlerMs.p95]|map(select(.!=null))|max) as $p95max
        noCallOver5s:{ok:(($calls.max // 0) <= 5000), detail:"max appel REST \($calls.max // 0) ms"},
        noLockNoException:{ok:(if $logs==null then null else ($logs.locked==0 and $logs.exceptions==0 and $logs.pluginErrors==0) end), detail:(if $logs==null then "logs indisponibles" else "locked=\($logs.locked) exceptions=\($logs.exceptions) pluginErrors=\($logs.pluginErrors)" end)},
        noLoop:{ok:(([$scen[]|.maxEchoes]|max) <= $echomax), detail:"échos max \([$scen[]|.maxEchoes]|max) (seuil \($echomax)) ; types : \([$scen|to_entries[]|"\(.key): \(.value.echoKinds)"]|join(" | "))"},
-       handlerLatency:{ok:(($p95max // 0) <= 300 and ($hmax // 0) <= 2000), detail:"p95 max \($p95max) ms, max \($hmax) ms"},
+       handlerLatency:{ok:(($p95max // 0) <= 300 and ($hmax // 0) <= 2000), detail:"P1–P5 : p95 max \($p95max) ms, max \($hmax) ms (P6 exclu : le gestionnaire y dort 2 s)"},
        burstOnce:{ok:($b5==0 and $m5==0), detail:"rondes anormales \($b5), non observées \($m5)"},
        removalOnce:{ok:($nr==0 and $dr==0), detail:"retrait absent \($nr), dupliqué \($dr)"},
        allObserved:{ok:($m123==0 and $m4==0 and $m5==0 and $m6==0), detail:"scénarios non observés P1-3:\($m123) P4:\($m4) P5:\($m5) P6:\($m6)"},

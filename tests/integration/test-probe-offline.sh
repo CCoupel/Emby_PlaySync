@@ -12,12 +12,14 @@ echo "== événements Probe"
 EV='[{"ts":"t","kind":"UserDataSaved","userId":"a"},
      {"ts":"t","kind":"Probe","detail":"scenario=P1 durationMs=12 echoes=1 outcome=OK"},
      {"ts":"t","kind":"Probe","detail":"outcome=KO echoes=2 scenario=P2 durationMs=340 lockWaitMs=7 removed=3 echoKinds=PlaylistItemsRemoved:1,ItemUpdated:1"},
+     {"ts":"t","kind":"Probe","detail":"scenario=P4 trigger=ItemUpdated durationMs=0 echoes=0 outcome=OK skipped=already-seen"},
      {"ts":"t","kind":"Probe","detail":"pas de paires"}]'
 rows=$(probe_rows "$EV")
 [[ $(wc -l <<<"$rows") -eq 2 ]] && ok "2 événements Probe analysés (la ligne sans scenario= est ignorée)" || ko "probe_rows : $rows"
 grep -qx 'P1 12 1 OK 0 - -' <<<"$rows" && ok "P1 : durée/échos/outcome extraits" || ko "P1 : $rows"
 grep -qx 'P2 340 2 KO 7 PlaylistItemsRemoved:1,ItemUpdated:1 3' <<<"$rows" && ok "ordre des clés libre, lockWaitMs, echoKinds, removed (P2)" || ko "P2 : $rows"
 [[ $(probe_removed_sum "$EV" P2) == 3 && $(probe_removed_sum "$EV" P1) == 0 ]] && ok "probe_removed_sum" || ko "removed_sum"
+probes_seen "$EV" "P4" && ko "entrée skipped= comptée comme mesure" || ok "entrées skipped=already-seen ignorées (ni mesure ni scénario observé)"
 probes_seen "$EV" "P1 P2" && ok "probes_seen : P1 P2 présents" || ko "probes_seen"
 probes_seen "$EV" "P1 P3" && ko "probes_seen : P3 absent jugé présent" || ok "probes_seen : P3 absent détecté"
 
@@ -52,6 +54,12 @@ build() { # LOGS_JSON MAXECHO P95 HMAX BAD5 CALLMAX
 }
 CLEAN='{"lines":5,"locked":0,"exceptions":0,"pluginErrors":0,"excerpt":[]}'
 R=$(build "$CLEAN" 1 120 900 0 800); [[ $(decide "$R") == "immédiat" ]] && ok "tout OK => immédiat" || ko "décision immédiat : $(decide "$R")"
+# P6 dort 2 s dans le gestionnaire : exclu du critère de latence
+SC6=$(jq -nc '{P1:{handlerMs:{n:50,p50:5,p95:20,max:90},outcomes:"OK:50 ",outcomeKo:0,maxEchoes:1,echoKinds:""},P6:{handlerMs:{n:20,p50:2100,p95:2200,max:2300},outcomes:"OK:20 ",outcomeKo:0,maxEchoes:1,echoKinds:""}}')
+R=$(jq -nc --argjson scen "$SC6" --argjson calls '{"n":9,"p50":1,"p95":2,"max":800}' --argjson trig '{}' --argjson logs "$CLEAN" --argjson prot true --argjson echomax 1 \
+    --argjson it 50 --argjson rounds 10 --argjson it6 20 --argjson m123 0 --argjson nr 0 --argjson dr 0 --argjson m4 0 --argjson m5 0 \
+    --argjson b5 0 --argjson m6 0 --argjson l6 0 --argjson e6 0 --argjson notes '[]' "$RESULTS_JQ")
+[[ $(decide "$R") == "immédiat" ]] && ok "P6 (2,2 s) exclu de la latence => immédiat" || ko "P6 pris en compte : $(decide "$R")"
 R=$(build "$CLEAN" 1 350 900 0 800); [[ $(decide "$R") == "repli Task.Run sous verrou" ]] && ok "p95 > 300 ms => repli" || ko "p95"
 R=$(build "$CLEAN" 1 120 2500 0 800); [[ $(decide "$R") == "repli Task.Run sous verrou" ]] && ok "max > 2 s => repli" || ko "max"
 R=$(build "$CLEAN" 2 120 900 0 800); [[ $(decide "$R") == "repli Task.Run sous verrou" ]] && ok "2 échos => repli (boucle)" || ko "échos"
