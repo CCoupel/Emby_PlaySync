@@ -211,7 +211,7 @@ ck U1 per-user hard "le « lu » de u3 ne change pas celui de u1 (flag propre à
   jq -e '.UserData.Played==false' "$RESP"
 
 ev_clear
-mp() { jc -n --arg u "$1" --arg i "$2" --argjson a "$3" '{userId:$u,itemId:$i,played:true,asPlugin:$a}'; }
+mp() { jc -n --arg u "$1" --arg i "$2" --argjson a "$3" '{UserId:$u,ItemId:$i,Played:true,AsPlugin:$a}'; }
 st=$(api POST "$SPK/MarkPlayed" "$(mp "$U1" "$M2" true)")
 schema markplayed "$(jc . "$RESP")"
 ck U1 plugin-call probe "plugin : MarkPlayed(u1, M2, asPlugin=true) -> saved & playedAfter" "{\"status\":\"$st\"}" \
@@ -235,7 +235,7 @@ EN=$(entries "$PLA" "$T1" "$U1")
 E_M1=$(jq -r --arg i "$M1" "$DEFS"'[.[]|select((.itemId|n)==($i|n))|.playlistItemId][0]//""' <<<"$EN")
 mapfile -t E_M2 < <(jq -r --arg i "$M2" "$DEFS"'.[]|select((.itemId|n)==($i|n))|.playlistItemId' <<<"$EN")
 ev_clear
-st=$(api POST "$SPK/RemoveItem" "$(jc -n --arg p "$PLA" --arg e "$E_M1" '{playlistId:$p,playlistItemIds:[$e]}')")
+st=$(api POST "$SPK/RemoveItem" "$(jc -n --arg p "$PLA" --arg e "$E_M1" '{PlaylistId:$p,PlaylistItemIds:[$e]}')")
 RM=$(jc . "$RESP")
 schema remove "$RM"
 ck U2 remove probe "plugin : RemoveItem(entrée de M1) -> removed=true, entriesAfter sans cette entrée" "{\"status\":\"$st\"}" \
@@ -250,7 +250,7 @@ ev_wait "[.[]|select(.kind==\"PlaylistItemsRemoved\")]|length>0" 8 || true
 ck U2 remove-event probe "événement PlaylistItemsRemoved journalisé (contexte d'origine visible)" "$(jq -c '[.[]|select(.kind=="PlaylistItemsRemoved")|{playlistId,userId,itemId}]' <<<"${EV:-[]}")" \
   jq -e '[.[]|select(.kind=="PlaylistItemsRemoved")]|length>0' <<<"${EV:-[]}"
 if [[ ${#E_M2[@]} -ge 2 ]]; then
-  st=$(api POST "$SPK/RemoveItem" "$(jc -n --arg p "$PLA" --arg e "${E_M2[1]}" '{playlistId:$p,playlistItemIds:[$e]}')")
+  st=$(api POST "$SPK/RemoveItem" "$(jc -n --arg p "$PLA" --arg e "${E_M2[1]}" '{PlaylistId:$p,PlaylistItemIds:[$e]}')")
   x=$(entries "$PLA" "$T1" "$U1")
   ck U2 dup-remove probe "retrait d'UNE entrée d'un doublon : l'autre entrée de M2 reste (mapping item -> PlaylistItemId)" \
     "$(jc -n --arg s "$st" --argjson x "$x" --arg i "$M2" "$DEFS"'{status:$s, m2Left:($x|map(select((.itemId|n)==($i|n)))|length)}')" \
@@ -258,7 +258,7 @@ if [[ ${#E_M2[@]} -ge 2 ]]; then
 else
   rec U2 dup-remove probe KO "doublon non créé : cas non testé" "null"
 fi
-st=$(api POST "$SPK/RemoveItem" "$(jc -n --arg p "$PLA" '{playlistId:$p,playlistItemIds:["0"]}')")
+st=$(api POST "$SPK/RemoveItem" "$(jc -n --arg p "$PLA" '{PlaylistId:$p,PlaylistItemIds:["0"]}')")
 ck U2 remove-bad probe "entrée inexistante : erreur 4xx propre (pas de 500)" "{\"status\":\"$st\"}" \
   is4xx "$st"
 
@@ -273,7 +273,7 @@ owner_tags() { # AJOUTS_JSON RETRAITS_JSON : sauvegarde de l'éditeur natif (DTO
      | .Tags=$new | .TagItems=($new|map({Name:.}))' "$RESP")
   st=$(api POST "/Items/$PLT" "$dto" "$T1"); [[ $st == 204 ]] || die "sauvegarde métadonnées par le propriétaire -> $st"
 }
-ptag_post() { api POST "$SPK/Tags" "$(jc -n --arg p "$PLT" --argjson a "$1" --argjson r "$2" --argjson o "${3:-null}" '{playlistId:$p,addTags:$a,removeTags:$r,overview:$o}')"; }
+ptag_post() { api POST "$SPK/Tags" "$(jc -n --arg p "$PLT" --argjson a "$1" --argjson r "$2" --argjson o "${3:-null}" '{PlaylistId:$p,AddTags:$a,RemoveTags:$r,Overview:$o}')"; }
 itemupdated() { jq -c --arg p "$PLT" "$DEFS"'[.[]|select(.kind=="ItemUpdated" and (.playlistId|n)==($p|n))|.ts]' <<<"$1"; }
 ms_between() { python3 - "$1" <<'PY'
 import sys, json
@@ -353,21 +353,21 @@ api GET "/Users/$U2" >/dev/null; P0=$(jq -S -c '.Policy' "$RESP")
 U5_POLICY_BACKUP=$P0
 st=$(api GET "$SPK/Policy?userId=$U2")
 ck U5 get probe "GET Policy?userId=u2 = false (défaut)" "$(jc . "$RESP")" jq -e '.allowSharingPersonalItems==false' "$RESP"
-st=$(api POST "$SPK/Policy" "$(jc -n --arg u "$U2" '{userId:$u,allowSharingPersonalItems:true}')")
+st=$(api POST "$SPK/Policy" "$(jc -n --arg u "$U2" '{UserId:$u,AllowSharingPersonalItems:true}')")
 POSTR=$(jc . "$RESP")
 schema policy "$POSTR"
 api GET "/Users/$U2" >/dev/null; P1=$(jq -S -c '.Policy' "$RESP")
 ck U5 set probe "POST Policy(true) : la politique REST de u2 relit AllowSharingPersonalItems=true (HTTP $st)" "$POSTR" jq -e '.AllowSharingPersonalItems==true' <<<"$P1"
 ck U5 side-effects probe "aucun autre champ de UserPolicy modifié (P1 avec le champ remis à false == P0)" "null" \
   test "$(jq -S -c '.AllowSharingPersonalItems=false' <<<"$P1")" = "$P0"
-st=$(api POST "$SPK/Policy" "$(jc -n --arg u "$U2" '{userId:$u,allowSharingPersonalItems:false}')")
+st=$(api POST "$SPK/Policy" "$(jc -n --arg u "$U2" '{UserId:$u,AllowSharingPersonalItems:false}')")
 api GET "/Users/$U2" >/dev/null; P2=$(jq -S -c '.Policy' "$RESP")
 ck U5 restore probe "retour à false : politique identique à l'état initial" "null" test "$P2" = "$P0"
 U5_POLICY_BACKUP=""
 
 # ---------------------------------------------------------------- U6 : partage créé par le plugin
 echo "== U6 — Setup (playlist + partages créés par le plugin)"
-st=$(api POST "$SPK/Setup" "$(jc -n --arg o "$U1" --arg a "$U2" --arg b "$U3" --arg i "$M1" '{ownerUserId:$o,memberUserIds:[$a,$b],itemIds:[$i],name:"SPIKE-setup"}')")
+st=$(api POST "$SPK/Setup" "$(jc -n --arg o "$U1" --arg a "$U2" --arg b "$U3" --arg i "$M1" '{OwnerUserId:$o,MemberUserIds:[$a,$b],ItemIds:[$i],Name:"SPIKE-setup"}')")
 SETUP=$(jc . "$RESP")
 if [[ $st == 200 ]]; then schema setup "$SETUP"; fi
 SPID=$(jq -r '.playlistId // empty' <<<"$SETUP")
@@ -425,7 +425,7 @@ ck U10 a-rest-pos probe "position REST de u1 = position d'arrêt (±1 s), média
   near "$X" "$P1"
 
 ev_clear
-st=$(api POST "$SPK/SetPosition" "$(jc -n --arg u "$U2" --arg i "$M3" --argjson p "$X" '{userId:$u,itemId:$i,positionTicks:$p}')")
+st=$(api POST "$SPK/SetPosition" "$(jc -n --arg u "$U2" --arg i "$M3" --argjson p "$X" '{UserId:$u,ItemId:$i,PositionTicks:$p}')")
 if [[ $st == 200 ]]; then schema setposition "$(jc . "$RESP")"; fi
 ck U10 b-set probe "plugin : SetPosition(u2, M3, position de u1) accepté (HTTP $st)" "{\"status\":\"$st\"}" test "$st" = 200
 Y=$(pos_of "$U2" "$T2" "$M3")
@@ -447,7 +447,7 @@ ev_wait "[.[]|select(.kind==\"UserDataSaved\" and (.userId|n)==(\"$U2\"|n) and (
 E=$(ev_user "$U2" "$M3")
 ck U10 c-event probe "l'arrêt de u2 est vu comme écriture utilisateur (pluginWrite=false)" "$E" jq -e 'length>0 and all(.pluginWrite==false)' <<<"$E"
 
-st=$(api POST "$SPK/SetPosition" "$(jc -n --arg u "$U1" --arg i "$M3" --argjson p "$Y" '{userId:$u,itemId:$i,positionTicks:$p}')")
+st=$(api POST "$SPK/SetPosition" "$(jc -n --arg u "$U1" --arg i "$M3" --argjson p "$Y" '{UserId:$u,ItemId:$i,PositionTicks:$p}')")
 X2=$(pos_of "$U1" "$T1" "$M3")
 ck U10 d-reverse probe "sens inverse : SetPosition(u1, M3, position de u2) => u1 est mis à jour (dernière lecture gagne) (HTTP $st)" \
   "{\"expected\":$Y,\"got\":$X2}" near "$X2" "$Y"

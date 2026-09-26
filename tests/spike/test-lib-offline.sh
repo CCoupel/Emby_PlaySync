@@ -84,7 +84,7 @@ cat > "$FAKE/Shares.json" <<'J'
 {"PlaylistId":"111","OwnerUserId":"aaaa","Shares":[{"UserId":"bbbb","ShareLevel":"Write"},{"UserId":"cccc","ShareLevel":"Read"}]}
 J
 cat > "$FAKE/Playlists.json" <<'J'
-[{"PlaylistId":"111","Name":"SPIKE-A","OwnerUserId":"aaaa","ShareLevel":"Write","CanManageAccess":false,"CanLeaveSharedContent":true,"EntryCount":1,"Entries":[{"PlaylistItemId":"p1","ItemId":"m1"}]}]
+[{"PlaylistId":"111","Name":"SPIKE-A","OwnerUserId":"aaaa","ShareLevel":"Write","CanManageAccess":false,"CanLeaveSharedContent":true,"IsPublic":false,"EntryCount":1,"Entries":[{"PlaylistItemId":"p1","ItemId":"m1"}]}]
 J
 cat > "$FAKE/Events.json" <<'J'
 [{"Ts":"2026-09-26T12:00:00.123Z","Kind":"UserDataSaved","UserId":"bbbb","ItemId":"m1","Played":true,"PositionTicks":5,"SaveReason":"TogglePlayed","PluginWrite":false}]
