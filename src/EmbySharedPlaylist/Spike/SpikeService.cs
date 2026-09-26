@@ -22,7 +22,7 @@ public class SpikeService : IService
     private readonly IUserDataManager _userDataManager;
     private readonly IPlaylistManager _playlistManager;
     private readonly IItemRepository _itemRepository;
-    private readonly ILogger _logger;
+    private readonly SpikeLog _log;
 
     public SpikeService(ILibraryManager libraryManager, IUserManager userManager, IUserDataManager userDataManager,
         IPlaylistManager playlistManager, IItemRepository itemRepository, ILogManager logManager)
@@ -32,7 +32,7 @@ public class SpikeService : IService
         _userDataManager = userDataManager;
         _playlistManager = playlistManager;
         _itemRepository = itemRepository;
-        _logger = logManager.GetLogger("EmbySharedPlaylist");
+        _log = SpikeRuntime.Log ?? new SpikeLog(logManager.GetLogger("EmbySharedPlaylist"));
     }
 
     // ---- Setup -------------------------------------------------------------------------------
@@ -64,7 +64,7 @@ public class SpikeService : IService
             }).ToArray());
         }
 
-        _logger.Info("{0}", SpikeLogFormat.Setup(playlist.InternalId.ToString(), owner.Id.ToString("N"), members.Count));
+        _log.Info(SpikeLogFormat.Setup(playlist.InternalId.ToString(), owner.Id.ToString("N"), members.Count));
 
         return (object)new SpikeSetupResult
         {
@@ -120,7 +120,7 @@ public class SpikeService : IService
         var entryIds = request.PlaylistItemIds.Select(ParseId).ToArray();
         await _playlistManager.RemoveFromPlaylist(playlist, entryIds).ConfigureAwait(false);
         var entriesAfter = GetEntries(playlist, null);
-        _logger.Info("{0}", SpikeLogFormat.RemoveItem(playlist.InternalId.ToString(), entryIds.Length, entriesAfter.Count));
+        _log.Info(SpikeLogFormat.RemoveItem(playlist.InternalId.ToString(), entryIds.Length, entriesAfter.Count));
         return (object)new SpikeRemoveItemResult { Removed = true, EntriesAfter = entriesAfter };
     });
 
@@ -140,7 +140,7 @@ public class SpikeService : IService
         if (request.AsPlugin) SpikeRuntime.Tracker.Register(user.InternalId, item.InternalId);
         _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.TogglePlayed, CancellationToken.None);
         var playedAfter = _userDataManager.GetUserData(user, item).Played;
-        _logger.Info("{0}", SpikeLogFormat.MarkPlayed(user.Id.ToString("N"), item.InternalId.ToString(), request.Played, request.AsPlugin, playedAfter));
+        _log.Info(SpikeLogFormat.MarkPlayed(user.Id.ToString("N"), item.InternalId.ToString(), request.Played, request.AsPlugin, playedAfter));
         return new SpikeMarkPlayedResult { Saved = true, PlayedAfter = playedAfter };
     });
 
@@ -168,7 +168,7 @@ public class SpikeService : IService
         SpikeRuntime.Tracker.Register(user.InternalId, item.InternalId);
         _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.PlaybackProgress, CancellationToken.None);
         var after = _userDataManager.GetUserData(user, item);
-        _logger.Info("{0}", SpikeLogFormat.SetPosition(user.Id.ToString("N"), item.InternalId.ToString(), request.PositionTicks, after.PlaybackPositionTicks, after.Played));
+        _log.Info(SpikeLogFormat.SetPosition(user.Id.ToString("N"), item.InternalId.ToString(), request.PositionTicks, after.PlaybackPositionTicks, after.Played));
         return new SpikeSetPositionResult
         {
             Saved = true,
@@ -206,7 +206,7 @@ public class SpikeService : IService
         if (request.Overview != null) playlist.Overview = request.Overview;
         playlist.UpdateToRepository(ItemUpdateType.MetadataEdit);
         var result = TagsResult(playlist);
-        _logger.Info("{0}", SpikeLogFormat.TagsPost(playlist.InternalId.ToString(), request.AddTags?.Count ?? 0,
+        _log.Info(SpikeLogFormat.TagsPost(playlist.InternalId.ToString(), request.AddTags?.Count ?? 0,
             request.RemoveTags?.Count ?? 0, request.Overview != null, result.Tags.Count));
         return result;
     });
@@ -238,7 +238,7 @@ public class SpikeService : IService
         policy.AllowSharingPersonalItems = request.AllowSharingPersonalItems;
         _userManager.UpdateUserPolicy(user.InternalId, policy);
         var after = _userManager.GetUserPolicy(user).AllowSharingPersonalItems;
-        _logger.Info("{0}", SpikeLogFormat.Policy(user.Id.ToString("N"), after));
+        _log.Info(SpikeLogFormat.Policy(user.Id.ToString("N"), after));
         return new SpikePolicyResult { UserId = user.Id.ToString("N"), AllowSharingPersonalItems = after };
     });
 
@@ -250,7 +250,7 @@ public class SpikeService : IService
         try { return action(); }
         catch (Exception ex) when (!IsHttpMappedException(ex))
         {
-            _logger.ErrorException("EmbySharedPlaylist spike : erreur non gérée", ex);
+            _log.Error("EmbySharedPlaylist spike : erreur non gérée", ex);
             throw Wrap(ex);
         }
     }
@@ -259,7 +259,7 @@ public class SpikeService : IService
     {
         EnsureEnabled();
         try { return await action().ConfigureAwait(false); }
-        catch (Exception ex) when (!IsHttpMappedException(ex)) { _logger.ErrorException("EmbySharedPlaylist spike : " + operation, ex); throw Wrap(ex); }
+        catch (Exception ex) when (!IsHttpMappedException(ex)) { _log.Error("EmbySharedPlaylist spike : " + operation, ex); throw Wrap(ex); }
     }
 
     private static void EnsureEnabled()

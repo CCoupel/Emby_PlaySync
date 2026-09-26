@@ -16,7 +16,7 @@ public sealed class SpikeListener : IServerEntryPoint
     private readonly ILibraryManager _libraryManager;
     private readonly IUserDataManager _userDataManager;
     private readonly IPlaylistManager _playlistManager;
-    private readonly ILogger _logger;
+    private readonly SpikeLog _log;
 
     public SpikeListener(ILibraryManager libraryManager, IUserDataManager userDataManager,
         IPlaylistManager playlistManager, ILogManager logManager)
@@ -24,7 +24,7 @@ public sealed class SpikeListener : IServerEntryPoint
         _libraryManager = libraryManager;
         _userDataManager = userDataManager;
         _playlistManager = playlistManager;
-        _logger = logManager.GetLogger("EmbySharedPlaylist");
+        _log = new SpikeLog(logManager.GetLogger("EmbySharedPlaylist"));
     }
 
     public void Run()
@@ -34,7 +34,8 @@ public sealed class SpikeListener : IServerEntryPoint
         _playlistManager.PlaylistItemsRemoved += OnItemsRemoved;
         _playlistManager.PlaylistItemsMoved += OnItemsMoved;
         _libraryManager.ItemUpdated += OnItemUpdated;
-        _logger.Info("{0}", SpikeLogFormat.Startup(Enabled));
+        SpikeRuntime.Log = _log;
+        _log.Info(SpikeLogFormat.Startup(Enabled));
     }
 
     public void Dispose()
@@ -58,8 +59,8 @@ public sealed class SpikeListener : IServerEntryPoint
     private void LogEntry(JournalEntry entry)
     {
         var line = SpikeLogFormat.Event(entry);
-        if (SpikeLogFormat.IsDebugLevel(entry)) _logger.Debug("{0}", line);
-        else _logger.Info("{0}", line);
+        if (SpikeLogFormat.IsDebugLevel(entry)) _log.Debug(line);
+        else _log.Info(line);
     }
 
     private void OnUserDataSaved(object? sender, UserDataSaveEventArgs e)
@@ -83,7 +84,7 @@ public sealed class SpikeListener : IServerEntryPoint
         }
         catch (Exception ex)
         {
-            _logger.ErrorException("EmbySharedPlaylist : erreur dans UserDataSaved", ex);
+            _log.Error("EmbySharedPlaylist : erreur dans UserDataSaved", ex);
         }
     }
 
@@ -104,7 +105,7 @@ public sealed class SpikeListener : IServerEntryPoint
         }
         catch (Exception ex)
         {
-            _logger.ErrorException("EmbySharedPlaylist : erreur dans PlaylistItemsAdded", ex);
+            _log.Error("EmbySharedPlaylist : erreur dans PlaylistItemsAdded", ex);
         }
     }
 
@@ -130,7 +131,7 @@ public sealed class SpikeListener : IServerEntryPoint
         }
         catch (Exception ex)
         {
-            _logger.ErrorException("EmbySharedPlaylist : erreur dans " + kind, ex);
+            _log.Error("EmbySharedPlaylist : erreur dans " + kind, ex);
         }
     }
 
@@ -147,7 +148,7 @@ public sealed class SpikeListener : IServerEntryPoint
         }
         catch (Exception ex)
         {
-            _logger.ErrorException("EmbySharedPlaylist : erreur dans ItemUpdated", ex);
+            _log.Error("EmbySharedPlaylist : erreur dans ItemUpdated", ex);
         }
     }
 }
