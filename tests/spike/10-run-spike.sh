@@ -60,6 +60,14 @@ ck() { # U ID KIND DESC EVIDENCE cmd... : OK si cmd réussit
   local u=$1 id=$2 kind=$3 d=$4 e=$5; shift 5
   if "$@"; then rec "$u" "$id" "$kind" OK "$d" "$e"; else rec "$u" "$id" "$kind" KO "$d" "$e"; fi
 }
+declare -A SCHEMA_DONE=()
+schema() { # CLE JSON : vérifie (une fois par CLE) que les champs attendus de la réponse Spike/ sont présents
+  [[ -z ${SCHEMA_DONE[$1]:-} ]] || return 0
+  SCHEMA_DONE[$1]=1
+  local miss; miss=$(missing_fields "$1" "$2")
+  if [[ -z $miss ]]; then rec SCHEMA "$1" probe OK "réponse Spike/$1 : champs attendus présents"
+  else rec SCHEMA "$1" probe KO "champ manquant : $miss (réponse Spike/$1) — les sondes qui en dépendent sont KO pour cette raison" "$(jq -nc --arg m "$miss" '{missing:$m}')"; fi
+}
 is2xx() { [[ $1 == 2* ]]; }
 is4xx() { [[ $1 == 4* ]]; }
 all2xx() { local x; for x in "$@"; do [[ $x == 2* ]] || return 1; done; }
@@ -145,6 +153,7 @@ ck U4 share-event probe "un événement du plugin est capté à la création d'u
   jq -e 'length>0' <<<"$SHARE_EV"
 
 st=$(api GET "$SPK/Shares?playlistId=$PLA"); SH=$(jq -c . "$RESP")
+schema shares "$SH"
 ck U4 shares-plugin probe "GetUserItemShares côté plugin : u2=Write et u3=Read, sans contexte utilisateur (HTTP $st)" "$SH" \
   jq -e --arg a "$U2" --arg b "$U3" "$DEFS"'(.shares|map(select((.userId|n)==($a|n)))|.[0].shareLevel)=="Write" and (.shares|map(select((.userId|n)==($b|n)))|.[0].shareLevel)=="Read"' <<<"$SH"
 ck U4 owner probe "le propriétaire (u1) est identifié côté plugin" "$(jc '{ownerUserId}' <<<"$SH")" \
@@ -152,6 +161,7 @@ ck U4 owner probe "le propriétaire (u1) est identifié côté plugin" "$(jc '{o
 
 pl_of() { api GET "$SPK/Playlists?userId=$1" >/dev/null; jc . "$RESP"; }
 V1=$(pl_of "$U1"); V2=$(pl_of "$U2"); V3=$(pl_of "$U3")
+schema playlists "$V2"
 sees() { jq -e --arg p "$2" "$DEFS"'map(select((.playlistId|n)==($p|n)))|length==1' <<<"$1" >/dev/null; }
 sees_not() { sees "$1" "$2" && ! sees "$1" "$3"; }
 sees_both() { sees "$1" "$2" && sees "$1" "$3"; }
@@ -180,6 +190,7 @@ st3=$(api POST /Sessions/Playing/Stopped "$(play stop $((RT*98/100)))" "$T2")
 ck U1 sim-calls hard "u2 : Sessions/Playing, Progress, Stopped (98 %) acceptés" "{\"start\":\"$st1\",\"progress\":\"$st2\",\"stopped\":\"$st3\"}" \
   all2xx "$st1" "$st2" "$st3"
 ev_wait "[.[]|select(.kind==\"UserDataSaved\" and (.userId|n)==(\"$U2\"|n) and (.itemId|n)==(\"$M1\"|n))]|length>0" 12 || true
+schema events "${EV:-[]}"
 E=$(jq -c --arg u "$U2" --arg i "$M1" "$DEFS"'[.[]|select(.kind=="UserDataSaved" and (.userId|n)==($u|n) and (.itemId|n)==($i|n))|{saveReason,played,pluginWrite}]' <<<"${EV:-[]}")
 ck U1 sim-event probe "lecture simulée : UserDataSaved reçu pour (u2, M1) ; SaveReason relevé, pluginWrite=false" "$E" \
   jq -e 'length>0 and all(.pluginWrite==false)' <<<"$E"
@@ -202,6 +213,7 @@ ck U1 per-user hard "le « lu » de u3 ne change pas celui de u1 (flag propre à
 ev_clear
 mp() { jc -n --arg u "$1" --arg i "$2" --argjson a "$3" '{userId:$u,itemId:$i,played:true,asPlugin:$a}'; }
 st=$(api POST "$SPK/MarkPlayed" "$(mp "$U1" "$M2" true)")
+schema markplayed "$(jc . "$RESP")"
 ck U1 plugin-call probe "plugin : MarkPlayed(u1, M2, asPlugin=true) -> saved & playedAfter" "{\"status\":\"$st\"}" \
   saved_ok "$st"
 ev_wait "[.[]|select(.kind==\"UserDataSaved\" and (.userId|n)==(\"$U1\"|n) and (.itemId|n)==(\"$M2\"|n))]|length>0" 8 || true
@@ -225,6 +237,7 @@ mapfile -t E_M2 < <(jq -r --arg i "$M2" "$DEFS"'.[]|select((.itemId|n)==($i|n))|
 ev_clear
 st=$(api POST "$SPK/RemoveItem" "$(jc -n --arg p "$PLA" --arg e "$E_M1" '{playlistId:$p,playlistItemIds:[$e]}')")
 RM=$(jc . "$RESP")
+schema remove "$RM"
 ck U2 remove probe "plugin : RemoveItem(entrée de M1) -> removed=true, entriesAfter sans cette entrée" "{\"status\":\"$st\"}" \
   removed_ok "$st" "$E_M1" "$RM"
 ok=true
@@ -277,6 +290,7 @@ ck U3 read-owner probe "le plugin lit les étiquettes posées par le propriétai
 
 ev_clear
 st=$(ptag_post "[\"$NON\"]" '[]')
+schema tags "$(jc . "$RESP")"
 P=$(ptags)
 ck U3 add-non probe "le plugin ajoute « propager-lu=NON » (caractère =, casse exacte) sans écraser mon-etiquette / Autre Tag (HTTP $st)" "$P" \
   jq -e --arg t "$NON" 'index($t)!=null and index("mon-etiquette")!=null and index("Autre Tag")!=null' <<<"$P"
@@ -341,6 +355,7 @@ st=$(api GET "$SPK/Policy?userId=$U2")
 ck U5 get probe "GET Policy?userId=u2 = false (défaut)" "$(jc . "$RESP")" jq -e '.allowSharingPersonalItems==false' "$RESP"
 st=$(api POST "$SPK/Policy" "$(jc -n --arg u "$U2" '{userId:$u,allowSharingPersonalItems:true}')")
 POSTR=$(jc . "$RESP")
+schema policy "$POSTR"
 api GET "/Users/$U2" >/dev/null; P1=$(jq -S -c '.Policy' "$RESP")
 ck U5 set probe "POST Policy(true) : la politique REST de u2 relit AllowSharingPersonalItems=true (HTTP $st)" "$POSTR" jq -e '.AllowSharingPersonalItems==true' <<<"$P1"
 ck U5 side-effects probe "aucun autre champ de UserPolicy modifié (P1 avec le champ remis à false == P0)" "null" \
@@ -354,6 +369,7 @@ U5_POLICY_BACKUP=""
 echo "== U6 — Setup (playlist + partages créés par le plugin)"
 st=$(api POST "$SPK/Setup" "$(jc -n --arg o "$U1" --arg a "$U2" --arg b "$U3" --arg i "$M1" '{ownerUserId:$o,memberUserIds:[$a,$b],itemIds:[$i],name:"SPIKE-setup"}')")
 SETUP=$(jc . "$RESP")
+if [[ $st == 200 ]]; then schema setup "$SETUP"; fi
 SPID=$(jq -r '.playlistId // empty' <<<"$SETUP")
 if [[ -n $SPID ]]; then register_playlist "$SPID"; fi
 ck U6 setup probe "le plugin crée la playlist ET le partage sans contexte utilisateur (HTTP $st ; non bloquant si KO)" \
@@ -391,7 +407,6 @@ near() {   # A B : |A-B| <= 1 s ; faux si une valeur n'est pas un entier
   local d; d=$(($1-$2)); if ((d<0)); then d=$((-d)); fi
   ((d<=10000000))
 }
-need_int() { [[ $2 =~ ^[0-9]+$ ]] || die "$1 : valeur non entière ('$2') — média sans durée ou lecture impossible"; }
 ev_user() { # UID ITEM -> événements UserDataSaved compacts
   jq -c --arg u "$1" --arg i "$2" "$DEFS"'[.[]|select(.kind=="UserDataSaved" and (.userId|n)==($u|n) and (.itemId|n)==($i|n))|{saveReason,played,position:(.positionTicks // null),pluginWrite}]' <<<"${EV:-[]}"
 }
@@ -411,6 +426,7 @@ ck U10 a-rest-pos probe "position REST de u1 = position d'arrêt (±1 s), média
 
 ev_clear
 st=$(api POST "$SPK/SetPosition" "$(jc -n --arg u "$U2" --arg i "$M3" --argjson p "$X" '{userId:$u,itemId:$i,positionTicks:$p}')")
+if [[ $st == 200 ]]; then schema setposition "$(jc . "$RESP")"; fi
 ck U10 b-set probe "plugin : SetPosition(u2, M3, position de u1) accepté (HTTP $st)" "{\"status\":\"$st\"}" test "$st" = 200
 Y=$(pos_of "$U2" "$T2" "$M3")
 ck U10 b-pos probe "position de u2 relue par REST = position de u1 (±1 s)" "{\"expected\":$X,\"got\":$Y}" near "$Y" "$X"

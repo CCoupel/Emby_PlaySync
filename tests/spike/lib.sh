@@ -63,7 +63,18 @@ api() {
     fi
   } > "$CFG"
   : > "$RESP"
-  curl -sS -K "$CFG" -X "$m" -o "$RESP" -w '%{http_code}' --max-time 30 2>/dev/null || echo 000
+  local code
+  code=$(curl -sS -K "$CFG" -X "$m" -o "$RESP" -w '%{http_code}' --max-time 30 2>/dev/null) || code=000
+  # Les endpoints Spike/* renvoient du PascalCase (sérialiseur Emby) : on normalise les clés en
+  # camelCase (1re lettre en minuscule) pour que les filtres jq ne dépendent pas de la casse.
+  if [[ $p == /SharedPlaylist/Spike* && -s $RESP ]]; then
+    if jq -c 'walk(if type=="object" then with_entries(.key |= ((.[0:1]|ascii_downcase) + .[1:])) else . end)' "$RESP" > "$RESP.n" 2>/dev/null; then
+      mv "$RESP.n" "$RESP"
+    else
+      rm -f "$RESP.n"
+    fi
+  fi
+  echo "$code"
 }
 
 # apiok ATTENDU METHODE CHEMIN [CORPS] [TOKEN] : échoue si le code n'est pas ATTENDU (ex. 204 ou 2xx).
@@ -156,3 +167,33 @@ register_playlist() {
 
 # Politique par défaut d'un compte, sans le champ testé (pour comparer u1/u2/u3)
 policy_without_share() { jq -S -c '.Policy | del(.AllowSharingPersonalItems)' "$RESP"; }
+
+# need_int LIBELLE VALEUR : arrêt clair si VALEUR n'est pas un entier (ticks, durées).
+need_int() { [[ $2 =~ ^[0-9]+$ ]] || die "$1 : valeur non entière ('$2') — média sans durée ou lecture impossible"; }
+
+# Champs NON nuls attendus dans les réponses Spike/* (après normalisation camelCase).
+# Les champs nullables (ownerUserId, userId/itemId d'événements, lastPlayedDate…) ne sont pas exigés.
+spike_fields() {
+  case $1 in
+    shares)      echo "playlistId shares" ;;
+    playlists)   echo "playlistId name shareLevel entryCount entries" ;;
+    events)      echo "ts kind pluginWrite" ;;
+    remove)      echo "removed entriesAfter" ;;
+    markplayed)  echo "saved playedAfter" ;;
+    setposition) echo "saved positionTicks played" ;;
+    tags)        echo "playlistId tags" ;;
+    policy)      echo "userId allowSharingPersonalItems" ;;
+    setup)       echo "playlistId shares entries" ;;
+    *) die "spike_fields : clé inconnue $1" ;;
+  esac
+}
+# missing_fields CLE JSON -> champs manquants séparés par des virgules ("" si complet ;
+# pour un tableau : premier élément, tableau vide = rien à vérifier).
+missing_fields() {
+  local fl; fl=$(spike_fields "$1")
+  jq -r --arg fl "$fl" '
+    (if type=="array" then (.[0] // null) else . end) as $o
+    | if $o == null then "" elif ($o|type) != "object" then "(réponse non objet)"
+      else ($fl|split(" ")) | map(select(. as $k | ($o|has($k))|not)) | join(",") end' <<<"$2" 2>/dev/null \
+    || echo "(réponse non JSON)"
+}
