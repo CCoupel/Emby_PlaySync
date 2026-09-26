@@ -1,5 +1,6 @@
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Entities;
@@ -17,14 +18,16 @@ public sealed class SpikeListener : IServerEntryPoint
     private readonly IUserDataManager _userDataManager;
     private readonly IPlaylistManager _playlistManager;
     private readonly SpikeLog _log;
+    private readonly ReentrancyProbe _probe;
 
     public SpikeListener(ILibraryManager libraryManager, IUserDataManager userDataManager,
-        IPlaylistManager playlistManager, ILogManager logManager)
+        IPlaylistManager playlistManager, IUserManager userManager, IItemRepository itemRepository, ILogManager logManager)
     {
         _libraryManager = libraryManager;
         _userDataManager = userDataManager;
         _playlistManager = playlistManager;
         _log = new SpikeLog(logManager.GetLogger("EmbySharedPlaylist"));
+        _probe = new ReentrancyProbe(libraryManager, userManager, userDataManager, playlistManager, itemRepository, SpikeRuntime.Locks, _log);
     }
 
     public void Run()
@@ -81,6 +84,11 @@ public sealed class SpikeListener : IServerEntryPoint
             entry.PluginWrite = SpikeRuntime.Tracker.TryConsume(e.User.InternalId, e.Item.InternalId);
             SpikeRuntime.Journal.Add(entry);
             LogEntry(entry);
+            if (ReentrancyProbe.Enabled)
+            {
+                _probe.ObserveEcho("UserDataSaved", null, entry.UserId, entry.ItemId);
+                _probe.OnUserDataSaved(e, entry.PluginWrite);
+            }
         }
         catch (Exception ex)
         {
@@ -102,6 +110,11 @@ public sealed class SpikeListener : IServerEntryPoint
                 SpikeRuntime.Journal.Add(entry);
                 LogEntry(entry);
             }
+            if (ReentrancyProbe.Enabled)
+            {
+                _probe.ObserveEcho("PlaylistItemsAdded", e.Playlist.InternalId.ToString(), null, null);
+                _probe.OnPlaylistItemsAdded(e);
+            }
         }
         catch (Exception ex)
         {
@@ -120,6 +133,7 @@ public sealed class SpikeListener : IServerEntryPoint
         if (!Enabled) return;
         try
         {
+            if (ReentrancyProbe.Enabled) _probe.ObserveEcho(kind, playlist.InternalId.ToString(), null, null);
             foreach (var id in entryIds ?? Array.Empty<long>())
             {
                 var entry = NewEntry(kind);
@@ -145,6 +159,11 @@ public sealed class SpikeListener : IServerEntryPoint
             entry.SaveReason = e.UpdateReason.ToString();
             SpikeRuntime.Journal.Add(entry);
             LogEntry(entry);
+            if (ReentrancyProbe.Enabled)
+            {
+                _probe.ObserveEcho("ItemUpdated", entry.PlaylistId, null, null);
+                _probe.OnItemUpdated(e);
+            }
         }
         catch (Exception ex)
         {

@@ -10,4 +10,10 @@ public class PluginConfigurationTests
     {
         Assert.False(new PluginConfiguration().EnableSpikeEndpoints);
     }
+
+    [Fact]
+    public void ReentrancyProbe_IsDisabledByDefault()
+    {
+        Assert.False(new PluginConfiguration().EnableReentrancyProbe);
+    }
 }

@@ -1,0 +1,318 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using EmbySharedPlaylist.Core;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Model.Entities;
+
+namespace EmbySharedPlaylist.Spike;
+
+/// <summary>
+/// Sonde TEMPORAIRE de réentrance (B52, essai U11, retirée avec Spike/* — #15). Inactive par défaut
+/// (<c>EnableReentrancyProbe</c>). Répond à : peut-on écrire (retrait, métadonnées, données utilisateur) DEPUIS un
+/// gestionnaire d'événement, sans blocage, interblocage, boucle ni verrou de base ? Comptes test_* non administrateurs
+/// et playlists SPIKE* uniquement. Le scénario est choisi par le préfixe du nom de la playlist (SPIKE-P1 … SPIKE-P6) :
+/// <list type="bullet">
+/// <item>P1 : <c>RemoveFromPlaylist</c> depuis <c>UserDataSaved</c> (le média passe à lu).</item>
+/// <item>P2 : mise à jour de métadonnées (<c>UpdateToRepository</c>) depuis <c>UserDataSaved</c>.</item>
+/// <item>P3 : <c>SaveUserData</c> d'un AUTRE compte test_* (garde <see cref="PluginWriteTracker"/>) depuis <c>UserDataSaved</c>.</item>
+/// <item>P4 : mise à jour de métadonnées depuis <c>PlaylistItemsAdded</c>/<c>ItemUpdated</c> (première détection simulée).</item>
+/// <item>P5 : comme P1, mais pour une rafale concurrente (plusieurs transitions simultanées sur la même playlist) sous verrou.</item>
+/// <item>P6 : le gestionnaire attend 2 s (le propriétaire édite l'étiquette par REST pendant ce temps), puis relit et écrit.</item>
+/// </list>
+/// Résultat : entrée de journal Kind=Probe, Detail = <c>scenario=Pn durationMs=… lockWaitMs=… echoes=… outcome=OK|KO …</c>.
+/// <c>echoes</c> = événements reçus sur la playlist (ou sur le couple utilisateur/média pour P3) dans les 1,5 s suivant l'écriture.
+/// </summary>
+public sealed class ReentrancyProbe
+{
+    private static readonly TimeSpan EchoWindow = TimeSpan.FromMilliseconds(1500);
+    private const int CallTimeoutMs = 5000;
+    private const int LoopSuspicionEchoes = 5;
+
+    private readonly ILibraryManager _libraryManager;
+    private readonly IUserManager _userManager;
+    private readonly IUserDataManager _userDataManager;
+    private readonly IPlaylistManager _playlistManager;
+    private readonly IItemRepository _itemRepository;
+    private readonly PlaylistLocks _locks;
+    private readonly SpikeLog _log;
+
+    private readonly ConcurrentDictionary<string, byte> _seen = new();
+    private readonly ConcurrentDictionary<Guid, Session> _sessions = new();
+    private int _counter;
+
+    public ReentrancyProbe(ILibraryManager libraryManager, IUserManager userManager, IUserDataManager userDataManager,
+        IPlaylistManager playlistManager, IItemRepository itemRepository, PlaylistLocks locks, SpikeLog log)
+    {
+        _libraryManager = libraryManager;
+        _userManager = userManager;
+        _userDataManager = userDataManager;
+        _playlistManager = playlistManager;
+        _itemRepository = itemRepository;
+        _locks = locks;
+        _log = log;
+    }
+
+    public static bool Enabled => Plugin.Instance?.Configuration.EnableReentrancyProbe == true;
+
+    private sealed class Session
+    {
+        public string? PlaylistId;
+        public string? EchoUserId;   // P3 : écho attendu = UserDataSaved de ce couple
+        public string? EchoItemId;
+        public int Echoes;
+        public readonly ConcurrentDictionary<string, int> Kinds = new();
+    }
+
+    // ---- Observation des échos (appelée en tête de chaque gestionnaire, avant tout test de scope) -----------
+
+    public void ObserveEcho(string kind, string? playlistId, string? userId, string? itemId)
+    {
+        foreach (var s in _sessions.Values)
+        {
+            var match = kind == "UserDataSaved"
+                ? s.EchoUserId != null && s.EchoUserId == userId && s.EchoItemId == itemId
+                : s.PlaylistId != null && s.PlaylistId == playlistId;
+            if (!match) continue;
+            Interlocked.Increment(ref s.Echoes);
+            s.Kinds.AddOrUpdate(kind, 1, (_, n) => n + 1);
+        }
+    }
+
+    // ---- Déclencheurs ------------------------------------------------------------------------------------
+
+    /// <param name="pluginWrite">Vrai si l'événement est l'écho d'une écriture du plugin (garde P3 : jamais de rebond).</param>
+    public void OnUserDataSaved(UserDataSaveEventArgs e, bool pluginWrite)
+    {
+        try
+        {
+            if (WriteScope.Active || pluginWrite) return;
+            if (e.UserData?.Played != true) return;
+            if (e.SaveReason != UserDataSaveReason.TogglePlayed && e.SaveReason != UserDataSaveReason.PlaybackFinished) return;
+            if (!IsEligible(e.User)) return;
+
+            foreach (var (playlist, scenario) in FindProbePlaylists(e.User, e.Item))
+            {
+                Run(scenario, playlist, e.User, e.Item);
+                break; // une playlist de sonde par transition
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Error("EmbySharedPlaylist spike : erreur dans la sonde (UserDataSaved)", ex);
+        }
+    }
+
+    public void OnPlaylistItemsAdded(PlaylistItemsAddedEventArgs e)
+    {
+        try
+        {
+            if (SpikeRules.ProbeScenario(e.Playlist.Name) != 4) return;
+            HandleP4(e.Playlist, "PlaylistItemsAdded");
+        }
+        catch (Exception ex)
+        {
+            _log.Error("EmbySharedPlaylist spike : erreur dans la sonde (PlaylistItemsAdded)", ex);
+        }
+    }
+
+    public void OnItemUpdated(ItemChangeEventArgs e)
+    {
+        try
+        {
+            if (e.Item is not Playlist playlist || SpikeRules.ProbeScenario(playlist.Name) != 4) return;
+            HandleP4(playlist, "ItemUpdated");
+        }
+        catch (Exception ex)
+        {
+            _log.Error("EmbySharedPlaylist spike : erreur dans la sonde (ItemUpdated)", ex);
+        }
+    }
+
+    private void HandleP4(Playlist playlist, string trigger)
+    {
+        var id = playlist.InternalId.ToString();
+        if (WriteScope.Active) { Emit(id, null, null, $"scenario=P4 trigger={trigger} durationMs=0 echoes=0 outcome=OK skipped=reentrant"); return; }
+        if (!_seen.TryAdd(id, 0)) { Emit(id, null, null, $"scenario=P4 trigger={trigger} durationMs=0 echoes=0 outcome=OK skipped=already-seen"); return; }
+        Run(4, playlist, null, null);
+    }
+
+    // ---- Exécution d'un scénario -------------------------------------------------------------------------
+
+    private void Run(int scenario, Playlist playlist, User? user, BaseItem? item)
+    {
+        var playlistId = playlist.InternalId.ToString();
+        var session = new Session { PlaylistId = playlistId };
+        var sessionId = Guid.NewGuid();
+        var outcome = "OK";
+        var extra = string.Empty;
+        long lockWaitMs = 0;
+        var total = Stopwatch.StartNew();
+
+        User? target = null;
+        if (scenario == 3)
+        {
+            target = FindOtherTestUser(playlist, user!);
+            if (target == null) { outcome = "KO"; extra = " reason=no-target-user"; }
+            else { session.EchoUserId = target.Id.ToString("N"); session.EchoItemId = item!.InternalId.ToString(); }
+        }
+
+        if (outcome == "OK")
+        {
+            _sessions[sessionId] = session;
+            try
+            {
+                var waited = Stopwatch.StartNew();
+                using var gate = _locks.TryAcquire(playlistId, PlaylistLocks.DefaultTimeout);
+                lockWaitMs = waited.ElapsedMilliseconds;
+                if (gate == null) { outcome = "KO"; extra = " reason=lock-busy"; }
+                else
+                {
+                    using (WriteScope.Enter())
+                    {
+                        extra = scenario switch
+                        {
+                            1 or 5 => BodyRemove(playlist, item!),
+                            2 => BodyMetadata(playlist, "probe-p2"),
+                            3 => BodySaveUserData(target!, item!),
+                            4 => BodyMetadata(playlist, "probe-p4"),
+                            6 => BodySlowThenWrite(playlist),
+                            _ => string.Empty
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                outcome = "KO";
+                extra = " error=" + (ex is TimeoutException ? "timeout-deadlock-suspected" : ex.GetType().Name);
+                _log.Error("EmbySharedPlaylist spike : sonde P" + scenario, ex);
+            }
+        }
+        total.Stop();
+
+        var durationMs = total.ElapsedMilliseconds;
+        var uid = user?.Id.ToString("N");
+        var iid = item?.InternalId.ToString();
+        var prefix = $"scenario=P{scenario} durationMs={durationMs} lockWaitMs={lockWaitMs}";
+
+        if (outcome != "OK")
+        {
+            _sessions.TryRemove(sessionId, out _);
+            Emit(playlistId, uid, iid, $"{prefix} echoes=0 outcome=KO{extra}");
+            return;
+        }
+
+        // Les échos éventuels arrivent pendant et juste après l'écriture : on clôt la session après la fenêtre.
+        Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(EchoWindow).ConfigureAwait(false);
+                _sessions.TryRemove(sessionId, out _);
+                var echoes = session.Echoes;
+                var kinds = string.Join(",", session.Kinds.OrderBy(k => k.Key).Select(k => k.Key + ":" + k.Value));
+                var final = echoes > LoopSuspicionEchoes ? "KO" : "OK";
+                var loop = echoes > LoopSuspicionEchoes ? " reason=loop-suspected" : string.Empty;
+                Emit(playlistId, uid, iid, $"{prefix} echoes={echoes} outcome={final}{extra}{loop}" + (kinds.Length > 0 ? " echoKinds=" + kinds : string.Empty));
+            }
+            catch (Exception ex)
+            {
+                _log.Error("EmbySharedPlaylist spike : sonde P" + scenario + " (clôture)", ex);
+            }
+        });
+    }
+
+    private string BodyRemove(Playlist playlist, BaseItem item)
+    {
+        var target = ListEntries(playlist).FirstOrDefault(c => c.InternalId == item.InternalId);
+        if (target == null) return " removed=0 note=absent";
+        WaitOrThrow(_playlistManager.RemoveFromPlaylist(playlist, new[] { target.ListItemEntryId }));
+        var remaining = ListEntries(playlist).Count(c => c.InternalId == item.InternalId);
+        return $" removed=1 remaining={remaining}";
+    }
+
+    private string BodyMetadata(Playlist playlist, string tag)
+    {
+        var fresh = _libraryManager.GetItemById(playlist.InternalId) as Playlist ?? playlist;
+        // Modification réelle à chaque itération (sinon Emby pourrait ignorer l'écriture et masquer la latence).
+        fresh.Overview = $"{tag} #{Interlocked.Increment(ref _counter)}";
+        fresh.SetTags(SpikeRules.ApplyTagChanges(fresh.Tags, new[] { tag }, null));
+        fresh.UpdateToRepository(ItemUpdateType.MetadataEdit);
+        return string.Empty;
+    }
+
+    private string BodySaveUserData(User target, BaseItem item)
+    {
+        var data = _userDataManager.GetUserData(target, item);
+        data.Played = true;
+        if (data.PlayCount < 1) data.PlayCount = 1;
+        SpikeRuntime.Tracker.Register(target.InternalId, item.InternalId); // garde : l'écho est reconnu (pluginWrite) et ne rebondit pas
+        _userDataManager.SaveUserData(target, item, data, UserDataSaveReason.TogglePlayed, CancellationToken.None);
+        return $" target={target.Id:N} playedAfter={(_userDataManager.GetUserData(target, item).Played ? "true" : "false")}";
+    }
+
+    private string BodySlowThenWrite(Playlist playlist)
+    {
+        // Le propriétaire édite l'étiquette par REST pendant cette attente ; on relit ensuite (jamais d'écrasement).
+        Thread.Sleep(2000);
+        BodyMetadata(playlist, "probe-p6");
+        var fresh = _libraryManager.GetItemById(playlist.InternalId) as Playlist ?? playlist;
+        return $" note=sleep2000 tagsAfter={(fresh.Tags ?? Array.Empty<string>()).Length}";
+    }
+
+    // ---- Aides -------------------------------------------------------------------------------------------
+
+    private static void WaitOrThrow(Task task)
+    {
+        if (!task.Wait(CallTimeoutMs)) throw new TimeoutException("appel SDK > 5 s");
+        task.GetAwaiter().GetResult(); // relève l'exception éventuelle
+    }
+
+    private static BaseItem[] ListEntries(Playlist playlist) => playlist.GetChildren(new InternalItemsQuery());
+
+    private bool IsEligible(User user) =>
+        SpikeRules.IsEligibleForSpikeWrite(user.Name, _userManager.GetUserPolicy(user).IsAdministrator);
+
+    private IEnumerable<(Playlist Playlist, int Scenario)> FindProbePlaylists(User user, BaseItem item)
+    {
+        var query = new InternalItemsQuery(user) { IncludeItemTypes = new[] { "Playlist" }, Recursive = true };
+        foreach (var candidate in _libraryManager.GetItemList(query))
+        {
+            if (candidate is not Playlist playlist) continue;
+            var scenario = SpikeRules.ProbeScenario(playlist.Name);
+            if (scenario == 0 || scenario == 4) continue; // P4 est déclenché par les événements de playlist
+            if (!ListEntries(playlist).Any(c => c.InternalId == item.InternalId)) continue;
+            yield return (playlist, scenario);
+        }
+    }
+
+    private User? FindOtherTestUser(Playlist playlist, User eventUser)
+    {
+        var shares = _itemRepository.GetUserItemShares(new UserItemShareQuery { ItemIds = new[] { playlist.InternalId } }, CancellationToken.None);
+        foreach (var share in shares)
+        {
+            if (share.UserId == eventUser.InternalId) continue;
+            var other = _userManager.GetUserById(share.UserId);
+            if (other != null && IsEligible(other)) return other;
+        }
+        return null;
+    }
+
+    private void Emit(string? playlistId, string? userId, string? itemId, string detail)
+    {
+        var entry = new JournalEntry
+        {
+            Ts = DateTime.UtcNow.ToString("o"),
+            Kind = "Probe",
+            PlaylistId = playlistId,
+            UserId = userId,
+            ItemId = itemId,
+            Detail = detail
+        };
+        SpikeRuntime.Journal.Add(entry);
+        _log.Info(SpikeLogFormat.Event(entry));
+    }
+}

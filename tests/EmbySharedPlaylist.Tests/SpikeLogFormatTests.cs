@@ -42,6 +42,11 @@ public class SpikeLogFormatTests
     }
 
     [Fact]
+    public void Probe_ShowsPlaylistAndDetail() =>
+        Assert.Equal("EmbySharedPlaylist spike : Probe playlist=7 scenario=P1 durationMs=12 lockWaitMs=0 echoes=1 outcome=OK",
+            SpikeLogFormat.Event(new JournalEntry { Kind = "Probe", PlaylistId = "7", Detail = "scenario=P1 durationMs=12 lockWaitMs=0 echoes=1 outcome=OK" }));
+
+    [Fact]
     public void ItemUpdated_ShowsPlaylistAndReason() =>
         Assert.Equal("EmbySharedPlaylist spike : ItemUpdated playlist=7 reason=MetadataEdit",
             SpikeLogFormat.Event(new JournalEntry { Kind = "ItemUpdated", PlaylistId = "7", SaveReason = "MetadataEdit" }));

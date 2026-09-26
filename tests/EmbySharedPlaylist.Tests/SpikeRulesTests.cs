@@ -53,6 +53,32 @@ public class SpikeRulesTests
 
     private static JournalEntry R(string? reason) => new() { SaveReason = reason };
 
+    [Theory]
+    [InlineData("SPIKE-P1", 1)]
+    [InlineData("SPIKE-P6", 6)]
+    [InlineData("SPIKE-P3-rafale", 3)]
+    [InlineData("SPIKE-P5 burst", 5)]
+    [InlineData("SPIKE-P0", 0)]
+    [InlineData("SPIKE-P7", 0)]
+    [InlineData("SPIKE-P10", 0)]
+    [InlineData("SPIKE-P1x", 0)]
+    [InlineData("SPIKE-A", 0)]
+    [InlineData("SPIKE-P", 0)]
+    [InlineData("spike-p1", 0)]
+    [InlineData("P1", 0)]
+    [InlineData(null, 0)]
+    public void ProbeScenario_IsChosenByThePlaylistNamePrefix(string? name, int expected) =>
+        Assert.Equal(expected, SpikeRules.ProbeScenario(name));
+
+    [Fact]
+    public void FilterByKind_KeepsOnlyListedKinds_CaseInsensitive()
+    {
+        var all = new[] { new JournalEntry { Kind = "Probe" }, new JournalEntry { Kind = "UserDataSaved" }, new JournalEntry { Kind = "ItemUpdated" } };
+        Assert.Equal(new[] { "Probe", "ItemUpdated" }, SpikeRules.FilterByKind(all, "probe, itemupdated").Select(e => e.Kind));
+        Assert.Equal(3, SpikeRules.FilterByKind(all, null).Length);
+        Assert.Empty(SpikeRules.FilterByKind(all, "Nope"));
+    }
+
     [Fact]
     public void FilterBySaveReason_EmptyFilterKeepsEverything()
     {

@@ -94,6 +94,8 @@ public class SpikeEvents : IReturn<List<SpikeEventDto>>
     public bool Clear { get; set; }
     /// <summary>Filtre optionnel : SaveReason(s) séparés par des virgules (ex. PlaybackFinished,PlaybackProgress).</summary>
     public string? SaveReason { get; set; }
+    /// <summary>Filtre optionnel : Kind(s) séparés par des virgules (ex. Probe).</summary>
+    public string? Kind { get; set; }
 }
 
 public class SpikeEventDto
@@ -109,6 +111,8 @@ public class SpikeEventDto
     public string? LastPlayedDate { get; set; }
     public string? SaveReason { get; set; }
     public bool PluginWrite { get; set; }
+    /// <summary>Kind Probe : <c>scenario=Pn durationMs=… lockWaitMs=… echoes=… outcome=OK|KO …</c> (ids et compteurs).</summary>
+    public string? Detail { get; set; }
 }
 
 [Route("/SharedPlaylist/Spike/SetPosition", "POST")]

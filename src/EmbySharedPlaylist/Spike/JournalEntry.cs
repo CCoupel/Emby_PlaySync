@@ -18,4 +18,6 @@ public sealed class JournalEntry
     /// <summary><c>SaveReason</c> pour UserDataSaved ; <c>UpdateReason</c> pour ItemUpdated.</summary>
     public string? SaveReason { get; set; }
     public bool PluginWrite { get; set; }
+    /// <summary>Texte libre (ids et compteurs uniquement) : sonde de réentrance, kind Probe.</summary>
+    public string? Detail { get; set; }
 }

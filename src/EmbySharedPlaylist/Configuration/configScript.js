@@ -9,12 +9,14 @@ define([], function () {
         function load() {
             ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
                 view.querySelector('#EnableSpikeEndpoints').checked = !!cfg.EnableSpikeEndpoints;
+                view.querySelector('#EnableReentrancyProbe').checked = !!cfg.EnableReentrancyProbe;
             });
         }
 
         function save() {
             ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
                 cfg.EnableSpikeEndpoints = view.querySelector('#EnableSpikeEndpoints').checked;
+                cfg.EnableReentrancyProbe = view.querySelector('#EnableReentrancyProbe').checked;
                 ApiClient.updatePluginConfiguration(PLUGIN_ID, cfg).then(function (result) {
                     Dashboard.processPluginConfigurationUpdateResult(result);
                 });

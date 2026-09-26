@@ -10,6 +10,33 @@ public static class SpikeRules
     public static bool IsTestUser(string? userName) =>
         userName != null && userName.StartsWith(TestUserPrefix, StringComparison.Ordinal);
 
+    /// <summary>Garde les entrées dont Kind figure dans la liste (séparée par des virgules, insensible à la casse) ; liste vide = tout.</summary>
+    public static JournalEntry[] FilterByKind(IEnumerable<JournalEntry> entries, string? kinds)
+    {
+        var wanted = (kinds ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return wanted.Count == 0
+            ? entries.ToArray()
+            : entries.Where(e => wanted.Contains(e.Kind)).ToArray();
+    }
+
+    /// <summary>
+    /// Scénario de la sonde de réentrance (B52) choisi par le nom de la playlist : <c>SPIKE-P1</c> à <c>SPIKE-P6</c>
+    /// (suivi de rien ou d'un séparateur : <c>SPIKE-P1-x</c> oui, <c>SPIKE-P10</c> et <c>SPIKE-P1x</c> non). 0 = aucun.
+    /// </summary>
+    public static int ProbeScenario(string? playlistName)
+    {
+        const string prefix = "SPIKE-P";
+        if (playlistName == null || !playlistName.StartsWith(prefix, StringComparison.Ordinal)) return 0;
+        if (playlistName.Length <= prefix.Length) return 0;
+        var digit = playlistName[prefix.Length];
+        if (digit < '1' || digit > '6') return 0;
+        var next = prefix.Length + 1;
+        if (playlistName.Length > next && char.IsLetterOrDigit(playlistName[next])) return 0;
+        return digit - '0';
+    }
+
     /// <summary>Compte modifiable par le spike : préfixe test_ ET non administrateur (même s'il s'appelle test_x).</summary>
     public static bool IsEligibleForSpikeWrite(string? userName, bool isAdministrator) =>
         IsTestUser(userName) && !isAdministrator;

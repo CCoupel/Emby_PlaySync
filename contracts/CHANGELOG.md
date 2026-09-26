@@ -9,6 +9,8 @@
 - **[REMOVED]** Config plugin : `EnableSpikeEndpoints`
 - **[CHANGED]** (v3, exécution immédiate sous verrou par playlist) `Diagnostics/State` : ajout `Handler {Count, LastMs, MaxMs}` ; `Diagnostics/Journal` : `Removal.Detail` gagne `durationMs`, `Skipped` gagne `reentrant` et `lock-busy`
 - **[NEW]** (temporaire) config `EnableReentrancyProbe` et kind `Probe` de `Spike/Events` : sonde U11 (B52), supprimées avec `Spike/*` (#15)
+- **[CHANGED]** (temporaire, B52) `GET Spike/Events` : paramètre `kind` (filtre) et champ `Detail` ; le scénario de la sonde est choisi par le nom de la playlist `SPIKE-P1`…`SPIKE-P6` (pilotage par actions Emby standard, aucun nouvel endpoint) ; `Detail` = `scenario=Pn durationMs lockWaitMs echoes outcome …` (voir `http-endpoints.md`).
+- **[INFO]** Divergence SDK (Emby 4.9.3.0, `libs/`) : `UpdateToRepositoryAsync` **n'existe pas** ; seul `BaseItem.UpdateToRepository(ItemUpdateType[, …])` synchrone est disponible (le plan et les issues parlent d'`…Async` : à lire comme la version synchrone). `IPlaylistManager.RemoveFromPlaylist` renvoie une `Task` ; `IScheduledTask.Execute(CancellationToken, IProgress<double>)` et `GetDefaultTriggers()` compilent tels que décrits.
 - **[INFO]** Modèle d'étiquettes : deux familles indépendantes `remove-si-lu` (retrait à la transition non lu -> lu, actif v0.2.0) et `propager-lu` (propagation, v0.3.0) ; valeurs `=NON` / `=OUI`. Aucun endpoint de gestion : le moteur réagit aux événements Emby et à la tâche planifiée « réconciliation » (natif Emby).
 
 ## [20260926] — Squelette plugin + spike partage natif (v0.1.0)

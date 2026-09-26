@@ -47,6 +47,7 @@ public static class SpikeLogFormat
                            $"played={B(e.Played)} pos={L(e.PositionTicks)} pluginWrite={B(e.PluginWrite)}",
         "PlaylistItemsAdded" or "PlaylistItemsRemoved" or "PlaylistItemsMoved" =>
             $"{Prefix}{e.Kind} playlist={S(e.PlaylistId)} entry={S(e.EntryId)}" + (e.ItemId != null ? $" item={e.ItemId}" : string.Empty),
+        "Probe" => $"{Prefix}Probe playlist={S(e.PlaylistId)} {S(e.Detail)}",
         "ItemUpdated" => $"{Prefix}ItemUpdated playlist={S(e.PlaylistId)} reason={S(e.SaveReason)}",
         _ => $"{Prefix}{S(e.Kind)}"
     };

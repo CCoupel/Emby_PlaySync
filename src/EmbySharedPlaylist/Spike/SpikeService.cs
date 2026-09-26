@@ -147,11 +147,11 @@ public class SpikeService : IService
     // ---- Events ------------------------------------------------------------------------------
 
     public object Get(SpikeEvents request) => Run(() =>
-        SpikeRules.FilterBySaveReason(SpikeRuntime.Journal.Snapshot(request.Clear), request.SaveReason).Select(e => new SpikeEventDto
+        SpikeRules.FilterByKind(SpikeRules.FilterBySaveReason(SpikeRuntime.Journal.Snapshot(request.Clear), request.SaveReason), request.Kind).Select(e => new SpikeEventDto
         {
             Ts = e.Ts, Kind = e.Kind, UserId = e.UserId, ItemId = e.ItemId, PlaylistId = e.PlaylistId,
             EntryId = e.EntryId, Played = e.Played, PositionTicks = e.PositionTicks, LastPlayedDate = e.LastPlayedDate,
-            SaveReason = e.SaveReason, PluginWrite = e.PluginWrite
+            SaveReason = e.SaveReason, PluginWrite = e.PluginWrite, Detail = e.Detail
         }).ToList());
 
     // ---- SetPosition -------------------------------------------------------------------------
