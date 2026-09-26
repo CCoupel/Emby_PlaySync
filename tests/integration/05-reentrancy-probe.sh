@@ -25,6 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../spike/lib.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/probe-lib.sh"
 
 PITER=${PITER:-50}; PROUNDS=${PROUNDS:-10}; PITER6=${PITER6:-20}
+ECHO_MAX=${ECHO_MAX:-1}   # échos tolérés par écriture (la sonde compte TOUS les événements reçus dans les 1,5 s : lire echoKinds)
 PLUGIN_ID="9ebe814e-9438-42b8-aa57-feea1ae92451"          # GUID fixe du plugin (Plugin.cs)
 KUBE_DEPLOY="emby2"; KUBE_NS="media"                        # QUALIF en dur : jamais « emby »
 KUBECONFIG_FILE="$PRIVATE/kubeconfig.yml"
@@ -73,10 +74,11 @@ add_item() { # PLAYLIST ITEM : ré-ajoute l'item si absent (par le propriétaire
   if ! has_item "$x" "$2"; then api POST "/Playlists/$1/Items?Ids=$2&UserId=$U1" "" "$T1" >/dev/null; fi
 }
 collect_probes() { # EVENTS_JSON -> ajoute durée/échos/outcome dans probe.<scénario>
-  local sc d e o
-  while read -r sc d e o; do
+  local sc d e o lw ek rm
+  while read -r sc d e o lw ek rm; do
     [[ -n $sc ]] || continue
     echo "$d" >> "$PROBE_DIR/dur.$sc"; echo "$e" >> "$PROBE_DIR/echo.$sc"; echo "$o" >> "$PROBE_DIR/outcome.$sc"
+    echo "$lw" >> "$PROBE_DIR/lock.$sc"; echo "$ek" >> "$PROBE_DIR/echokinds.$sc"
   done < <(probe_rows "$1")
 }
 wait_probes() { # LISTE_SCENARIOS [TIMEOUT_S] -> $EV
@@ -143,7 +145,8 @@ fi
 if [[ $LOGS_OK == 1 ]]; then echo "  [OK] logs de $KUBE_DEPLOY lisibles (kubectl) depuis $T_START"
 else echo "  [WARN] logs non lisibles (kubectl ou private/kubeconfig.yml absent) : critère « zéro erreur log » = indéterminé"; NOTES+=("logs kubectl indisponibles"); fi
 
-# Playlists de l'essai (propriétaire u1 ; u2 = Write, u3 = Read)
+# Playlists de l'essai : le scénario de la sonde est choisi par le NOM de la playlist (SPIKE-P1 … SPIKE-P6)
+# (propriétaire u1 ; u2 = Write ; u3 = Read, aussi « autre compte test_* » du scénario P3)
 new_pl() { # NOM ITEM_IDS_CSV
   local st id; st=$(api POST "/Playlists?Name=$(qs "$1")&MediaType=Video&Ids=$2&UserId=$U1" "" "$T1")
   [[ $st == 200 ]] || die "création playlist $1 -> HTTP $st"
@@ -154,81 +157,94 @@ share_pl() { # PLAYLIST
   apiok 204 POST /Items/Access "$(jq -nc --arg p "$1" --arg a "$U3" '{ItemIds:[$p],UserIds:[$a],ItemAccess:"Read"}')" "$T1"
 }
 ALLM=$(IFS=,; echo "${M[*]}")
-PL1=$(new_pl "SPIKE-reent-p123" "${M[0]}"); share_pl "$PL1"
-PL5=$(new_pl "SPIKE-reent-p5" "$ALLM"); share_pl "$PL5"
-PL6=$(new_pl "SPIKE-reent-p6" "${M[0]}"); share_pl "$PL6"
-echo "  [OK] playlists SPIKE-reent-p123 / -p5 / -p6 créées et partagées"
+declare -A PLS
+for sc in P1 P2 P3 P6; do PLS[$sc]=$(new_pl "SPIKE-$sc" "${M[0]}"); share_pl "${PLS[$sc]}"; done
+PLS[P5]=$(new_pl "SPIKE-P5" "$ALLM"); share_pl "${PLS[P5]}"
+echo "  [OK] playlists SPIKE-P1/P2/P3/P5/P6 créées et partagées (P4 : créées à la volée)"
 
-# ---------------------------------------------------------------- P1–P3 : UserDataSaved (transition non lu -> lu)
-echo "== P1–P3 — écritures depuis UserDataSaved ($PITER itérations)"
-p123_missing=0; p123_dupremoval=0; p123_notremoved=0
-for ((i=1; i<=PITER; i++)); do
-  unmark_all "${M[0]}"; add_item "$PL1" "${M[0]}"
-  ev_clear
-  st=$(tapi trigger123 POST "/Users/$U2/PlayedItems/${M[0]}" "" "$T2")
-  if [[ $st != 2* ]]; then NOTES+=("P1-3 it$i : déclencheur HTTP $st"); fi
-  if wait_probes "P1 P2 P3" 10; then :; else p123_missing=$((p123_missing+1)); fi
-  collect_probes "$EV"
-  rem=$(jq -r --arg p "$PL1" "$DEFS"'[.[]|select(.kind=="PlaylistItemsRemoved" and (.playlistId|n)==($p|n))]|length' <<<"$EV")
-  x=$(entries "$PL1" "$T1" "$U1")
-  if has_item "$x" "${M[0]}"; then p123_notremoved=$((p123_notremoved+1)); fi
-  if [[ $rem -gt 1 ]]; then p123_dupremoval=$((p123_dupremoval+1)); fi
-  if (( i % 10 == 0 )); then echo "  … $i/$PITER"; fi
+# ---------------------------------------------------------------- P1, P2, P3 : depuis UserDataSaved (transition non lu -> lu)
+declare -A MISS NOTREM DUPREM
+for sc in P1 P2 P3; do
+  pl=${PLS[$sc]}; MISS[$sc]=0; NOTREM[$sc]=0; DUPREM[$sc]=0
+  echo "== $sc — $( case $sc in P1) echo "RemoveFromPlaylist";; P2) echo "mise à jour de métadonnées";; P3) echo "SaveUserData d'un autre compte test_*";; esac ) depuis UserDataSaved ($PITER itérations)"
+  for ((i=1; i<=PITER; i++)); do
+    unmark_all "${M[0]}"; add_item "$pl" "${M[0]}"
+    ev_clear
+    st=$(tapi trigger$sc POST "/Users/$U2/PlayedItems/${M[0]}" "" "$T2")
+    if [[ $st != 2* ]]; then NOTES+=("$sc it$i : déclencheur HTTP $st"); fi
+    if wait_probes "$sc" 10; then :; else MISS[$sc]=$((MISS[$sc]+1)); fi
+    collect_probes "$EV"
+    rem=$(jq -r --arg p "$pl" "$DEFS"'[.[]|select(.kind=="PlaylistItemsRemoved" and (.playlistId|n)==($p|n))]|length' <<<"$EV")
+    if [[ $sc == P1 ]]; then   # seul P1 retire l'entrée
+      x=$(entries "$pl" "$T1" "$U1")
+      if has_item "$x" "${M[0]}"; then NOTREM[$sc]=$((NOTREM[$sc]+1)); fi
+      if [[ $rem -gt 1 ]]; then DUPREM[$sc]=$((DUPREM[$sc]+1)); fi
+    fi
+    if (( i % 10 == 0 )); then echo "  … $i/$PITER"; fi
+  done
+  echo "  scénario non observé : ${MISS[$sc]}"
 done
-echo "  scénarios non observés : $p123_missing ; retrait absent : $p123_notremoved ; retrait dupliqué : $p123_dupremoval"
+p123_missing=$((MISS[P1]+MISS[P2]+MISS[P3])); p123_notremoved=${NOTREM[P1]}; p123_dupremoval=${DUPREM[P1]}
 
 # ---------------------------------------------------------------- P4 : métadonnées depuis PlaylistItemsAdded/ItemUpdated
 echo "== P4 — métadonnées depuis PlaylistItemsAdded/ItemUpdated, 1re détection ($PITER itérations)"
 p4_missing=0
 for ((i=1; i<=PITER; i++)); do
   ev_clear
-  st=$(tapi trigger4 POST "/Playlists?Name=$(qs "SPIKE-reent-p4-$i")&MediaType=Video&Ids=${M[1]}&UserId=$U1" "" "$T1")
+  st=$(tapi trigger4 POST "/Playlists?Name=$(qs "SPIKE-P4-$i")&MediaType=Video&Ids=${M[1]}&UserId=$U1" "" "$T1")
   pid=$(jq -r '.Id // empty' "$RESP")
-  if [[ -n $pid ]]; then register_playlist "$pid"; fi
+  if [[ -n $pid ]]; then
+    register_playlist "$pid"
+    tapi trigger4 POST "/Playlists/$pid/Items?Ids=${M[2]}&UserId=$U1" "" "$T1" >/dev/null   # ajout d'une entrée = PlaylistItemsAdded
+  fi
   if wait_probes "P4" 10; then :; else p4_missing=$((p4_missing+1)); fi
-  collect_probes "$EV"
+  sleep 2; EV=$(ev_get); collect_probes "$EV"
   if [[ -n $pid ]]; then api DELETE "/Items/$pid" >/dev/null; fi
   if (( i % 10 == 0 )); then echo "  … $i/$PITER"; fi
 done
 echo "  scénarios non observés : $p4_missing"
 
 # ---------------------------------------------------------------- P5 : rafale concurrente
-echo "== P5 — rafale : ${#M[@]} transitions simultanées (3 utilisateurs) sur la même playlist, $PROUNDS rondes"
-p5_missing=0; p5_bad=0
+echo "== P5 — rafale : ${#M[@]} médias, transitions simultanées (3 utilisateurs, dont doublons sur le 1er média), $PROUNDS rondes"
+PL5=${PLS[P5]}; p5_missing=0; p5_bad=0
 TOKS=("$T2" "$T3" "$T1"); UIDS=("$U2" "$U3" "$U1")
 for ((r=1; r<=PROUNDS; r++)); do
   for k in "${!M[@]}"; do
-    u=$((k%3)); api DELETE "/Users/${UIDS[$u]}/PlayedItems/${M[$k]}" "" "${TOKS[$u]}" >/dev/null
+    for u in 0 1 2; do api DELETE "/Users/${UIDS[$u]}/PlayedItems/${M[$k]}" "" "${TOKS[$u]}" >/dev/null; done
     add_item "$PL5" "${M[$k]}"
   done
   x=$(entries "$PL5" "$T1" "$U1"); before=$(jq 'length' <<<"$x")
   ev_clear; rm -f "$SCRATCH"/bg.*.st
-  for k in "${!M[@]}"; do
+  for k in "${!M[@]}"; do   # un média par fil (utilisateur tournant)
     u=$((k%3)); bg_call "$r-$k" trigger5 POST "/Users/${UIDS[$u]}/PlayedItems/${M[$k]}" "" "${TOKS[$u]}"
+  done
+  for u in 0 1 2; do        # le même premier média demandé par les 3 utilisateurs : une seule entrée à retirer
+    if [[ $u -ne 0 ]]; then bg_call "$r-dup$u" trigger5 POST "/Users/${UIDS[$u]}/PlayedItems/${M[0]}" "" "${TOKS[$u]}"; fi
   done
   wait
   if wait_probes "P5" 12; then :; else p5_missing=$((p5_missing+1)); fi
   sleep 2; EV=$(ev_get); collect_probes "$EV"
   after=$(entries "$PL5" "$T1" "$U1" | jq 'length')
-  # chaque entrée retirée exactement une fois
   dup=$(jq -r --arg p "$PL5" "$DEFS"'[.[]|select(.kind=="PlaylistItemsRemoved" and (.playlistId|n)==($p|n))|.entryId] | group_by(.) | map(select(length>1)) | length' <<<"$EV")
   cnt=$(jq -r --arg p "$PL5" "$DEFS"'[.[]|select(.kind=="PlaylistItemsRemoved" and (.playlistId|n)==($p|n))]|length' <<<"$EV")
-  if [[ $after -ne 0 || $dup -ne 0 || $cnt -ne $before ]]; then
-    p5_bad=$((p5_bad+1)); NOTES+=("P5 ronde $r : avant=$before après=$after retraits=$cnt doublons=$dup")
+  rsum=$(probe_removed_sum "$EV" P5)
+  if [[ $after -ne 0 || $dup -ne 0 || $cnt -ne $before || $rsum -ne $before ]]; then
+    p5_bad=$((p5_bad+1)); NOTES+=("P5 ronde $r : avant=$before après=$after retraits=$cnt doublons=$dup removed(sonde)=$rsum")
   fi
 done
 echo "  rondes anormales : $p5_bad ; scénario non observé : $p5_missing"
 
-# ---------------------------------------------------------------- P6 : édition d'étiquette pendant le gestionnaire
+# ---------------------------------------------------------------- P6 : édition d'étiquette pendant le gestionnaire (attente de 2 s)
 echo "== P6 — étiquette du propriétaire pendant le gestionnaire ($PITER6 itérations)"
-p6_missing=0; p6_lost=0; p6_err=0; EXPECTED_TAGS=()
+PL6=${PLS[P6]}; p6_missing=0; p6_lost=0; p6_err=0; EXPECTED_TAGS=()
 for ((i=1; i<=PITER6; i++)); do
   unmark_all "${M[0]}"; add_item "$PL6" "${M[0]}"
   tag="p6-tag-$i"; ev_clear; rm -f "$SCRATCH"/bg.p6*.st
-  bg_owner_tag "p6o$i" "$PL6" "$tag"
   bg_call "p6t$i" trigger6 POST "/Users/$U2/PlayedItems/${M[0]}" "" "$T2"
+  sleep 0.4                              # le gestionnaire attend 2 s : l'édition tombe pendant son attente
+  bg_owner_tag "p6o$i" "$PL6" "$tag"
   wait
-  if wait_probes "P6" 10; then :; else p6_missing=$((p6_missing+1)); fi
+  if wait_probes "P6" 15; then :; else p6_missing=$((p6_missing+1)); fi
   collect_probes "$EV"
   os=$(cat "$SCRATCH/bg.p6o$i.st" 2>/dev/null || echo 000)
   if [[ $os != 2* ]]; then p6_err=$((p6_err+1)); NOTES+=("P6 it$i : édition propriétaire HTTP $os"); fi
@@ -236,7 +252,6 @@ for ((i=1; i<=PITER6; i++)); do
   api GET "$SPK/Tags?playlistId=$PL6" >/dev/null
   if [[ $os == 2* ]] && ! jq -e --argjson want "$(printf '%s\n' "${EXPECTED_TAGS[@]}" | jq -R . | jq -sc .)" '(.tags//[]) as $t | ($want - $t)|length==0' "$RESP" >/dev/null; then
     p6_lost=$((p6_lost+1)); NOTES+=("P6 it$i : étiquette(s) du propriétaire perdues")
-    # on reprend l'attendu sur l'état réel pour ne compter chaque perte qu'une fois
     mapfile -t EXPECTED_TAGS < <(jq -r '(.tags//[])[]|select(startswith("p6-tag-"))' "$RESP")
   fi
   if (( i % 10 == 0 )); then echo "  … $i/$PITER6"; fi
@@ -262,15 +277,17 @@ for sc in P1 P2 P3 P4 P5 P6; do
   outs=$(sort "$PROBE_DIR/outcome.$sc" 2>/dev/null | uniq -c | awk '{printf "%s:%s ",$2,$1}' || true)
   ko=$(grep -vc '^OK$' "$PROBE_DIR/outcome.$sc" 2>/dev/null || true)
   maxecho=$(sort -n "$PROBE_DIR/echo.$sc" 2>/dev/null | tail -n1 || true)
+  kinds=$(sort "$PROBE_DIR/echokinds.$sc" 2>/dev/null | uniq -c | sort -rn | head -n 5 | awk '{printf "%sx %s ; ",$1,$2}' || true)
   SCEN=$(jq -c --arg s "$sc" --argjson d "$(stats_json "$PROBE_DIR/dur.$sc")" --arg o "$outs" --argjson ko "${ko:-0}" --argjson me "${maxecho:-0}" \
-    '. + {($s): {handlerMs:$d, outcomes:$o, outcomeKo:$ko, maxEchoes:$me}}' <<<"$SCEN")
+    --argjson lw "$(stats_json "$PROBE_DIR/lock.$sc")" --arg ek "$kinds" \
+    '. + {($s): {handlerMs:$d, lockWaitMs:$lw, outcomes:$o, outcomeKo:$ko, maxEchoes:$me, echoKinds:$ek}}' <<<"$SCEN")
 done
 CALLS=$(stats_json "$PROBE_DIR/ms.ALL")
 TRIG=$(jq -nc --argjson a "$(stats_json "$PROBE_DIR/ms.trigger123")" --argjson b "$(stats_json "$PROBE_DIR/ms.trigger4")" \
   --argjson c "$(stats_json "$PROBE_DIR/ms.trigger5")" --argjson d "$(stats_json "$PROBE_DIR/ms.trigger6")" '{trigger123:$a,trigger4:$b,trigger5:$c,trigger6:$d}')
 
 RESULTS=$(jq -nc --argjson scen "$SCEN" --argjson calls "$CALLS" --argjson trig "$TRIG" --argjson logs "$LOGSCAN" --argjson prot "$PROT" \
-  --argjson it "$PITER" --argjson rounds "$PROUNDS" --argjson it6 "$PITER6" \
+  --argjson echomax "$ECHO_MAX" --argjson it "$PITER" --argjson rounds "$PROUNDS" --argjson it6 "$PITER6" \
   --argjson m123 "$p123_missing" --argjson nr "$p123_notremoved" --argjson dr "$p123_dupremoval" --argjson m4 "$p4_missing" \
   --argjson m5 "$p5_missing" --argjson b5 "$p5_bad" --argjson m6 "$p6_missing" --argjson l6 "$p6_lost" --argjson e6 "$p6_err" \
   --argjson notes "$(printf '%s\n' "${NOTES[@]:-}" | jq -R . | jq -sc 'map(select(length>0))')" \

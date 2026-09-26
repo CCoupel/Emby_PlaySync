@@ -6,9 +6,14 @@
 # ordre libre ; les clés d'événement sont déjà en camelCase grâce à la normalisation de lib.sh).
 PROBE_JQ='[.[]|select(.kind=="Probe")|((.detail//"")|[scan("(\\w+)=(\\S+)")]|map({(.[0]):.[1]})|add)|select(.scenario!=null)]'
 
-# probe_rows EVENTS_JSON -> lignes « scenario durationMs echoes outcome »
+# probe_rows EVENTS_JSON -> lignes « scenario durationMs echoes outcome lockWaitMs echoKinds removed » ("-" si absent)
 probe_rows() {
-  jq -r "$PROBE_JQ | .[] | \"\(.scenario) \(.durationMs//0) \(.echoes//0) \(.outcome//\"?\")\"" <<<"$1" 2>/dev/null || true
+  jq -r "$PROBE_JQ | .[] | \"\(.scenario) \(.durationMs//0) \(.echoes//0) \(.outcome//\"?\") \(.lockWaitMs//0) \(.echoKinds//\"-\") \(.removed//\"-\")\"" <<<"$1" 2>/dev/null || true
+}
+
+# probe_removed_sum EVENTS_JSON SCENARIO : somme des « removed=<n> » des entrées Probe du scénario
+probe_removed_sum() {
+  jq -r --arg s "$2" "$PROBE_JQ | map(select(.scenario==\$s) | (.removed//\"0\") | tonumber? // 0) | add // 0" <<<"$1" 2>/dev/null || echo 0
 }
 
 # probes_seen EVENTS_JSON "P1 P2 P3" : 0 si tous les scénarios listés sont présents
@@ -65,7 +70,7 @@ RESULTS_JQ='  ([$scen[]|.handlerMs.p95]|map(select(.!=null))|max) as $p95max
      criteria:{
        noCallOver5s:{ok:(($calls.max // 0) <= 5000), detail:"max appel REST \($calls.max // 0) ms"},
        noLockNoException:{ok:(if $logs==null then null else ($logs.locked==0 and $logs.exceptions==0 and $logs.pluginErrors==0) end), detail:(if $logs==null then "logs indisponibles" else "locked=\($logs.locked) exceptions=\($logs.exceptions) pluginErrors=\($logs.pluginErrors)" end)},
-       noLoop:{ok:(([$scen[]|.maxEchoes]|max) <= 1), detail:"échos max \([$scen[]|.maxEchoes]|max)"},
+       noLoop:{ok:(([$scen[]|.maxEchoes]|max) <= $echomax), detail:"échos max \([$scen[]|.maxEchoes]|max) (seuil \($echomax)) ; types : \([$scen|to_entries[]|"\(.key): \(.value.echoKinds)"]|join(" | "))"},
        handlerLatency:{ok:(($p95max // 0) <= 300 and ($hmax // 0) <= 2000), detail:"p95 max \($p95max) ms, max \($hmax) ms"},
        burstOnce:{ok:($b5==0 and $m5==0), detail:"rondes anormales \($b5), non observées \($m5)"},
        removalOnce:{ok:($nr==0 and $dr==0), detail:"retrait absent \($nr), dupliqué \($dr)"},

@@ -12,6 +12,7 @@ TOK = {}
 PL = {}            # id -> {name, entries:[{pid,item}], tags:[...]}
 PLAYED = set()
 EV = []
+SEEN = set()
 CFG = {"EnableSpikeEndpoints": False, "EnableReentrancyProbe": False, "GracePasses": 2}
 MEDIA = [str(100 + i) for i in range(6)]
 
@@ -19,8 +20,9 @@ def ev(kind, **kw):
     e = {"Ts": "2026-09-26T12:00:00.000Z", "Kind": kind, "PluginWrite": False}
     e.update(kw); EV.append(e)
 
-def probe(sc, d=12, echoes=1, outcome="OK"):
-    ev("Probe", Detail=f"scenario={sc} durationMs={d} echoes={echoes} outcome={outcome}")
+def probe(sc, d=12, echoes=1, outcome="OK", removed=None, note=None):
+    extra = (f" removed={removed}" if removed is not None else "") + (f" note={note}" if note else "")
+    ev("Probe", Detail=f"scenario={sc} durationMs={d} lockWaitMs=0 echoes={echoes} outcome={outcome}{extra} echoKinds=PlaylistItemsRemoved:1")
 
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -61,7 +63,6 @@ class H(http.server.BaseHTTPRequestHandler):
         if p == "/Playlists" and m == "POST":
             pid = str(next(ids)); PL[pid] = {"name": q["Name"][0], "entries": [{"pid": str(next(ids)), "item": i} for i in q["Ids"][0].split(",")], "tags": []}
             ev("PlaylistItemsAdded", PlaylistId=pid)
-            if CFG["EnableReentrancyProbe"] and "p4" in q["Name"][0]: probe("P4")
             return self.out(200, {"Id": pid})
         if p == "/Items/Access": return self.out(204)
         r = re.fullmatch(r"/Playlists/(\d+)/Items", p)
@@ -69,6 +70,9 @@ class H(http.server.BaseHTTPRequestHandler):
             x = PL[r.group(1)]
             if m == "GET": return self.out(200, {"Items": [{"Id": e["item"], "PlaylistItemId": e["pid"]} for e in x["entries"]]})
             for i in q["Ids"][0].split(","): x["entries"].append({"pid": str(next(ids)), "item": i})
+            ev("PlaylistItemsAdded", PlaylistId=r.group(1))
+            if CFG["EnableReentrancyProbe"] and re.match(r"SPIKE-P4(-|$)", x["name"]) and r.group(1) not in SEEN:
+                SEEN.add(r.group(1)); probe("P4", 15 if MODE != "slow" else 900)
             return self.out(200, {})
         r = re.fullmatch(r"/Users/(\w+)/PlayedItems/(\d+)", p)
         if r:
@@ -76,17 +80,20 @@ class H(http.server.BaseHTTPRequestHandler):
             if m == "DELETE": PLAYED.discard((user, item)); return self.out(200, {})
             was = (user, item) in PLAYED; PLAYED.add((user, item))
             if CFG["EnableReentrancyProbe"] and not was:
+                d = 900 if MODE == "slow" else 15
                 for pid, x in PL.items():
+                    mm = re.match(r"SPIKE-(P[1-6])(-|$)", x["name"])
+                    if not mm: continue
+                    sc = mm.group(1)
                     es = [e for e in x["entries"] if e["item"] == item]
-                    for e in es:
-                        x["entries"].remove(e); ev("PlaylistItemsRemoved", PlaylistId=pid, EntryId=e["pid"], ItemId=item)
-                        if MODE == "dup": ev("PlaylistItemsRemoved", PlaylistId=pid, EntryId=e["pid"], ItemId=item)
-                    if es:
-                        d = 900 if MODE == "slow" else 15
-                        if "p5" in x["name"]: probe("P5", d)
-                        elif "p6" in x["name"]: probe("P6", d)
-                        else:
-                            for s in ("P1", "P2", "P3"): probe(s, d)
+                    if sc in ("P1", "P5"):
+                        for e in es:
+                            x["entries"].remove(e); ev("PlaylistItemsRemoved", PlaylistId=pid, EntryId=e["pid"], ItemId=item)
+                            if MODE == "dup": ev("PlaylistItemsRemoved", PlaylistId=pid, EntryId=e["pid"], ItemId=item)
+                        if sc == "P5" or es:
+                            probe(sc, d, removed=len(es), note=("absent" if not es else None))
+                    elif es:
+                        probe(sc, d)
             return self.out(200, {})
         r = re.fullmatch(r"/Users/(\w+)/Items/(\d+)", p)
         if r and m == "GET":

@@ -11,12 +11,13 @@ D="$SCRATCH"
 echo "== événements Probe"
 EV='[{"ts":"t","kind":"UserDataSaved","userId":"a"},
      {"ts":"t","kind":"Probe","detail":"scenario=P1 durationMs=12 echoes=1 outcome=OK"},
-     {"ts":"t","kind":"Probe","detail":"outcome=KO echoes=2 scenario=P2 durationMs=340 extra=x"},
+     {"ts":"t","kind":"Probe","detail":"outcome=KO echoes=2 scenario=P2 durationMs=340 lockWaitMs=7 removed=3 echoKinds=PlaylistItemsRemoved:1,ItemUpdated:1"},
      {"ts":"t","kind":"Probe","detail":"pas de paires"}]'
 rows=$(probe_rows "$EV")
 [[ $(wc -l <<<"$rows") -eq 2 ]] && ok "2 événements Probe analysés (la ligne sans scenario= est ignorée)" || ko "probe_rows : $rows"
-grep -qx 'P1 12 1 OK' <<<"$rows" && ok "P1 : durée/échos/outcome extraits" || ko "P1"
-grep -qx 'P2 340 2 KO' <<<"$rows" && ok "ordre des clés libre (P2)" || ko "P2"
+grep -qx 'P1 12 1 OK 0 - -' <<<"$rows" && ok "P1 : durée/échos/outcome extraits" || ko "P1 : $rows"
+grep -qx 'P2 340 2 KO 7 PlaylistItemsRemoved:1,ItemUpdated:1 3' <<<"$rows" && ok "ordre des clés libre, lockWaitMs, echoKinds, removed (P2)" || ko "P2 : $rows"
+[[ $(probe_removed_sum "$EV" P2) == 3 && $(probe_removed_sum "$EV" P1) == 0 ]] && ok "probe_removed_sum" || ko "removed_sum"
 probes_seen "$EV" "P1 P2" && ok "probes_seen : P1 P2 présents" || ko "probes_seen"
 probes_seen "$EV" "P1 P3" && ko "probes_seen : P3 absent jugé présent" || ok "probes_seen : P3 absent détecté"
 
@@ -45,7 +46,7 @@ r=$(scan_log "$D/clean.txt")
 echo "== agrégation et décision"
 build() { # LOGS_JSON MAXECHO P95 HMAX BAD5 CALLMAX
   local sc; sc=$(jq -nc --argjson e "$2" --argjson p "$3" --argjson m "$4" '{P1:{handlerMs:{n:50,p50:5,p95:$p,max:$m},outcomes:"OK:50 ",outcomeKo:0,maxEchoes:$e}}')
-  jq -nc --argjson scen "$sc" --argjson calls "{\"n\":9,\"p50\":1,\"p95\":2,\"max\":$6}" --argjson trig '{}' --argjson logs "$1" --argjson prot true \
+  jq -nc --argjson scen "$sc" --argjson calls "{\"n\":9,\"p50\":1,\"p95\":2,\"max\":$6}" --argjson trig '{}' --argjson logs "$1" --argjson prot true --argjson echomax 1 \
     --argjson it 50 --argjson rounds 10 --argjson it6 20 --argjson m123 0 --argjson nr 0 --argjson dr 0 --argjson m4 0 --argjson m5 0 \
     --argjson b5 "$5" --argjson m6 0 --argjson l6 0 --argjson e6 0 --argjson notes '[]' "$RESULTS_JQ"
 }
