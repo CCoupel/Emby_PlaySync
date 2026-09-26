@@ -1,0 +1,45 @@
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Plugins;
+using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Serialization;
+
+namespace EmbySharedPlaylist;
+
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+{
+    public static Plugin? Instance { get; private set; }
+
+    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+        : base(applicationPaths, xmlSerializer)
+    {
+        Instance = this;
+    }
+
+    // Ne jamais changer ce GUID après le premier déploiement
+    public override Guid Id => new Guid("9ebe814e-9438-42b8-aa57-feea1ae92451");
+
+    public override string Name => "Emby Shared Playlist";
+
+    public override string Description => "Playlists « À voir » partagées : un média lu est retiré de la liste et marqué lu pour les membres du groupe.";
+
+    public IEnumerable<PluginPageInfo> GetPages()
+    {
+        return new[]
+        {
+            new PluginPageInfo
+            {
+                Name                 = "EmbySharedPlaylistConfig",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
+                EnableInMainMenu     = true,
+                DisplayName          = "Emby Shared Playlist",
+                MenuSection          = "server",
+                MenuIcon             = "playlist_play"
+            },
+            new PluginPageInfo
+            {
+                Name                 = "EmbySharedPlaylistConfigScript",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configScript.js"
+            }
+        };
+    }
+}

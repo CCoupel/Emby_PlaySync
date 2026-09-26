@@ -1,0 +1,31 @@
+<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow"
+     data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true"
+     data-bindheader="true" data-controller="__plugin/EmbySharedPlaylistConfigScript"
+     data-title="Emby Shared Playlist">
+
+  <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
+    <div id="EmbySharedPlaylistConfigPage">
+
+      <div class="sectionTitleContainer flex align-items-center">
+        <h2 class="sectionTitle">Emby Shared Playlist</h2>
+      </div>
+
+      <div class="detailSection">
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input type="checkbox" id="EnableSpikeEndpoints" is="emby-checkbox" class="emby-checkbox" />
+            <span>Activer les endpoints de diagnostic (Spike)</span>
+          </label>
+          <div class="fieldDescription checkboxFieldDescription">
+            Temporaire (v0.1.0) : expose <code>/SharedPlaylist/Spike/*</code> aux administrateurs. À laisser désactivé en production.
+          </div>
+        </div>
+      </div>
+
+      <button is="emby-button" type="button" id="btnSave" class="raised button-submit block emby-button">
+        <span>Enregistrer</span>
+      </button>
+
+    </div>
+  </div>
+</div>
