@@ -8,6 +8,10 @@ define([], function () {
 
         function load() {
             ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
+                view.querySelector('#GracePasses').value = cfg.GracePasses != null ? cfg.GracePasses : 2;
+                view.querySelector('#EnableDiagnostics').checked = cfg.EnableDiagnostics !== false;
+                view.querySelector('#LogToConsole').checked = cfg.LogToConsole !== false;
+                view.querySelector('#LogLevel').value = cfg.LogLevel || 'Info';
                 view.querySelector('#EnableSpikeEndpoints').checked = !!cfg.EnableSpikeEndpoints;
                 view.querySelector('#EnableReentrancyProbe').checked = !!cfg.EnableReentrancyProbe;
             });
@@ -15,6 +19,11 @@ define([], function () {
 
         function save() {
             ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
+                var grace = parseInt(view.querySelector('#GracePasses').value, 10);
+                cfg.GracePasses = isNaN(grace) || grace < 1 ? 1 : grace;
+                cfg.EnableDiagnostics = view.querySelector('#EnableDiagnostics').checked;
+                cfg.LogToConsole = view.querySelector('#LogToConsole').checked;
+                cfg.LogLevel = view.querySelector('#LogLevel').value;
                 cfg.EnableSpikeEndpoints = view.querySelector('#EnableSpikeEndpoints').checked;
                 cfg.EnableReentrancyProbe = view.querySelector('#EnableReentrancyProbe').checked;
                 ApiClient.updatePluginConfiguration(PLUGIN_ID, cfg).then(function (result) {

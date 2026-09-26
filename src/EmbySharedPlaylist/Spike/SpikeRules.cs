@@ -1,3 +1,5 @@
+using EmbySharedPlaylist.Core;
+
 namespace EmbySharedPlaylist.Spike;
 
 /// <summary>Règles pures du spike : édition ciblée des étiquettes et garde-fous sur les noms.</summary>

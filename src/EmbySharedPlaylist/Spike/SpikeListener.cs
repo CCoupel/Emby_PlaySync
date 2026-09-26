@@ -1,3 +1,4 @@
+using EmbySharedPlaylist.Core;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
@@ -17,7 +18,7 @@ public sealed class SpikeListener : IServerEntryPoint
     private readonly ILibraryManager _libraryManager;
     private readonly IUserDataManager _userDataManager;
     private readonly IPlaylistManager _playlistManager;
-    private readonly SpikeLog _log;
+    private readonly Log _log;
     private readonly ReentrancyProbe _probe;
 
     public SpikeListener(ILibraryManager libraryManager, IUserDataManager userDataManager,
@@ -26,7 +27,7 @@ public sealed class SpikeListener : IServerEntryPoint
         _libraryManager = libraryManager;
         _userDataManager = userDataManager;
         _playlistManager = playlistManager;
-        _log = new SpikeLog(logManager.GetLogger("EmbySharedPlaylist"));
+        _log = new Log(logManager.GetLogger("EmbySharedPlaylist"));
         _probe = new ReentrancyProbe(libraryManager, userManager, userDataManager, playlistManager, itemRepository, SpikeRuntime.Locks, _log);
     }
 
@@ -38,7 +39,7 @@ public sealed class SpikeListener : IServerEntryPoint
         _playlistManager.PlaylistItemsMoved += OnItemsMoved;
         _libraryManager.ItemUpdated += OnItemUpdated;
         SpikeRuntime.Log = _log;
-        _log.Info(SpikeLogFormat.Startup(Enabled));
+        _log.Info(LogFormat.Startup(Enabled));
     }
 
     public void Dispose()

@@ -1,3 +1,4 @@
+using EmbySharedPlaylist.Core;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -22,7 +23,7 @@ public class SpikeService : IService
     private readonly IUserDataManager _userDataManager;
     private readonly IPlaylistManager _playlistManager;
     private readonly IItemRepository _itemRepository;
-    private readonly SpikeLog _log;
+    private readonly Log _log;
 
     public SpikeService(ILibraryManager libraryManager, IUserManager userManager, IUserDataManager userDataManager,
         IPlaylistManager playlistManager, IItemRepository itemRepository, ILogManager logManager)
@@ -32,7 +33,7 @@ public class SpikeService : IService
         _userDataManager = userDataManager;
         _playlistManager = playlistManager;
         _itemRepository = itemRepository;
-        _log = SpikeRuntime.Log ?? new SpikeLog(logManager.GetLogger("EmbySharedPlaylist"));
+        _log = SpikeRuntime.Log ?? new Log(logManager.GetLogger("EmbySharedPlaylist"));
     }
 
     // ---- Setup -------------------------------------------------------------------------------

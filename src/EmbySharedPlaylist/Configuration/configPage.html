@@ -11,6 +11,41 @@
       </div>
 
       <div class="detailSection">
+        <div class="inputContainer">
+          <input is="emby-input" type="number" id="GracePasses" min="1" step="1" label="Passes de grâce" />
+          <div class="fieldDescription">
+            Nombre de passes de réconciliation consécutives sans étiquette (ou avec une description vide) avant que le plugin repose la valeur par défaut. Défaut : 2, minimum : 1. La période des passes se règle dans les tâches planifiées d'Emby.
+          </div>
+        </div>
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input type="checkbox" id="EnableDiagnostics" is="emby-checkbox" class="emby-checkbox" />
+            <span>Activer les diagnostics (administrateur)</span>
+          </label>
+          <div class="fieldDescription checkboxFieldDescription">
+            Expose <code>/SharedPlaylist/Diagnostics/*</code> (journal des décisions et état en mémoire, identifiants seulement).
+          </div>
+        </div>
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input type="checkbox" id="LogToConsole" is="emby-checkbox" class="emby-checkbox" />
+            <span>Écrire les journaux sur la console du serveur</span>
+          </label>
+          <div class="fieldDescription checkboxFieldDescription">
+            Lignes préfixées <code>[EmbySharedPlaylist]</code>, visibles par <code>kubectl logs</code> (en plus du fichier de journal d'Emby).
+          </div>
+        </div>
+        <div class="selectContainer">
+          <label class="selectLabel" for="LogLevel">Niveau de journalisation</label>
+          <select is="emby-select" id="LogLevel" class="emby-select-withcolor emby-select">
+            <option value="Off">Désactivé</option>
+            <option value="Info">Info</option>
+            <option value="Debug">Debug</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="detailSection">
         <div class="checkboxContainer checkboxContainer-withDescription">
           <label>
             <input type="checkbox" id="EnableSpikeEndpoints" is="emby-checkbox" class="emby-checkbox" />

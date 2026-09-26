@@ -37,14 +37,14 @@ public sealed class ReentrancyProbe
     private readonly IPlaylistManager _playlistManager;
     private readonly IItemRepository _itemRepository;
     private readonly PlaylistLocks _locks;
-    private readonly SpikeLog _log;
+    private readonly Log _log;
 
     private readonly ConcurrentDictionary<string, byte> _seen = new();
     private readonly ConcurrentDictionary<Guid, Session> _sessions = new();
     private int _counter;
 
     public ReentrancyProbe(ILibraryManager libraryManager, IUserManager userManager, IUserDataManager userDataManager,
-        IPlaylistManager playlistManager, IItemRepository itemRepository, PlaylistLocks locks, SpikeLog log)
+        IPlaylistManager playlistManager, IItemRepository itemRepository, PlaylistLocks locks, Log log)
     {
         _libraryManager = libraryManager;
         _userManager = userManager;

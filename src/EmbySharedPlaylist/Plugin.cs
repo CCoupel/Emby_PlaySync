@@ -2,6 +2,7 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using EmbySharedPlaylist.Core;
 using EmbySharedPlaylist.Spike;
 
 namespace EmbySharedPlaylist;
@@ -29,7 +30,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public override void UpdateConfiguration(BasePluginConfiguration configuration)
     {
         base.UpdateConfiguration(configuration);
-        SpikeRuntime.Log?.Info(SpikeLogFormat.ConfigSaved(Configuration.EnableSpikeEndpoints));
+        SpikeRuntime.Log?.Info(LogFormat.ConfigSaved(Configuration.EnableSpikeEndpoints));
     }
 
     public override string Name => "Emby Shared Playlist";

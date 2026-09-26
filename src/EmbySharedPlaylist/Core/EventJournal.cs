@@ -1,7 +1,7 @@
-namespace EmbySharedPlaylist.Spike;
+namespace EmbySharedPlaylist.Core;
 
 /// <summary>Journal mémoire borné, thread-safe. Le plus récent est en dernier.</summary>
-public sealed class EventJournal
+public sealed class EventJournal : IJournal
 {
     public const int DefaultCapacity = 500;
 
@@ -23,6 +23,15 @@ public sealed class EventJournal
             _entries.Enqueue(entry);
             while (_entries.Count > _capacity) _entries.Dequeue();
         }
+    }
+
+    /// <summary>Copie du journal filtrée par Kind (liste séparée par des virgules, insensible à la casse ; vide = tout).</summary>
+    public JournalEntry[] Snapshot(bool clear, string? kinds)
+    {
+        var all = Snapshot(clear);
+        var wanted = (kinds ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return wanted.Count == 0 ? all : all.Where(e => wanted.Contains(e.Kind)).ToArray();
     }
 
     /// <summary>Copie du journal ; <paramref name="clear"/> vide le journal dans la même section critique.</summary>

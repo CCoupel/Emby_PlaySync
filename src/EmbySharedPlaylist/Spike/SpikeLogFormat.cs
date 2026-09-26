@@ -1,3 +1,4 @@
+using EmbySharedPlaylist.Core;
 using System.Globalization;
 
 namespace EmbySharedPlaylist.Spike;
@@ -13,28 +14,6 @@ public static class SpikeLogFormat
     private static string B(bool? v) => v.HasValue ? (v.Value ? "true" : "false") : "null";
     private static string S(string? v) => string.IsNullOrEmpty(v) ? "-" : v;
     private static string L(long? v) => v.HasValue ? v.Value.ToString(CultureInfo.InvariantCulture) : "-";
-
-    public const string ConsolePrefix = "[EmbySharedPlaylist] ";
-    private const string StartupPrefix = "EmbySharedPlaylist : ";
-
-    public static string Startup(bool enabled) =>
-        StartupPrefix + "écouteurs du spike enregistrés (EnableSpikeEndpoints=" + B(enabled) + ")";
-
-    /// <summary>Ligne écrite quand la configuration du plugin est sauvegardée (valeur courante de l'option).</summary>
-    public static string ConfigSaved(bool enabled) =>
-        StartupPrefix + "configuration enregistrée (EnableSpikeEndpoints=" + B(enabled) + ")";
-
-    /// <summary>
-    /// Version console d'une ligne du fichier : préfixe court « [EmbySharedPlaylist] » (comme « [VirtualLib] »), sans niveau
-    /// ni horodatage (utiliser <c>kubectl logs --timestamps</c>). Une erreur porte « ERROR » et le seul type d'exception.
-    /// </summary>
-    public static string ToConsole(string line, bool isError = false, string? exceptionType = null)
-    {
-        var rest = line;
-        if (rest.StartsWith(Prefix, StringComparison.Ordinal)) rest = rest.Substring(Prefix.Length);
-        else if (rest.StartsWith(StartupPrefix, StringComparison.Ordinal)) rest = rest.Substring(StartupPrefix.Length);
-        return ConsolePrefix + (isError ? "ERROR " : string.Empty) + rest + (exceptionType != null ? " (" + exceptionType + ")" : string.Empty);
-    }
 
     /// <summary>PlaybackProgress arrive toutes les quelques secondes par client : Debug, tout le reste en Info.</summary>
     public static bool IsDebugLevel(JournalEntry e) =>

@@ -1,4 +1,4 @@
-namespace EmbySharedPlaylist.Spike;
+namespace EmbySharedPlaylist.Core;
 
 /// <summary>
 /// Ensemble « écritures plugin » (anti-écho, R5) : le plugin enregistre (utilisateur, média) avant d'écrire ;

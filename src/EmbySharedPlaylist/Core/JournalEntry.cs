@@ -1,4 +1,4 @@
-namespace EmbySharedPlaylist.Spike;
+namespace EmbySharedPlaylist.Core;
 
 /// <summary>Événement capté par le spike (voir contracts/http-endpoints.md, Spike/Events).</summary>
 public sealed class JournalEntry

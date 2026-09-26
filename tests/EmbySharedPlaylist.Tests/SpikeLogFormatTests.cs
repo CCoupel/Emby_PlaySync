@@ -1,3 +1,4 @@
+using EmbySharedPlaylist.Core;
 using EmbySharedPlaylist.Spike;
 using Xunit;
 
@@ -8,8 +9,8 @@ public class SpikeLogFormatTests
     [Fact]
     public void Startup_ContainsFilterTokenAndConfigValue()
     {
-        Assert.Equal("EmbySharedPlaylist : écouteurs du spike enregistrés (EnableSpikeEndpoints=true)", SpikeLogFormat.Startup(true));
-        Assert.Contains("EnableSpikeEndpoints=false", SpikeLogFormat.Startup(false));
+        Assert.Equal("EmbySharedPlaylist : écouteurs du spike enregistrés (EnableSpikeEndpoints=true)", LogFormat.Startup(true));
+        Assert.Contains("EnableSpikeEndpoints=false", LogFormat.Startup(false));
     }
 
     [Fact]

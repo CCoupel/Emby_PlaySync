@@ -36,6 +36,24 @@ public class ConfigPageTests
         Assert.Contains("data-controller=\"__plugin/" + Plugin.ConfigScriptName + "\"", html);
     }
 
+    [Theory]
+    [InlineData("GracePasses")]
+    [InlineData("EnableDiagnostics")]
+    [InlineData("LogToConsole")]
+    [InlineData("LogLevel")]
+    public void ConfigPageAndScript_ExposeTheV020Parameters(string id)
+    {
+        Assert.Contains("id=\"" + id + "\"", ReadResource("EmbySharedPlaylist.Configuration.configPage.html"));
+        Assert.Contains("#" + id, ReadResource("EmbySharedPlaylist.Configuration.configScript.js"));
+    }
+
+    [Fact]
+    public void ConfigPage_OffersTheThreeLogLevels()
+    {
+        var html = ReadResource("EmbySharedPlaylist.Configuration.configPage.html");
+        foreach (var v in new[] { "Off", "Info", "Debug" }) Assert.Contains("<option value=\"" + v + "\">", html);
+    }
+
     [Fact]
     public void ConfigScript_UsesThePluginGuid()
     {
