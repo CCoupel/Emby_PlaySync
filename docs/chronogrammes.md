@@ -482,17 +482,17 @@ passe périodique (tâche planifiée Emby : démarrage + 5 min):
 | D12 | **Exécution immédiate sous verrou par playlist, sans file** (R12), appels internes d'Emby uniquement ; passe périodique pour ce qu'aucun événement ne signale (partage créé sans action, repose après grâce). Mode définitif fixé par l'essai de ré-entrance U11 (#52). |
 | D13 | **Message d'aide** (FR seul) écrit chaque fois que la description est vide, jamais par-dessus un texte. **Effet visible au démarrage de v0.2.0** : pose des deux `=NON` et du message sur **toutes** les playlists partagées existantes, comptes réels inclus. |
 | D14 | **v0.2.0 reste en QUALIF seulement.** La propagation du lu (v0.3.0, #20) est indépendante de `remove-si-lu` (matrice 2×2) ; la propagation de l'avancement est en v0.3.1 (#45). |
+| D15 | **Mise à jour du message d'aide en v0.3.0** (#51) : quand `propager-lu` devient effectif, le plugin remplace le texte « fonction à venir » **uniquement si la description est encore identique, caractère pour caractère, au message d'aide de v0.2.0** ; sinon il ne touche à rien. |
+| D16 | **Période de réconciliation** : celle de la tâche planifiée d'Emby (déclencheurs par défaut : démarrage, puis toutes les 5 min ; modifiable au tableau de bord), et non un champ de configuration du plugin. La passe prend **le même verrou par playlist** que les gestionnaires d'événements. Elle borne le délai de prise en compte d'un nouveau partage et la grâce (2 passes). |
 
 ## 7. Points ouverts
 
 1. **Ré-entrance (U11, #52)** : mode d'exécution définitif (immédiat dans le gestionnaire, ou repli `Task.Run` sous verrou) selon l'essai (latence p95 ≤ 300 ms, aucun `database is locked`, aucune boucle).
 2. **Clients** : TV/mobile (U8), édition des étiquettes (`=`, casse, remplacement NON → OUI en une sauvegarde) dans l'éditeur web réel et sur TV/mobile, page de configuration du plugin (404 observé), retrait pendant la lecture d'une file.
-3. **Période de réconciliation** : c'est celle de la tâche planifiée Emby (défaut 5 min, modifiable au tableau de bord), non un champ de configuration du plugin ; elle borne le délai de prise en compte d'un nouveau partage et la grâce (2 passes).
-4. **Message d'aide en v0.3.0** : mettre à jour le texte « fonction à venir » uniquement si la description est encore identique au message de v0.2.0, ou ne rien toucher (à trancher par l'utilisateur).
-5. **Anti-écho** (v0.3.0, #21) : une entrée d'écriture plugin dont l'événement n'est jamais émis reste 5 min et peut marquer à tort l'écriture utilisateur suivante.
-6. **D8 (v0.4.0)** : comptes désactivés et profils enfants inclus ? Appliquer une seule fois par utilisateur pour respecter un décochage volontaire ? Événement de création d'utilisateur non établi.
-7. **Avancement (D9, v0.3.1)** : seuil minimal de position, lectures simultanées, comportement près de la fin.
-8. **Langue du message d'aide** : français seul jusqu'à la localisation FR/EN.
+3. **Anti-écho** (v0.3.0, #21) : une entrée d'écriture plugin dont l'événement n'est jamais émis reste 5 min et peut marquer à tort l'écriture utilisateur suivante.
+4. **D8 (v0.4.0)** : comptes désactivés et profils enfants inclus ? Appliquer une seule fois par utilisateur pour respecter un décochage volontaire ? Événement de création d'utilisateur non établi.
+5. **Avancement (D9, v0.3.1)** : seuil minimal de position, lectures simultanées, comportement près de la fin.
+6. **Langue du message d'aide** : français seul jusqu'à la localisation FR/EN.
 
 ## 8. Guide utilisateur
 
