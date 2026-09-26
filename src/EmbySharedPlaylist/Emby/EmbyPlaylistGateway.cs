@@ -25,14 +25,16 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
     private readonly IPlaylistManager _playlistManager;
     private readonly PlaylistEntryReader _entries;
     private readonly Func<bool> _isSuspended;
+    private readonly IJournal? _journal;
 
     /// <summary>Verrou d'écriture unique de la passerelle : la passe planifiée et les gestionnaires peuvent se croiser.</summary>
     private readonly object _writeGate = new();
 
     /// <param name="isSuspended">Vrai = le moteur est suspendu (sonde U11 active) : aucune écriture, quoi que demande l'appelant (dernier garde-fou).</param>
     public EmbyPlaylistGateway(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository, IPlaylistManager playlistManager,
-        Func<bool>? isSuspended = null)
+        Func<bool>? isSuspended = null, IJournal? journal = null)
     {
+        _journal = journal;
         _entries = new PlaylistEntryReader(libraryManager, userManager, itemRepository);
         _isSuspended = isSuspended ?? (() => false);
         _libraryManager = libraryManager;
@@ -97,6 +99,13 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
             // retrait par ItemId via l'API interne du dépôt (retire d'un coup tous les doublons ; l'appel suivant ne trouve plus rien).
             if (!read.WithoutEntryId.Contains(item)) return false;
             using (WriteScope.Enter()) _itemRepository.RemoveListItemsByItemIds(playlist.InternalId, new[] { item });
+
+            // Le repli n'est pas vérifié en réel : on RELIT la playlist et on n'affirme le succès que si le média a réellement disparu.
+            if (ContainsItem(_entries.Read(playlist), item))
+            {
+                try { _journal?.Add(JournalEntries.SkippedEntry(null, playlistId, "no-effect")); } catch { /* jamais d'exception ici */ }
+                return false;
+            }
             return true;
         }
 
@@ -136,11 +145,18 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
 
             if (posed.Count == 0 && !overviewWritten) return new ApplyResult();
 
+            var before = (playlist.Tags ?? Array.Empty<string>()).ToList();
+            var added = posed.Select(MarkerEvaluator.NonTag).ToList();
             using (WriteScope.Enter())
             {
                 if (posed.Count > 0) playlist.SetTags(tags); // uniquement des ajouts : la liste relue + les nouvelles étiquettes
                 playlist.UpdateToRepository(ItemUpdateType.MetadataEdit);
             }
+
+            // Relecture : tout l'avant + les ajouts (+ la description) doivent y être ; sinon Error (type seul), jamais de suppression.
+            var check = FindPlaylist(playlistId);
+            if (check != null && !WriteVerifier.Verify(before, added, check.Tags, overviewWritten ? overviewIfEmpty : null, check.Overview))
+                throw new WriteVerificationException();
             return new ApplyResult(posed, overviewWritten);
         }
     }

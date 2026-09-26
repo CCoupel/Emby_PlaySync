@@ -48,9 +48,11 @@ public sealed class PlaylistEntryReader
             try
             {
                 var items = read() ?? Array.Empty<BaseItem>();
-                foreach (var zero in items.Where(i => i.ListItemEntryId == 0)) zeroEntryIds.Add(zero.InternalId);
+                var zeros = items.Where(i => i.ListItemEntryId == 0).Select(i => i.InternalId).ToList();
                 var entries = items.Where(i => i.ListItemEntryId != 0).Select(i => new PlaylistEntry(i.ListItemEntryId, i.InternalId)).ToList();
-                if (entries.Count > 0) return new EntryReadResult(entries, name);
+                // Playlist MIXTE : les médias à ListItemEntryId = 0 sont rapportés aussi quand d'autres ont un identifiant.
+                if (entries.Count > 0) return new EntryReadResult(entries, name, zeros);
+                foreach (var z in zeros) zeroEntryIds.Add(z);
                 tried.Add($"{name}:{items.Length}items/{entries.Count}entries");
             }
             catch (Exception ex)

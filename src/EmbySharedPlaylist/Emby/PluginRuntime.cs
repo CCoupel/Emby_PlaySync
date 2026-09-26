@@ -59,7 +59,7 @@ public static class PluginRuntime
             // Les Skipped bruyants (already-seen, reentrant…) ne vont qu'aux compteurs ; le reste est journalisé (mémoire + logs).
             var journal = new AggregatingJournal(new LoggingJournal(JournalStore, log), Skipped, log);
             var clock = new SystemClock();
-            var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager, () => EngineSuspended);
+            var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager, () => EngineSuspended, journal);
             var defaults = new DefaultsService(gateway, Seen, Locks, journal, HelpText.Message,
                 () => Plugin.Instance?.Configuration.EffectiveGracePasses ?? 2, clock, null, () => EngineSuspended);
 
