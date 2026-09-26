@@ -72,6 +72,7 @@ public class PlayedTransitionTrackerDevTests
     [Theory]
     [InlineData("Import")]
     [InlineData("UpdateUserRating")]
+    [InlineData("UpdateHideFromResume")]
     [InlineData("MotInconnu")]
     public void NonPlaybackReasons_AfterAKnownUnplayed_AreARealChange(string reason)
     {
@@ -87,6 +88,18 @@ public class PlayedTransitionTrackerDevTests
     {
         var t = new PlayedTransitionTracker();
         Assert.True(T(t, reason, true));
+        Assert.False(T(t, reason, true));
+    }
+
+    [Theory]
+    [InlineData("Import")]
+    [InlineData("UpdateUserRating")]
+    [InlineData("UpdateHideFromResume")]
+    [InlineData("PlaybackProgress")]
+    public void AlreadyPlayedMemory_WithAnyReasonButTogglePlayed_IsNeverATransition(string reason)
+    {
+        var t = new PlayedTransitionTracker();
+        T(t, "PlaybackStart", true);   // mémoire connue : déjà lu
         Assert.False(T(t, reason, true));
     }
 
