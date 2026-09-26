@@ -1,4 +1,5 @@
 using EmbySharedPlaylist.Core;
+using EmbySharedPlaylist.Engine;
 using EmbySharedPlaylist.Reconciliation;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
@@ -21,6 +22,8 @@ public static class PluginRuntime
     public static PluginWriteTracker Tracker { get; } = new();
     public static PlaylistLocks Locks { get; } = new();
     public static SeenPlaylists Seen { get; } = new();
+    public static PlayedTransitionTracker PlayedTransitions { get; } = new();
+    public static HandlerStats Handler { get; } = new();
 
     public static Log? Log { get; private set; }
     public static IJournal? Journal { get; private set; }
@@ -28,6 +31,7 @@ public static class PluginRuntime
     public static DefaultsService? Defaults { get; private set; }
     public static ReconciliationService? Reconciliation { get; private set; }
     public static FirstDetectionCoordinator? FirstDetection { get; private set; }
+    public static ReadRemovalEngine? RemovalEngine { get; private set; }
 
     /// <summary>
     /// Vrai pendant l'essai technique de réentrance U11 (option <c>EnableReentrancyProbe</c>, temporaire) : le moteur n'écrit
@@ -63,6 +67,7 @@ public static class PluginRuntime
             Defaults = defaults;
             Reconciliation = new ReconciliationService(gateway, defaults, Seen, Locks, journal, clock, null, () => EngineSuspended);
             FirstDetection = new FirstDetectionCoordinator(gateway, defaults, Seen, journal, clock, () => EngineSuspended);
+            RemovalEngine = new ReadRemovalEngine(gateway, defaults, Seen, Locks, journal, clock, null, () => EngineSuspended);
             _initialized = true;
         }
     }

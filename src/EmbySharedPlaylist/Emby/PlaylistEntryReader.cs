@@ -11,7 +11,11 @@ namespace EmbySharedPlaylist.Emby;
 public sealed record PlaylistEntry(long EntryId, long ItemId);
 
 /// <summary>Résultat de lecture : les entrées et la stratégie qui a répondu (ou le détail des essais infructueux, ids seulement).</summary>
-public sealed record EntryReadResult(IReadOnlyList<PlaylistEntry> Entries, string Strategy);
+public sealed record EntryReadResult(IReadOnlyList<PlaylistEntry> Entries, string Strategy, IReadOnlyList<long>? ItemsWithoutEntryId = null)
+{
+    /// <summary>Médias vus dans la playlist mais SANS identifiant d'entrée (ListItemEntryId = 0) : ils ne se retirent que par ItemId.</summary>
+    public IReadOnlyList<long> WithoutEntryId => ItemsWithoutEntryId ?? Array.Empty<long>();
+}
 
 /// <summary>
 /// Lit les entrées d'une playlist AVEC leur identifiant d'entrée. Constat (QA v0.1.0 puis essai U11) :
@@ -37,12 +41,14 @@ public sealed class PlaylistEntryReader
     public EntryReadResult Read(Playlist playlist, User? preferredUser = null)
     {
         var tried = new List<string>();
+        var zeroEntryIds = new HashSet<long>();
 
         EntryReadResult? Try(string name, Func<BaseItem[]> read)
         {
             try
             {
                 var items = read() ?? Array.Empty<BaseItem>();
+                foreach (var zero in items.Where(i => i.ListItemEntryId == 0)) zeroEntryIds.Add(zero.InternalId);
                 var entries = items.Where(i => i.ListItemEntryId != 0).Select(i => new PlaylistEntry(i.ListItemEntryId, i.InternalId)).ToList();
                 if (entries.Count > 0) return new EntryReadResult(entries, name);
                 tried.Add($"{name}:{items.Length}items/{entries.Count}entries");
@@ -73,7 +79,7 @@ public sealed class PlaylistEntryReader
         var byList = Try("listids", () => _libraryManager.GetItemList(new InternalItemsQuery { ListIds = new[] { playlist.InternalId } }));
         if (byList != null) return byList;
 
-        return new EntryReadResult(Array.Empty<PlaylistEntry>(), "none[" + string.Join(",", tried) + "]");
+        return new EntryReadResult(Array.Empty<PlaylistEntry>(), "none[" + string.Join(",", tried) + "]", zeroEntryIds.ToList());
     }
 
     /// <summary>Membres de la playlist (lignes de partage ≥ Read), le propriétaire (ManageDelete) en premier.</summary>

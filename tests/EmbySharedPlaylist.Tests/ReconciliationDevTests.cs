@@ -28,11 +28,16 @@ internal sealed class FakeGateway : IPlaylistGateway
         public List<string> Members = new() { "o", "m" };
         public List<string> Tags = new();
         public string? Overview;
+        /// <summary>Médias de la playlist (un id par entrée : les doublons sont possibles).</summary>
+        public List<string> Items = new();
     }
 
     public readonly Dictionary<string, State> Playlists = new();
     public int ApplyCalls;
     public int ListCalls;
+    public int RemoveCalls;
+    public Func<string, bool>? ThrowOnRemoveFor;
+    public Action<string>? OnRemove;
     public int GetCalls;
     public Func<string, bool>? ThrowOnApplyFor;
     public bool ThrowOnList;
@@ -55,7 +60,13 @@ internal sealed class FakeGateway : IPlaylistGateway
         lock (Gate) return Playlists.Select(p => Snap(p.Key, p.Value)).Where(s => s.IsShared).ToList();
     }
 
-    public IReadOnlyList<PlaylistSnapshot> ListSharedPlaylistsOfUserContaining(string userId, string itemId) => Array.Empty<PlaylistSnapshot>();
+    public IReadOnlyList<PlaylistSnapshot> ListSharedPlaylistsOfUserContaining(string userId, string itemId)
+    {
+        lock (Gate)
+            return Playlists.Select(p => Snap(p.Key, p.Value))
+                .Where(s => s.IsShared && s.MemberIds.Contains(userId) && Playlists[s.Id].Items.Contains(itemId))
+                .ToList();
+    }
 
     public PlaylistSnapshot? Get(string playlistId)
     {
@@ -63,7 +74,13 @@ internal sealed class FakeGateway : IPlaylistGateway
         lock (Gate) return Playlists.TryGetValue(playlistId, out var s) ? Snap(playlistId, s) : null;
     }
 
-    public bool RemoveOneEntry(string playlistId, string itemId) => false;
+    public bool RemoveOneEntry(string playlistId, string itemId)
+    {
+        Interlocked.Increment(ref RemoveCalls);
+        OnRemove?.Invoke(playlistId);
+        if (ThrowOnRemoveFor?.Invoke(playlistId) == true) throw new InvalidOperationException("retrait en échec avec un message secret");
+        lock (Gate) return Playlists[playlistId].Items.Remove(itemId);
+    }
 
     public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, string? overviewIfEmpty)
     {

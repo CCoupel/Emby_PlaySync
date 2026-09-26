@@ -69,7 +69,7 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         {
             if (!snapshot.MemberIds.Contains(userId, StringComparer.Ordinal)) continue;
             if (long.TryParse(snapshot.Id, out var pid) && _libraryManager.GetItemById(pid) is Playlist playlist
-                && _entries.Read(playlist, member).Entries.Any(c => c.ItemId == item))
+                && ContainsItem(_entries.Read(playlist, member), item))
                 result.Add(snapshot);
         }
         return result;
@@ -89,8 +89,16 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         var playlist = FindPlaylist(playlistId);
         if (playlist == null || !long.TryParse(itemId, out var item)) return false;
         // Résolution par ItemId à l'instant : les identifiants d'entrée ne sont pas stables.
-        var entry = _entries.Read(playlist).Entries.FirstOrDefault(c => c.ItemId == item);
-        if (entry == null) return false;
+        var read = _entries.Read(playlist);
+        var entry = read.Entries.FirstOrDefault(c => c.ItemId == item);
+        if (entry == null)
+        {
+            // Repli (non vérifié en réel) : si Emby ne fournit AUCUN identifiant d'entrée (ListItemEntryId = 0) pour ce média,
+            // retrait par ItemId via l'API interne du dépôt (retire d'un coup tous les doublons ; l'appel suivant ne trouve plus rien).
+            if (!read.WithoutEntryId.Contains(item)) return false;
+            using (WriteScope.Enter()) _itemRepository.RemoveListItemsByItemIds(playlist.InternalId, new[] { item });
+            return true;
+        }
 
         using (WriteScope.Enter())
         {
@@ -138,6 +146,9 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
     }
 
     // ---- Aides -------------------------------------------------------------------------------------------
+
+    private static bool ContainsItem(EntryReadResult read, long item) =>
+        read.Entries.Any(c => c.ItemId == item) || read.WithoutEntryId.Contains(item);
 
     private Playlist[] AllPlaylists() =>
         _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = new[] { "Playlist" }, Recursive = true })
