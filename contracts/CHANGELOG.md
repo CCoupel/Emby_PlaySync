@@ -14,6 +14,7 @@
 - **[NEW]** `POST /SharedPlaylist/Spike/SetPosition` — écrit la position de lecture d'un utilisateur de test sans marquer lu (temporaire, #44)
 - **[CHANGED]** `GET /SharedPlaylist/Spike/Events` (#44) : champs `positionTicks` et `lastPlayedDate` ; paramètre `saveReason` (filtre) ; `PlaybackProgress` désormais journalisé sans condition (remplace la règle `played=true`)
 - **[CHANGED]** `GET /SharedPlaylist/Spike/Events` : champ `entryId` ajouté (PlaylistItemId des événements `PlaylistItems*`) ; `saveReason` porte aussi l'`ItemUpdateType` pour `ItemUpdated` .
+- **[CHANGED]** `GET Spike/Playlists` : `canLeaveSharedContent` documenté (déjà renvoyé). `POST Spike/Setup` : description alignée sur le code (partage `Write` des membres uniquement ; `Manage` du propriétaire = `CreatePlaylist`) ; propriétaire présent dans `memberUserIds` → 400 ; comptes administrateurs refusés par les garde-fous d'écriture (revue C2/S4).
 - **[CHANGED]** `Spike/*` : garde-fous d'écriture (comptes `test_*`, playlists `SPIKE*`, 400 sinon) ; corps des erreurs 500 = `error: <Type>: <message>`.
 
 SDK : aucune divergence de signature constatée (Emby 4.9.3.0, `libs/`) — `IPlaylistManager`, `ILibraryManager.SaveUserItemShares`, `IItemRepository.GetUserItemShares`, `IUserDataManager.SaveUserData/UserDataSaved`, `IUserManager.GetUserPolicy/UpdateUserPolicy`, `BaseItem.SetTags` compilent tels que décrits par réflexion. Les identifiants internes sont des `Int64` (les DTO REST les exposent en chaîne).

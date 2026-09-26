@@ -9,11 +9,11 @@ Tous : **Auth** : Admin (`[Authenticated(Roles = "Admin")]`) ; **404** si `Plugi
 
 **Identifiants** : les ids d'items (playlist, média, entrée `playlistItemId`) sont les identifiants internes Emby (entiers, en chaîne) ; les ids d'utilisateurs sont des GUID hexadécimaux sans tirets (`N`).
 
-**Garde-fous (implémentés)** : les écritures (`Setup`, `MarkPlayed`, `SetPosition`, `Policy` POST) sont **refusées (400)** pour tout compte dont le nom ne commence pas par `test_` (jamais `admin`, `cyril`, `user2`) ; `RemoveItem` et `Tags` POST sont refusés (400) pour une playlist dont le nom ne commence pas par `SPIKE`. `Setup` préfixe le nom demandé par `SPIKE-` s'il ne commence pas déjà par `SPIKE` (défaut : « SPIKE À voir »).
+**Garde-fous (implémentés)** : les écritures (`Setup`, `MarkPlayed`, `SetPosition`, `Policy` POST) sont **refusées (400)** pour tout compte dont le nom ne commence pas par `test_` **ou qui est administrateur** (même nommé `test_x`) (jamais `admin`, `cyril`, `user2`) ; `RemoveItem` et `Tags` POST sont refusés (400) pour une playlist dont le nom ne commence pas par `SPIKE`. `Setup` préfixe le nom demandé par `SPIKE-` s'il ne commence pas déjà par `SPIKE` (défaut : « SPIKE À voir »).
 
 ### POST /SharedPlaylist/Spike/Setup
 
-**Description** : crée une playlist « SPIKE À voir » pour `ownerUserId` avec `itemIds`, puis la partage en `Write` avec `memberUserIds` (`SaveUserItemShares`) et en `Manage` avec le propriétaire si le SDK l'exige. Points 1 (côté serveur) et 3.
+**Description** : crée une playlist « SPIKE À voir » pour `ownerUserId` avec `itemIds`, puis la partage en `Write` avec `memberUserIds` (`SaveUserItemShares`). Le propriétaire n'a pas de partage explicite créé par le plugin : ses droits viennent de `CreatePlaylist`. Le propriétaire présent dans `memberUserIds` est refusé (400). `shares` de la réponse = partages relus dans le dépôt après écriture. Points 1 (côté serveur) et 3.
 
 **Request body** :
 ```json
@@ -31,7 +31,7 @@ Tous : **Auth** : Admin (`[Authenticated(Roles = "Admin")]`) ; **404** si `Plugi
 
 **Response 200** :
 ```json
-[ { "playlistId": "string", "name": "string", "ownerUserId": "string|null", "shareLevel": "string", "canManageAccess": true, "entryCount": 0, "entries": [ { "playlistItemId": "string", "itemId": "string" } ] } ]
+[ { "playlistId": "string", "name": "string", "ownerUserId": "string|null", "shareLevel": "string", "canManageAccess": true, "canLeaveSharedContent": false, "entryCount": 0, "entries": [ { "playlistItemId": "string", "itemId": "string" } ] } ]
 ```
 
 ### POST /SharedPlaylist/Spike/RemoveItem
@@ -73,12 +73,12 @@ Tous : **Auth** : Admin (`[Authenticated(Roles = "Admin")]`) ; **404** si `Plugi
 
 ### GET|POST /SharedPlaylist/Spike/Tags
 
-**Description** : etiquettes et description d'une playlist, lues/ecrites **par le plugin**. GET `?playlistId={id}` ; POST `{ "playlistId": "string", "addTags": ["string"], "removeTags": ["string"], "overview": "string|null" }` (`overview` null = inchange). Ne remplace jamais l'ensemble des etiquettes : ajoute/retire seulement celles nommees (comparaison insensible a la casse ; `removeTags` l'emporte si un nom figure dans les deux listes). Plusieurs etiquettes (`propager-lu=NON` et `propager-lu=OUI`) peuvent coexister ; l'ordre « retirer NON puis ajouter OUI » (ou l'inverse) se teste en deux POST successifs, l'evenement `ItemUpdated` de chacun est journalise. Verifie : etiquette `propager-lu=NON` (caractere `=`, casse), preservation des etiquettes du proprietaire, absence de boucle sur l'evenement de mise a jour de metadonnees (journalise dans `Events`, kind `ItemUpdated`).
+**Description** : etiquettes et description d'une playlist, lues/ecrites **par le plugin**. GET `?playlistId={id}` ; POST `{ "playlistId": "string", "addTags": ["string"], "removeTags": ["string"], "overview": "string|null" }` (`overview` null = inchange). Ne remplace jamais l'ensemble des etiquettes : ajoute/retire seulement celles nommees (`removeTags` est reserve au diagnostic : le moteur, v0.2.0, ne supprime JAMAIS d'etiquette — decision utilisateur) (comparaison insensible a la casse ; `removeTags` l'emporte si un nom figure dans les deux listes). Plusieurs etiquettes (`propager-lu=NON` et `propager-lu=OUI`) peuvent coexister ; l'ordre « retirer NON puis ajouter OUI » (ou l'inverse) se teste en deux POST successifs, l'evenement `ItemUpdated` de chacun est journalise. Verifie : etiquette `propager-lu=NON` (caractere `=`, casse), preservation des etiquettes du proprietaire, absence de boucle sur l'evenement de mise a jour de metadonnees (journalise dans `Events`, kind `ItemUpdated`).
 
 **Response 200** : `{ "playlistId": "string", "tags": ["string"], "overview": "string|null" }`
 
 ### GET|POST /SharedPlaylist/Spike/Policy
 
-**Description** : point 5 bis. GET `?userId={id}` = valeur actuelle de `Policy.AllowSharingPersonalItems` ; POST `{ "userId": "string", "allowSharingPersonalItems": true }` la modifie via `IUserManager` (mise a jour de la politique). Ne modifie que ce champ : la politique complete est relue (`IUserManager.GetUserPolicy`) puis reecrite (`UpdateUserPolicy`). POST refuse tout compte hors `test_*`. Verifie que le plugin peut poser/lire cette permission (option future : « activer le partage pour les proprietaires de listes »).
+**Description** : point 5 bis. GET `?userId={id}` = valeur actuelle de `Policy.AllowSharingPersonalItems` ; POST `{ "userId": "string", "allowSharingPersonalItems": true }` la modifie via `IUserManager` (mise a jour de la politique). Ne modifie que ce champ : la politique complete est relue (`IUserManager.GetUserPolicy`) puis reecrite (`UpdateUserPolicy`). POST refuse tout compte hors `test_*` ou administrateur. Verifie que le plugin peut poser/lire cette permission (option future : « activer le partage pour les proprietaires de listes »).
 
 **Response 200** : `{ "userId": "string", "allowSharingPersonalItems": false }`

@@ -18,6 +18,15 @@ public class SpikeRulesTests
         Assert.Equal(expected, SpikeRules.IsTestUser(name));
 
     [Theory]
+    [InlineData("test_u1", false, true)]
+    [InlineData("test_admin", true, false)]
+    [InlineData("admin", false, false)]
+    [InlineData("admin", true, false)]
+    [InlineData(null, false, false)]
+    public void IsEligibleForSpikeWrite_RefusesAdministratorsAndNonTestAccounts(string? name, bool isAdmin, bool expected) =>
+        Assert.Equal(expected, SpikeRules.IsEligibleForSpikeWrite(name, isAdmin));
+
+    [Theory]
     [InlineData("SPIKE À voir", true)]
     [InlineData("SPIKE-x", true)]
     [InlineData("À voir", false)]

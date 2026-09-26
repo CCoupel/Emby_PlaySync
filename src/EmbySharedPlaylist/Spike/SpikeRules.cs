@@ -10,6 +10,10 @@ public static class SpikeRules
     public static bool IsTestUser(string? userName) =>
         userName != null && userName.StartsWith(TestUserPrefix, StringComparison.Ordinal);
 
+    /// <summary>Compte modifiable par le spike : préfixe test_ ET non administrateur (même s'il s'appelle test_x).</summary>
+    public static bool IsEligibleForSpikeWrite(string? userName, bool isAdministrator) =>
+        IsTestUser(userName) && !isAdministrator;
+
     /// <summary>Seules les playlists dont le nom commence par SPIKE peuvent être modifiées par le spike.</summary>
     public static bool IsSpikePlaylist(string? name) =>
         name != null && name.StartsWith(PlaylistPrefix, StringComparison.Ordinal);
@@ -33,7 +37,8 @@ public static class SpikeRules
 
     /// <summary>
     /// Ajoute puis retire uniquement les étiquettes nommées ; les autres sont conservées dans leur ordre.
-    /// Comparaison insensible à la casse. Un nom présent dans <paramref name="remove"/> est retiré même s'il est aussi ajouté.
+    /// Comparaison insensible à la casse. <c>remove</c> est réservé au diagnostic : le moteur (v0.2.0, décision
+    /// utilisateur) ne supprime JAMAIS d'étiquette. Un nom présent dans <paramref name="remove"/> est retiré même s'il est aussi ajouté.
     /// </summary>
     public static List<string> ApplyTagChanges(IEnumerable<string>? current, IEnumerable<string>? add, IEnumerable<string>? remove)
     {

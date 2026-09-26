@@ -41,6 +41,8 @@ public class SpikeService : IService
     {
         var owner = RequireTestUser(request.OwnerUserId);
         var members = request.MemberUserIds.Select(RequireTestUser).ToList();
+        if (members.Any(m => m.InternalId == owner.InternalId))
+            throw new ArgumentException("Le propriétaire ne doit pas figurer dans memberUserIds");
         var itemIds = request.ItemIds.Select(ParseId).ToArray();
 
         var created = await _playlistManager.CreatePlaylist(new PlaylistCreationRequest
@@ -188,6 +190,7 @@ public class SpikeService : IService
 
     public object Get(SpikeTags request) => Run(() => TagsResult(RequirePlaylist(request.PlaylistId)));
 
+    // removeTags : réservé au diagnostic. Le moteur (v0.2.0) ne supprime JAMAIS d'étiquette (décision utilisateur).
     public object Post(SpikeTags request) => Run(() =>
     {
         var playlist = RequireSpikePlaylist(request.PlaylistId);
@@ -239,7 +242,11 @@ public class SpikeService : IService
     {
         EnsureEnabled();
         try { return action(); }
-        catch (Exception ex) when (!IsHttpMappedException(ex)) { throw Wrap(ex); }
+        catch (Exception ex) when (!IsHttpMappedException(ex))
+        {
+            _logger.ErrorException("EmbySharedPlaylist spike : erreur non gérée", ex);
+            throw Wrap(ex);
+        }
     }
 
     private async Task<object> RunAsync(string operation, Func<Task<object>> action)
@@ -258,7 +265,10 @@ public class SpikeService : IService
     private static bool IsHttpMappedException(Exception ex) =>
         ex is ArgumentException or ResourceNotFoundException or MediaBrowser.Controller.Net.SecurityException;
 
-    /// <summary>500 : le corps porte « Type : message » (jamais de secret dans ces messages).</summary>
+    /// <summary>
+    /// 500 : le corps porte « Type : message ». Acceptable ici uniquement (endpoints de diagnostic, admin + QUALIF) :
+    /// ne pas reproduire dans les endpoints de production (le message peut révéler chemins ou détails internes).
+    /// </summary>
     private static Exception Wrap(Exception ex) => new InvalidOperationException($"error: {ex.GetType().Name}: {ex.Message}");
 
     private static long ParseId(string? id)
@@ -276,8 +286,8 @@ public class SpikeService : IService
     private User RequireTestUser(string? id)
     {
         var user = RequireUser(id);
-        if (!SpikeRules.IsTestUser(user.Name))
-            throw new ArgumentException("Le spike ne modifie que les comptes test_* : refusé pour " + user.Name);
+        if (!SpikeRules.IsEligibleForSpikeWrite(user.Name, _userManager.GetUserPolicy(user).IsAdministrator))
+            throw new ArgumentException("Le spike ne modifie que les comptes test_* non administrateurs : refusé pour " + user.Name);
         return user;
     }
 

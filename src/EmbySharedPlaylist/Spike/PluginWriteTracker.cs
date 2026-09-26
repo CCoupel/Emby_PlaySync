@@ -22,6 +22,9 @@ public sealed class PluginWriteTracker
         _now = now ?? (() => DateTime.UtcNow);
     }
 
+    // TODO (#21, anti-écho) : une écriture enregistrée dont l'événement n'est jamais émis (donnée inchangée) reste
+    // en attente jusqu'à expiration (TTL) et peut marquer à tort pluginWrite=true une écriture utilisateur
+    // suivante sur le même couple. Comportement volontairement inchangé pour le spike ; à traiter avec #21.
     public void Register(long userId, long itemId)
     {
         lock (_lock)
