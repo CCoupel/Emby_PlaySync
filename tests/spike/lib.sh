@@ -102,7 +102,7 @@ check_ignored() {
 
 user_id_by_name() { # stdout : id ou vide ; utilise /Users courant
   api GET /Users >/dev/null
-  jq -r --arg n "$1" '.[]|select(.Name==$n)|.Id' "$RESP" | head -1
+  jq -r --arg n "$1" 'first(.[]|select(.Name==$n)|.Id) // empty' "$RESP"
 }
 
 # Snapshot JSON (stdout) : noms de tous les utilisateurs + Policy des comptes protégés existants.
@@ -129,8 +129,10 @@ compare_protected() {
   local exp_users; exp_users=$(jq -c --argjson e "$extra" '(.users + $e)|sort' "$SNAPSHOT")
   local now_users; now_users=$(jq -c '.users|sort' <<<"$now")
   local ok=0
-  if [[ $exp_users != "$now_users" ]]; then echo "  [KO] $label : liste des utilisateurs différente"; ok=1; fi
-  if [[ $(jq -S -c '.policies' "$SNAPSHOT") != $(jq -S -c '.policies' <<<"$now") ]]; then
+  if [[ "$exp_users" != "$now_users" ]]; then echo "  [KO] $label : liste des utilisateurs différente"; ok=1; fi
+  local pol_exp pol_now
+  pol_exp=$(jq -S -c '.policies' "$SNAPSHOT"); pol_now=$(jq -S -c '.policies' <<<"$now")
+  if [[ "$pol_exp" != "$pol_now" ]]; then
     echo "  [KO] $label : politique d'un compte protégé modifiée"; ok=1
   fi
   if [[ $ok == 0 ]]; then echo "  [OK] $label : utilisateurs et politiques de ${PROTECTED_USERS[*]} inchangés"; fi

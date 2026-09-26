@@ -45,6 +45,26 @@ st=$(api GET "/System/Info?q=1")
 [[ $st == 200 ]] && ok "GET simple : 200" || ko "GET : $st"
 [[ $(last | jq -r '.headers["X-Emby-Token"]') == 'fake"key\with"special' ]] && ok "token avec guillemets/antislash reçu intact" || ko "token altéré"
 [[ $(last | jq -r '.path') == "/emby/System/Info?q=1" ]] && ok "URL/chemin corrects" || ko "chemin : $(last | jq -r .path)"
+
+# --- compare_protected : le JSON des politiques contient des [ ] (pas de glob dans [[ ]])
+echo "== compare_protected"
+SNAPSHOT="$SCRATCH/snap.json"
+PROTECTED_USERS=(admin user2)
+mk_state() { # POLITIQUE_USER2_JSON NOMS_JSON
+  jq -nSc --argjson p "$1" --argjson u "$2" '{users:$u, policies:{admin:{IsAdministrator:true,BlockedTags:["a","b"]}, user2:$p}}'
+}
+POL='{"EnabledFolders":["x","y"],"BlockedTags":[],"AllowSharingPersonalItems":false}'
+mk_state "$POL" '["admin","user2"]' > "$SNAPSHOT"
+snapshot_users() { CUR; }
+CUR() { mk_state "$POL_NOW" "$USERS_NOW"; }
+POL_NOW=$POL; USERS_NOW='["admin","user2"]'
+if compare_protected "identique avec [ ]" >/dev/null; then ok "politiques identiques (avec [ ]) => égales"; else ko "faux positif : politiques identiques jugées différentes"; fi
+POL_NOW='{"EnabledFolders":["x","y"],"BlockedTags":[],"AllowSharingPersonalItems":true}'
+if compare_protected "politique modifiée" >/dev/null; then ko "politique modifiée non détectée"; else ok "politique modifiée => détectée"; fi
+POL_NOW=$POL; USERS_NOW='["admin","test_u1","user2"]'
+if compare_protected "extra non déclaré" >/dev/null; then ko "utilisateur en trop non détecté"; else ok "utilisateur en trop => détecté"; fi
+if compare_protected "extra déclaré" test_u1 >/dev/null; then ok "utilisateur attendu (test_u1) accepté"; else ko "utilisateur attendu rejeté"; fi
+
 echo "  (aucune valeur réelle utilisée : serveur local, clé factice)"
 
 [[ $fail == 0 ]] || { echo "ECHEC test-lib-offline" >&2; exit 1; }

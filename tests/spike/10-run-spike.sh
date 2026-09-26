@@ -49,6 +49,7 @@ DEFS='def n: (.//"")|tostring|ascii_downcase|gsub("-";"");'
 
 rec() { # U ID KIND STATUS DESC [EVIDENCE_JSON]
   local ev=${6:-null}
+  jq -e . <<<"$ev" >/dev/null 2>&1 || ev=$(jq -Rn --arg s "$ev" '$s')   # évidence non-JSON : conservée en chaîne
   jq -nc --arg u "$1" --arg id "$2" --arg k "$3" --arg s "$4" --arg d "$5" --argjson e "$ev" \
     '{u:$u,id:$id,kind:$k,status:$s,desc:$d,evidence:$e}' >> "$RES"
   printf '  [%s] %s.%s (%s) %s\n' "$4" "$1" "$2" "$3" "$5"
@@ -167,7 +168,7 @@ ck U4 by-media probe "requête « playlists contenant le média M3 visibles par 
 
 # ---------------------------------------------------------------- U1 : événements « lu »
 echo "== U1 — UserDataSaved (lecture simulée, marquage manuel, écriture plugin)"
-RT=$(runtime "$M1")
+RT=$(runtime "$M1"); need_int "RunTimeTicks(M1)" "$RT"
 SID="spike-$RANDOM$RANDOM"
 ev_clear
 play() { # ETAT POSITION
@@ -367,7 +368,7 @@ fi
 echo "== U10 — propagation de la position de lecture (u1 commence, u2 poursuit)"
 # Contrat : POST Spike/SetPosition {userId,itemId,positionTicks} -> 200 ; événements : champ positionTicks.
 is_test_user "$U2" && is_test_user "$U1" || die "garde : u1/u2 ne sont pas des comptes de test"
-RT3=$(runtime "$M3")
+RT3=$(runtime "$M3"); need_int "RunTimeTicks(M3)" "$RT3"
 playi() { # ITEM SESSION POSITION
   jc -n --arg i "$1" --arg s "$2" --argjson p "$3" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}'
 }
@@ -385,7 +386,12 @@ in_resume() { # UID TOKEN ITEM
   api GET "/Users/$1/Items/Resume?Recursive=true&MediaTypes=Video&Limit=100" "" "$2" >/dev/null
   jq -e --arg i "$3" "$DEFS"'[.Items[]|.Id|n]|index($i|n)!=null' "$RESP" >/dev/null
 }
-near() { local d=$(($1-$2)); ((d<0)) && d=$((-d)); ((d<=10000000)); }   # tolérance 1 s
+near() {   # A B : |A-B| <= 1 s ; faux si une valeur n'est pas un entier
+  [[ $1 =~ ^[0-9]+$ && $2 =~ ^[0-9]+$ ]] || return 1
+  local d; d=$(($1-$2)); if ((d<0)); then d=$((-d)); fi
+  ((d<=10000000))
+}
+need_int() { [[ $2 =~ ^[0-9]+$ ]] || die "$1 : valeur non entière ('$2') — média sans durée ou lecture impossible"; }
 ev_user() { # UID ITEM -> événements UserDataSaved compacts
   jq -c --arg u "$1" --arg i "$2" "$DEFS"'[.[]|select(.kind=="UserDataSaved" and (.userId|n)==($u|n) and (.itemId|n)==($i|n))|{saveReason,played,position:(.positionTicks // null),pluginWrite}]' <<<"${EV:-[]}"
 }
