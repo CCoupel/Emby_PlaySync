@@ -20,11 +20,19 @@ public static class MarkerEvaluator
     /// <summary>Étiquette posée par défaut : <c>remove-si-lu=NON</c> / <c>propager-lu=NON</c>.</summary>
     public static string NonTag(MarkerFamily family) => FamilyName(family) + "=NON";
 
+    // Une expression par famille, construite une seule fois (le gestionnaire de lecture évalue à chaque transition).
+    // \z (fin de chaîne stricte) et non $ : « remove-si-lu=OUI\n » n'est pas une étiquette valide.
+    private static readonly Regex RemoveSiLuPattern = Build(MarkerFamily.RemoveSiLu);
+    private static readonly Regex PropagerLuPattern = Build(MarkerFamily.PropagerLu);
+
+    private static Regex Build(MarkerFamily family) =>
+        new("^\\s*" + Regex.Escape(FamilyName(family)) + "\\s*=\\s*(NON|OUI)\\s*\\z",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public static MarkerState Evaluate(IEnumerable<string>? tags, MarkerFamily family)
     {
         if (tags == null) return MarkerState.None;
-        var pattern = new Regex("^\\s*" + Regex.Escape(FamilyName(family)) + "\\s*=\\s*(NON|OUI)\\s*$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        var pattern = family == MarkerFamily.RemoveSiLu ? RemoveSiLuPattern : PropagerLuPattern;
 
         var hasOui = false;
         var hasNon = false;

@@ -71,6 +71,10 @@ public class MarkerEvaluatorDevTests
     [InlineData("remove-si-lu=OUI=NON", MarkerState.None)]
     [InlineData("remove_si_lu=OUI", MarkerState.None)]
     [InlineData("", MarkerState.None)]
+    [InlineData("remove-si-lu=OUI\n", MarkerState.Oui)]   // espaces blancs de bordure tolérés (retour à la ligne compris)
+    [InlineData("remove-si-lu=OUI\nX", MarkerState.None)]
+    [InlineData("remove-si-lu=OUI x", MarkerState.None)]
+    [InlineData("remove-si-lu=OUI\t", MarkerState.Oui)]
     public void CaseSpacesAndNeighbourVariants(string tag, MarkerState expected) =>
         Assert.Equal(expected, MarkerEvaluator.Evaluate(new[] { tag }, MarkerFamily.RemoveSiLu));
 

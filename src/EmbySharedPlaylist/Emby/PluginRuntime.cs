@@ -69,7 +69,7 @@ public static class PluginRuntime
             Defaults = defaults;
             Reconciliation = new ReconciliationService(gateway, defaults, Seen, Locks, journal, clock, null, () => EngineSuspended);
             FirstDetection = new FirstDetectionCoordinator(gateway, defaults, Seen, journal, clock, () => EngineSuspended);
-            RemovalEngine = new ReadRemovalEngine(gateway, defaults, Seen, Locks, journal, clock, null, () => EngineSuspended);
+            RemovalEngine = new ReadRemovalEngine(gateway, defaults, Seen, Locks, journal, clock, null, () => EngineSuspended, ReadRemovalEngine.DefaultBudget);
             _initialized = true;
         }
     }

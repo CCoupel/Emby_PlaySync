@@ -21,6 +21,9 @@ public sealed class ReadRemovalEngine
 {
     public const int MaxEntriesPerPlaylist = 50;
 
+    /// <summary>Budget cumulé du traitement d'une transition sur l'ensemble de ses playlists candidates (le gestionnaire tourne sur le fil de l'événement).</summary>
+    public static readonly TimeSpan DefaultBudget = TimeSpan.FromSeconds(10);
+
     private readonly IPlaylistGateway _gateway;
     private readonly DefaultsService _defaults;
     private readonly SeenPlaylists _seen;
@@ -29,9 +32,10 @@ public sealed class ReadRemovalEngine
     private readonly IClock _clock;
     private readonly TimeSpan _lockTimeout;
     private readonly Func<bool> _isSuspended;
+    private readonly TimeSpan _budget;
 
     public ReadRemovalEngine(IPlaylistGateway gateway, DefaultsService defaults, SeenPlaylists seen, PlaylistLocks locks,
-        IJournal journal, IClock clock, TimeSpan? lockTimeout = null, Func<bool>? isSuspended = null)
+        IJournal journal, IClock clock, TimeSpan? lockTimeout = null, Func<bool>? isSuspended = null, TimeSpan? budget = null)
     {
         _gateway = gateway;
         _defaults = defaults;
@@ -41,6 +45,7 @@ public sealed class ReadRemovalEngine
         _clock = clock;
         _lockTimeout = lockTimeout ?? PlaylistLocks.DefaultTimeout;
         _isSuspended = isSuspended ?? (() => false);
+        _budget = budget ?? DefaultBudget;
     }
 
     public RemovalResult Handle(string userId, string itemId)
@@ -66,12 +71,20 @@ public sealed class ReadRemovalEngine
                 return new RemovalResult(0, 0, 0, 0, total.ElapsedMilliseconds);
             }
 
-            foreach (var snapshot in playlists)
+            candidates = playlists.Count;
+            for (var index = 0; index < playlists.Count; index++)
             {
-                candidates++;
+                var snapshot = playlists[index];
+                // Budget global : au-delà, on s'arrête (le retrait est idempotent : la transition suivante ou une relecture reprendra).
+                if (total.Elapsed >= _budget)
+                {
+                    skipped += playlists.Count - index;
+                    Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "budget-exceeded"));
+                    break;
+                }
                 try
                 {
-                    var outcome = HandlePlaylist(snapshot, userId, itemId);
+                    var outcome = HandlePlaylist(snapshot, userId, itemId, total);
                     if (outcome < 0) skipped++;
                     else if (outcome > 0) { changed++; removed += outcome; }
                     else skipped++;
@@ -92,7 +105,7 @@ public sealed class ReadRemovalEngine
     }
 
     /// <returns>Nombre d'entrées retirées (&gt; 0), 0 si rien retiré, -1 si passée (verrou occupé).</returns>
-    private int HandlePlaylist(PlaylistSnapshot snapshot, string userId, string itemId)
+    private int HandlePlaylist(PlaylistSnapshot snapshot, string userId, string itemId, Stopwatch total)
     {
         var sw = Stopwatch.StartNew();
         using var gate = _locks.TryAcquire(snapshot.Id, _lockTimeout);
@@ -120,7 +133,7 @@ public sealed class ReadRemovalEngine
         using (WriteScope.Enter())
         {
             // Une entrée à la fois, résolue par ItemId à l'instant (les identifiants d'entrée ne sont pas stables).
-            while (count < MaxEntriesPerPlaylist && _gateway.RemoveOneEntry(snapshot.Id, itemId)) count++;
+            while (count < MaxEntriesPerPlaylist && total.Elapsed < _budget && _gateway.RemoveOneEntry(snapshot.Id, itemId)) count++;
         }
 
         if (count == 0)

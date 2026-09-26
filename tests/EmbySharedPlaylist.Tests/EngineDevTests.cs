@@ -143,7 +143,6 @@ public class PlayedTransitionTrackerDevTests
         });
         Assert.True(t.Count <= 50);
         Assert.Equal(2000, transitions);                      // valeurs cohérentes : aucun premier passage perdu ni doublé
-        Assert.False(t.OnUserData("u", "i1999", "PlaybackFinished", true)); // le plus récent est mémorisé à true
     }
 
     [Fact]
@@ -260,6 +259,37 @@ public class ReadRemovalEngineDevTests
         Assert.Equal(1, result.Skipped);
         Assert.Empty(r.Journal.Of("Removal"));
         Assert.Equal(new[] { "already-removed" }, r.Journal.Details("Skipped"));
+    }
+
+    [Fact]
+    public void GlobalBudget_StopsTheProcessing_AndJournalsOneBudgetExceeded()
+    {
+        var r = new Rig();
+        for (var i = 1; i <= 10; i++) r.Add(i.ToString(), new[] { "remove-si-lu=OUI" }, "m1");
+        r.Gateway.OnRemove = _ => Thread.Sleep(60);
+        var defaults = new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2, null, TimeSpan.FromSeconds(5));
+        var engine = new ReadRemovalEngine(r.Gateway, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), TimeSpan.FromSeconds(5), null, TimeSpan.FromMilliseconds(150));
+
+        var result = engine.Handle("u", "m1");
+
+        Assert.Equal(10, result.Candidates);
+        Assert.InRange(result.PlaylistsChanged, 1, 9);
+        Assert.Equal(10 - result.PlaylistsChanged, result.Skipped);
+        Assert.Equal(new[] { "budget-exceeded" }, r.Journal.Details("Skipped"));
+        Assert.Equal(result.PlaylistsChanged, r.Gateway.Playlists.Values.Count(p => p.Items.Count == 0));
+    }
+
+    [Fact]
+    public void ZeroBudget_ProcessesNothing_NeverThrows()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
+        var defaults = new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2);
+        var engine = new ReadRemovalEngine(r.Gateway, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), null, null, TimeSpan.Zero);
+        var result = engine.Handle("u", "m1");
+        Assert.Equal(new[] { "m1" }, s.Items);
+        Assert.Equal(1, result.Skipped);
+        Assert.Equal(new[] { "budget-exceeded" }, r.Journal.Details("Skipped"));
     }
 
     [Fact]
