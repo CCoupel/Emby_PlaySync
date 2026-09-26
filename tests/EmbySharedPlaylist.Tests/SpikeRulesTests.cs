@@ -71,6 +71,29 @@ public class SpikeRulesTests
     public void ProbeScenario_IsChosenByThePlaylistNamePrefix(string? name, int expected) =>
         Assert.Equal(expected, SpikeRules.ProbeScenario(name));
 
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(5, true)]
+    public void NoProbePlaylist_IsInfoOnlyWhenASpikePlaylistExists(int probeNamed, bool expected) =>
+        Assert.Equal(expected, SpikeRules.NoProbePlaylistIsNoteworthy(probeNamed));
+
+    [Theory]
+    [InlineData("admin", true, false)]
+    [InlineData("test_admin", true, false)]
+    [InlineData("cyril", false, false)]
+    [InlineData("user2", false, false)]
+    [InlineData("test_u1", false, true)]
+    public void OtherSpikeEndpoints_KeepTheirAccountGuard(string name, bool isAdmin, bool expected) =>
+        Assert.Equal(expected, SpikeRules.IsEligibleForSpikeWrite(name, isAdmin));
+
+    [Theory]
+    [InlineData("SPIKE-P1", 1)]
+    [InlineData("SPIKE-A", 0)]
+    [InlineData("Ma playlist", 0)]
+    public void TheProbeStillRequiresTheExactPlaylistNamePrefix(string name, int expected) =>
+        Assert.Equal(expected, SpikeRules.ProbeScenario(name));
+
     [Fact]
     public void FilterByKind_KeepsOnlyListedKinds_CaseInsensitive()
     {

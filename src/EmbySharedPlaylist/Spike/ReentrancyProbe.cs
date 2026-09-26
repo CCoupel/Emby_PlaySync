@@ -6,6 +6,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 
 namespace EmbySharedPlaylist.Spike;
@@ -13,12 +14,14 @@ namespace EmbySharedPlaylist.Spike;
 /// <summary>
 /// Sonde TEMPORAIRE de réentrance (B52, essai U11, retirée avec Spike/* — #15). Inactive par défaut
 /// (<c>EnableReentrancyProbe</c>). Répond à : peut-on écrire (retrait, métadonnées, données utilisateur) DEPUIS un
-/// gestionnaire d'événement, sans blocage, interblocage, boucle ni verrou de base ? Comptes test_* non administrateurs
-/// et playlists SPIKE* uniquement. Le scénario est choisi par le préfixe du nom de la playlist (SPIKE-P1 … SPIKE-P6) :
+/// gestionnaire d'événement, sans blocage, interblocage, boucle ni verrou de base ? AUCUNE garde de comptes (décision de
+/// l'utilisateur, instance QUALIF : la sonde peut être déclenchée par n'importe quel compte, admin compris). Restent : l'option
+/// <c>EnableReentrancyProbe</c> (faux par défaut), le nom de la playlist (SPIKE-P1 … SPIKE-P6, préfixe exact, sinon la sonde ne
+/// fait rien), le verrou par playlist et le try/catch total. Le scénario est choisi par ce nom :
 /// <list type="bullet">
 /// <item>P1 : <c>RemoveFromPlaylist</c> depuis <c>UserDataSaved</c> (le média passe à lu).</item>
 /// <item>P2 : mise à jour de métadonnées (<c>UpdateToRepository</c>) depuis <c>UserDataSaved</c>.</item>
-/// <item>P3 : <c>SaveUserData</c> d'un AUTRE compte test_* (garde <see cref="PluginWriteTracker"/>) depuis <c>UserDataSaved</c>.</item>
+/// <item>P3 : <c>SaveUserData</c> d'un AUTRE membre de la playlist (n'importe quelle ligne de partage ≥ Read ; garde <see cref="PluginWriteTracker"/>) depuis <c>UserDataSaved</c>.</item>
 /// <item>P4 : mise à jour de métadonnées depuis <c>PlaylistItemsAdded</c>/<c>ItemUpdated</c> (première détection simulée).</item>
 /// <item>P5 : comme P1, mais pour une rafale concurrente (plusieurs transitions simultanées sur la même playlist) sous verrou.</item>
 /// <item>P6 : le gestionnaire attend 2 s (le propriétaire édite l'étiquette par REST pendant ce temps), puis relit et écrit.</item>
@@ -100,13 +103,15 @@ public sealed class ReentrancyProbe
             if (e.UserData?.Played != true) { SkipDebug("not-played", user, item); return; }
             if (e.SaveReason != UserDataSaveReason.TogglePlayed && e.SaveReason != UserDataSaveReason.PlaybackFinished)
             { SkipDebug("save-reason-" + e.SaveReason, user, item); return; }
-            if (!IsEligible(e.User)) { SkipInfo("user-not-eligible", user, item, null); return; }
 
             var search = FindProbePlaylists(e.User, e.Item);
             if (search.Found.Count == 0)
             {
-                SkipInfo("no-probe-playlist", user, item,
-                    $"listed={search.Listed} probeNamed={search.ProbeNamed} withItem={search.WithItem} entries=[{string.Join(";", search.Diagnostics)}]");
+                // Bruit si aucune playlist SPIKE-Pn n'existe (chaque lecture d'un utilisateur quelconque passe ici) : Debug.
+                // Info seulement quand une playlist SPIKE-Pn existe mais qu'aucune entrée du média n'y est trouvée.
+                var detail = $"listed={search.Listed} probeNamed={search.ProbeNamed} withItem={search.WithItem} entries=[{string.Join(";", search.Diagnostics)}]";
+                if (SpikeRules.NoProbePlaylistIsNoteworthy(search.ProbeNamed)) SkipInfo("no-probe-playlist", user, item, detail);
+                else SkipDebug("no-probe-playlist", user, item, detail);
                 return;
             }
 
@@ -120,8 +125,8 @@ public sealed class ReentrancyProbe
         }
     }
 
-    private void SkipDebug(string reason, string? user, string? item) =>
-        _log.Debug($"{SpikeLogFormat.Prefix}Probe skipped reason={reason} user={user ?? "-"} item={item ?? "-"}");
+    private void SkipDebug(string reason, string? user, string? item, string? extra = null) =>
+        _log.Debug($"{SpikeLogFormat.Prefix}Probe skipped reason={reason} user={user ?? "-"} item={item ?? "-"}" + (extra != null ? " " + extra : string.Empty));
 
     private void SkipInfo(string reason, string? user, string? item, string? extra) =>
         _log.Info($"{SpikeLogFormat.Prefix}Probe skipped reason={reason} user={user ?? "-"} item={item ?? "-"}" + (extra != null ? " " + extra : string.Empty));
@@ -175,7 +180,7 @@ public sealed class ReentrancyProbe
         User? target = null;
         if (scenario == 3)
         {
-            target = FindOtherTestUser(playlist, user!);
+            target = FindOtherMember(playlist, user!);
             if (target == null) { outcome = "KO"; extra = " reason=no-target-user"; }
             else { session.EchoUserId = target.Id.ToString("N"); session.EchoItemId = item!.InternalId.ToString(); }
         }
@@ -293,9 +298,6 @@ public sealed class ReentrancyProbe
         task.GetAwaiter().GetResult(); // relève l'exception éventuelle
     }
 
-    private bool IsEligible(User user) =>
-        SpikeRules.IsEligibleForSpikeWrite(user.Name, _userManager.GetUserPolicy(user).IsAdministrator);
-
     private sealed record ProbeSearch(List<(Playlist Playlist, int Scenario)> Found, int Listed, int ProbeNamed, int WithItem, List<string> Diagnostics);
 
     /// <summary>Playlists de sonde (P1, P2, P3, P5, P6 ; P4 est déclenchée par les événements de playlist) contenant le média.</summary>
@@ -323,14 +325,15 @@ public sealed class ReentrancyProbe
         return new ProbeSearch(found, listed, probeNamed, withItem, diagnostics);
     }
 
-    private User? FindOtherTestUser(Playlist playlist, User eventUser)
+    /// <summary>Cible de P3 : n'importe quel AUTRE membre (ligne de partage ≥ Read). Sonde temporaire sans garde de comptes (QUALIF).</summary>
+    private User? FindOtherMember(Playlist playlist, User eventUser)
     {
         var shares = _itemRepository.GetUserItemShares(new UserItemShareQuery { ItemIds = new[] { playlist.InternalId } }, CancellationToken.None);
-        foreach (var share in shares)
+        foreach (var share in shares.Where(s => (s.ShareLevel ?? UserItemShareLevel.None) >= UserItemShareLevel.Read))
         {
             if (share.UserId == eventUser.InternalId) continue;
             var other = _userManager.GetUserById(share.UserId);
-            if (other != null && IsEligible(other)) return other;
+            if (other != null) return other;
         }
         return null;
     }

@@ -39,6 +39,12 @@ public static class SpikeRules
         return digit - '0';
     }
 
+    /// <summary>
+    /// Vrai si l'absence de playlist de sonde mérite une ligne Info : une playlist SPIKE-Pn existe (<paramref name="probeNamed"/> &gt; 0)
+    /// mais aucune entrée du média n'y est trouvée. Sinon (aucune playlist de sonde) c'est le cas normal de tout utilisateur : Debug.
+    /// </summary>
+    public static bool NoProbePlaylistIsNoteworthy(int probeNamed) => probeNamed > 0;
+
     /// <summary>Compte modifiable par le spike : préfixe test_ ET non administrateur (même s'il s'appelle test_x).</summary>
     public static bool IsEligibleForSpikeWrite(string? userName, bool isAdministrator) =>
         IsTestUser(userName) && !isAdministrator;

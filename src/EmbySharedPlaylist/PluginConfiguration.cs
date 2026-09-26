@@ -13,7 +13,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Active la sonde temporaire de réentrance U11 (B52, retirée avec Spike/*) : le scénario est choisi par le préfixe
-    /// du nom de la playlist (SPIKE-P1… à SPIKE-P6…). Comptes test_* et playlists SPIKE* uniquement. Défaut : faux.
+    /// du nom de la playlist (SPIKE-P1… à SPIKE-P6…). Sans garde de comptes (instance QUALIF) : seul le nom de playlist SPIKE-Pn active un scénario. Défaut : faux.
     /// </summary>
     public bool EnableReentrancyProbe { get; set; } = false;
 
