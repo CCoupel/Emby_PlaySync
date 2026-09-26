@@ -34,7 +34,7 @@ public sealed class SpikeListener : IServerEntryPoint
         _playlistManager.PlaylistItemsRemoved += OnItemsRemoved;
         _playlistManager.PlaylistItemsMoved += OnItemsMoved;
         _libraryManager.ItemUpdated += OnItemUpdated;
-        _logger.Info("EmbySharedPlaylist : écouteurs du spike enregistrés");
+        _logger.Info("{0}", SpikeLogFormat.Startup(Enabled));
     }
 
     public void Dispose()
@@ -54,6 +54,14 @@ public sealed class SpikeListener : IServerEntryPoint
         Kind = kind
     };
 
+    /// <summary>Une ligne dans le journal Emby par événement observé (ids seulement) ; PlaybackProgress en Debug.</summary>
+    private void LogEntry(JournalEntry entry)
+    {
+        var line = SpikeLogFormat.Event(entry);
+        if (SpikeLogFormat.IsDebugLevel(entry)) _logger.Debug("{0}", line);
+        else _logger.Info("{0}", line);
+    }
+
     private void OnUserDataSaved(object? sender, UserDataSaveEventArgs e)
     {
         if (!Enabled) return;
@@ -71,6 +79,7 @@ public sealed class SpikeListener : IServerEntryPoint
             entry.SaveReason = e.SaveReason.ToString();
             entry.PluginWrite = SpikeRuntime.Tracker.TryConsume(e.User.InternalId, e.Item.InternalId);
             SpikeRuntime.Journal.Add(entry);
+            LogEntry(entry);
         }
         catch (Exception ex)
         {
@@ -90,6 +99,7 @@ public sealed class SpikeListener : IServerEntryPoint
                 entry.ItemId = li.ListItemId.ToString();
                 entry.EntryId = li.ListItemEntryId.ToString();
                 SpikeRuntime.Journal.Add(entry);
+                LogEntry(entry);
             }
         }
         catch (Exception ex)
@@ -115,6 +125,7 @@ public sealed class SpikeListener : IServerEntryPoint
                 entry.PlaylistId = playlist.InternalId.ToString();
                 entry.EntryId = id.ToString();
                 SpikeRuntime.Journal.Add(entry);
+                LogEntry(entry);
             }
         }
         catch (Exception ex)
@@ -132,6 +143,7 @@ public sealed class SpikeListener : IServerEntryPoint
             entry.PlaylistId = playlist.InternalId.ToString();
             entry.SaveReason = e.UpdateReason.ToString();
             SpikeRuntime.Journal.Add(entry);
+            LogEntry(entry);
         }
         catch (Exception ex)
         {

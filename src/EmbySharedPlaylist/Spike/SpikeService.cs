@@ -64,8 +64,7 @@ public class SpikeService : IService
             }).ToArray());
         }
 
-        _logger.Info("EmbySharedPlaylist spike : playlist {0} créée pour {1}, {2} membre(s)",
-            playlist.InternalId, owner.Name, members.Count);
+        _logger.Info("{0}", SpikeLogFormat.Setup(playlist.InternalId.ToString(), owner.Id.ToString("N"), members.Count));
 
         return (object)new SpikeSetupResult
         {
@@ -120,7 +119,9 @@ public class SpikeService : IService
         var playlist = RequireSpikePlaylist(request.PlaylistId);
         var entryIds = request.PlaylistItemIds.Select(ParseId).ToArray();
         await _playlistManager.RemoveFromPlaylist(playlist, entryIds).ConfigureAwait(false);
-        return (object)new SpikeRemoveItemResult { Removed = true, EntriesAfter = GetEntries(playlist, null) };
+        var entriesAfter = GetEntries(playlist, null);
+        _logger.Info("{0}", SpikeLogFormat.RemoveItem(playlist.InternalId.ToString(), entryIds.Length, entriesAfter.Count));
+        return (object)new SpikeRemoveItemResult { Removed = true, EntriesAfter = entriesAfter };
     });
 
     // ---- MarkPlayed --------------------------------------------------------------------------
@@ -138,11 +139,9 @@ public class SpikeService : IService
         }
         if (request.AsPlugin) SpikeRuntime.Tracker.Register(user.InternalId, item.InternalId);
         _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.TogglePlayed, CancellationToken.None);
-        return new SpikeMarkPlayedResult
-        {
-            Saved = true,
-            PlayedAfter = _userDataManager.GetUserData(user, item).Played
-        };
+        var playedAfter = _userDataManager.GetUserData(user, item).Played;
+        _logger.Info("{0}", SpikeLogFormat.MarkPlayed(user.Id.ToString("N"), item.InternalId.ToString(), request.Played, request.AsPlugin, playedAfter));
+        return new SpikeMarkPlayedResult { Saved = true, PlayedAfter = playedAfter };
     });
 
     // ---- Events ------------------------------------------------------------------------------
@@ -169,6 +168,7 @@ public class SpikeService : IService
         SpikeRuntime.Tracker.Register(user.InternalId, item.InternalId);
         _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.PlaybackProgress, CancellationToken.None);
         var after = _userDataManager.GetUserData(user, item);
+        _logger.Info("{0}", SpikeLogFormat.SetPosition(user.Id.ToString("N"), item.InternalId.ToString(), request.PositionTicks, after.PlaybackPositionTicks, after.Played));
         return new SpikeSetPositionResult
         {
             Saved = true,
@@ -205,7 +205,10 @@ public class SpikeService : IService
         playlist.SetTags(tags);
         if (request.Overview != null) playlist.Overview = request.Overview;
         playlist.UpdateToRepository(ItemUpdateType.MetadataEdit);
-        return TagsResult(playlist);
+        var result = TagsResult(playlist);
+        _logger.Info("{0}", SpikeLogFormat.TagsPost(playlist.InternalId.ToString(), request.AddTags?.Count ?? 0,
+            request.RemoveTags?.Count ?? 0, request.Overview != null, result.Tags.Count));
+        return result;
     });
 
     private static SpikeTagsResult TagsResult(Playlist playlist) => new()
@@ -234,13 +237,9 @@ public class SpikeService : IService
         var policy = _userManager.GetUserPolicy(user);
         policy.AllowSharingPersonalItems = request.AllowSharingPersonalItems;
         _userManager.UpdateUserPolicy(user.InternalId, policy);
-        _logger.Info("EmbySharedPlaylist spike : AllowSharingPersonalItems={0} pour {1}",
-            request.AllowSharingPersonalItems, user.Name);
-        return new SpikePolicyResult
-        {
-            UserId = user.Id.ToString("N"),
-            AllowSharingPersonalItems = _userManager.GetUserPolicy(user).AllowSharingPersonalItems
-        };
+        var after = _userManager.GetUserPolicy(user).AllowSharingPersonalItems;
+        _logger.Info("{0}", SpikeLogFormat.Policy(user.Id.ToString("N"), after));
+        return new SpikePolicyResult { UserId = user.Id.ToString("N"), AllowSharingPersonalItems = after };
     });
 
     // ---- Aides -------------------------------------------------------------------------------
