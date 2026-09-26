@@ -11,6 +11,11 @@
 - **[NEW]** `GET|POST /SharedPlaylist/Spike/Tags` — étiquettes/description écrites par le plugin (temporaire)
 - **[NEW]** `GET|POST /SharedPlaylist/Spike/Policy` — lecture/ecriture de `Policy.AllowSharingPersonalItems` (temporaire)
 
+- **[CHANGED]** `GET /SharedPlaylist/Spike/Events` : champ `entryId` ajouté (PlaylistItemId des événements `PlaylistItems*`) ; `saveReason` porte aussi l'`ItemUpdateType` pour `ItemUpdated` ; `PlaybackProgress` non journalisé sauf `played=true`.
+- **[CHANGED]** `Spike/*` : garde-fous d'écriture (comptes `test_*`, playlists `SPIKE*`, 400 sinon) ; corps des erreurs 500 = `error: <Type>: <message>`.
+
+SDK : aucune divergence de signature constatée (Emby 4.9.3.0, `libs/`) — `IPlaylistManager`, `ILibraryManager.SaveUserItemShares`, `IItemRepository.GetUserItemShares`, `IUserDataManager.SaveUserData/UserDataSaved`, `IUserManager.GetUserPolicy/UpdateUserPolicy`, `BaseItem.SetTags` compilent tels que décrits par réflexion. Les identifiants internes sont des `Int64` (les DTO REST les exposent en chaîne).
+
 Aucun BREAKING. Ces endpoints sont diagnostiques et n'ont pas vocation à être stables.
 
 Note : `Spike/Managed` et `ManagedPlaylistIds` sont abandonnés (D6 : une playlist partagée avec au moins un membre est gérée, pas de liste d'identifiants). Aucune page de gestion des partages n'est prévue en v0.1.0.
