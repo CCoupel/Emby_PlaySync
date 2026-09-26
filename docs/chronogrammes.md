@@ -143,7 +143,7 @@ Le plugin ne mémorise rien : si le propriétaire vide ensuite la description, l
 | R3 | Contenu : la playlist est **unique** et partagée nativement ; les ajouts et retraits explicites des membres `Write` sont visibles immédiatement par tous, sans réplication. |
 | R4a | **Retrait (`remove-si-lu`)** : quand un membre **U** (propriétaire, `Write` ou `Read`) fait passer un média de non lu à lu (**transition**, origine utilisateur), pour **chaque playlist partagée dont U est membre, qui contient le média et dont `remove-si-lu=OUI` est actif** : toutes les entrées du média sont retirées de la playlist, **pour tous les membres**. Sinon (NON, aucune étiquette, OUI+NON), le plugin **ne fait rien** (legacy). Livrée en **v0.2.0**. |
 | R4b | **Propagation du lu (`propager-lu`)** : sur la même transition, si `propager-lu=OUI` est actif, le flag lu est posé chez les autres membres. **Indépendante** de R4a (voir la matrice ci-dessous). Livrée en **v0.3.0**. |
-| R4c | **Transition et relecture** : seule la **transition** non lu → lu déclenche R4a et R4b. Un média **déjà lu** que l'on relit jusqu'au bout ne déclenche **rien**. Décocher puis recocher « lu » est une transition : le média est retiré. Un arrêt en cours de lecture (`played=false`) ne déclenche rien. Sortie manuelle d'un média lu qui est resté dans la liste : décocher/recocher « lu », ou le retirer directement. |
+| R4c | **Transition et relecture** : seule la **transition** non lu → lu déclenche R4a et R4b. Un média **déjà lu** que l'on relit jusqu'au bout ne déclenche **rien**. Décocher puis recocher « lu » est une transition : le média est retiré. Un arrêt en cours de lecture (`played=false`) ne déclenche rien. **État inconnu** (mémoire vide après un redémarrage d'Emby ou une éviction) : « inconnue = transition » ne vaut que pour les motifs de **lecture** (`PlaybackProgress`, `PlaybackFinished`) ; pour `Import`, `UpdateUserRating`, `UpdateHideFromResume` et tout motif inconnu, `played=true` avec mémoire inconnue est **mémorisé sans transition**, donc sans retrait (mettre en favori, importer ou masquer un film déjà vu ne le retire pas). Limite acceptée : un import légitime qui marque lu ne retire plus le média. **`TogglePlayed` avec `played=true` reste une transition certaine**, même si la mémoire dit déjà « lu » (marquer lu explicitement est un geste volontaire). Sortie manuelle d'un média lu qui est resté dans la liste : décocher/recocher « lu », ou le retirer directement. |
 | R5 | Un changement d'origine **plugin** ne déclenche rien (ni retrait, ni propagation). C'est ce qui garantit l'absence de transitivité entre listes. En v0.2.0 le plugin n'écrit aucune donnée utilisateur ; l'anti-écho du flag lu est livré avec la propagation (v0.3.0). |
 | R6 | Seul le passage à **lu** se propage. Le retour à « non lu » ne se propage pas. |
 | R7 | Si un membre a déjà le flag lu, le plugin n'y touche pas (compteur et date intacts). |
@@ -272,6 +272,9 @@ Le plugin ne fait rien : F1 reste dans la liste, aucun flag posé (comportement 
 | 2 | U2 décoche « lu » | ▣ | Nl | Aucune transition vers lu : rien |
 | 3 | U2 recoche « lu » (`TogglePlayed`) | □ (p) | Lu | Transition : retrait |
 | 4 | U2 arrête un autre média F2 à 47 % (`played=false`) | ▣ F2 | Nl | Rien |
+| 5 | Emby redémarre (mémoire vide) ; U2 met en favori F3, déjà vu et ▣ dans la playlist (`UpdateUserRating`, `played=true`) | ▣ F3 | Lu | État inconnu, motif hors lecture : mémorisé, **aucun retrait** |
+| 6 | Même redémarrage ; U2 relit F3 (`PlaybackProgress` avec `played=true`, mémoire inconnue) | □ F3 (p) | Lu | Motif de lecture, mémoire inconnue : transition, retrait (idempotent) |
+| 7 | U2 clique « marquer lu » sur F4 déjà lu selon la mémoire (`TogglePlayed`, `played=true`) | □ F4 (p) | Lu | `TogglePlayed` : transition certaine, retrait |
 
 ### S4 — Retrait explicite par le propriétaire (aucun flag)
 
@@ -368,6 +371,9 @@ sequenceDiagram
 | Membre a déjà Lu sur F1 | Ni compteur ni date modifiés (R7). |
 | U3 repasse F1 en « non lu » | Non propagé (R6). F1 déjà retiré de la liste, il n'y revient pas. |
 | F1 déjà lu par U3 avant l'ajout à la liste | Ajouté normalement (R1). Il n'est retiré qu'à une **transition** vers lu (R4c). |
+| Après un redémarrage d'Emby ou une éviction de la mémoire : U3 met en favori, importe ou masque un film déjà vu (`UpdateUserRating`, `Import`, `UpdateHideFromResume`, motif inconnu) | `played=true` avec mémoire inconnue : mémorisé, **aucun retrait** (R4c). Un import légitime qui marque lu ne retire plus le média (limite acceptée). |
+| Même situation avec un motif de lecture (`PlaybackProgress`, `PlaybackFinished`) | Mémoire inconnue = transition : retrait (idempotent). |
+| `TogglePlayed` avec `played=true`, même si la mémoire dit déjà « lu » | Transition certaine : retrait. |
 | Média présent plusieurs fois dans la playlist | Toutes les entrées sont retirées, une à la fois (entrée résolue par `ItemId`, relecture entre chaque). |
 | Membre sans accès à F1 | Le flag lu n'est pas posé chez lui (R8). |
 | Famille non active (`=NON`, aucune étiquette, OUI+NON) | Legacy pour cette famille : le plugin ne fait rien (ni retrait, ni flag, ni position). |
@@ -437,9 +443,13 @@ sur UserDataSaved(user, item, saveReason, played):
 
 transition_vers_lu(user, item, saveReason, played):
     si saveReason = PlaybackStart: mémoriser played du couple ; return faux
-    si saveReason = TogglePlayed et played: return vrai
-    si played et dernière valeur connue ≠ vrai: mémoriser ; return vrai   # inconnue = transition (retrait idempotent)
-    mémoriser played ; return faux                          # déjà lu relu : aucune transition (R4c)
+    si saveReason = TogglePlayed et played: mémoriser ; return vrai   # transition certaine, même si la mémoire dit « lu »
+    si non played: mémoriser ; return faux
+    si dernière valeur connue = vrai: return faux           # déjà lu relu : aucune transition (R4c)
+    si dernière valeur connue = faux: mémoriser ; return vrai
+    # mémoire inconnue (redémarrage, éviction) :
+    si saveReason ∈ {PlaybackProgress, PlaybackFinished}: mémoriser ; return vrai   # inconnue = transition, motifs de lecture seulement (retrait idempotent)
+    mémoriser ; return faux                                 # Import, UpdateUserRating, UpdateHideFromResume, motif inconnu : mémorisé sans transition
 
 sur UserDataSaved (arrêt/pause, played = faux, position > 0), si propager-lu(L) = OUI:   # R10 (v0.3.1)
     pour chaque m ∈ L.membres \ {user} avec accès: SaveUserData(m, item, PlaybackPositionTicks)
@@ -477,7 +487,7 @@ passe périodique (tâche planifiée Emby : démarrage + 5 min):
 | D7 | **Permission propriétaire** : `AllowSharingPersonalItems` requise pour le propriétaire uniquement (voir §0). |
 | D8 | **Permission posée automatiquement** : le plugin pose `AllowSharingPersonalItems=true` pour tous les utilisateurs (existants et nouveaux), avec un interrupteur de configuration (`AutoEnableSharing`, **actif par défaut**). Désactiver l'interrupteur **ne révoque rien**. Cette décision **élargit les droits** des utilisateurs : à auditer (issue #29). Livrée en v0.4.0. |
 | D9 | **Avancement de lecture** : la position de lecture est propagée aux autres membres quand `propager-lu=OUI` est actif (R10). Dernière lecture gagne, pas de transitivité, anti-écho identique au lu. Livrée en v0.3.1. |
-| D10 | **Retrait sur la transition non lu → lu** (R4c) : marquage manuel, ou `played` qui passe à vrai en cours/fin de lecture quel que soit le `SaveReason`. Un média déjà lu relu ne déclenche rien ; décocher puis recocher « lu » retire. Un membre en lecture seule (`Read`) déclenche le retrait pour tous. Les playlists publiques sans partage explicite sont ignorées. |
+| D10 | **Retrait sur la transition non lu → lu** (R4c) : marquage manuel, ou `played` qui passe à vrai en cours/fin de lecture quel que soit le `SaveReason`. Un média déjà lu relu ne déclenche rien ; décocher puis recocher « lu » retire (`TogglePlayed` avec `played=true` est toujours une transition). **État inconnu** : « inconnue = transition » ne vaut que pour les motifs de lecture ; `Import`, `UpdateUserRating`, `UpdateHideFromResume` et tout motif inconnu sont mémorisés sans transition (favori, import ou masquage d'un film déjà vu ne le retire pas ; limite acceptée : un import légitime qui marque lu ne retire plus le média). Un membre en lecture seule (`Read`) déclenche le retrait pour tous. Les playlists publiques sans partage explicite sont ignorées. |
 | D11 | **Aucun état persisté** (R11) : mémoire seulement (playlists vues, compteurs de grâce). « Le plugin replace ce qui manque » : une description vidée ou des étiquettes supprimées sont reposées après la grâce (accepté). |
 | D12 | **Exécution immédiate sous verrou par playlist, sans file** (R12), appels internes d'Emby uniquement ; passe périodique pour ce qu'aucun événement ne signale (partage créé sans action, repose après grâce). Mode définitif fixé par l'essai de ré-entrance U11 (#52). |
 | D13 | **Message d'aide** (FR seul) écrit chaque fois que la description est vide, jamais par-dessus un texte. **Effet visible au démarrage de v0.2.0** : pose des deux `=NON` et du message sur **toutes** les playlists partagées existantes, comptes réels inclus. |
@@ -493,6 +503,17 @@ passe périodique (tâche planifiée Emby : démarrage + 5 min):
 4. **D8 (v0.4.0)** : comptes désactivés et profils enfants inclus ? Appliquer une seule fois par utilisateur pour respecter un décochage volontaire ? Événement de création d'utilisateur non établi.
 5. **Avancement (D9, v0.3.1)** : seuil minimal de position, lectures simultanées, comportement près de la fin.
 6. **Langue du message d'aide** : français seul jusqu'à la localisation FR/EN.
+
+### Risques documentés (v0.2.0)
+
+- **Repli de retrait par identifiant de média** (`RemoveListItemsByItemIds`) : non vérifié en réel ; il retire **tous les doublons d'un coup** ; le résultat est vérifié par relecture de la playlist.
+- **Écriture d'étiquettes concurrente d'un propriétaire** : une édition du propriétaire peut être écrasée si elle tombe dans la fenêtre (très courte) de la lecture-écriture du plugin. Atténuation : relecture après écriture, erreur journalisée si une étiquette a disparu ; le plugin ne supprime jamais d'étiquette.
+- **Budget du gestionnaire** : le traitement dans le gestionnaire d'événement est borné par un budget global de **10 s** ; le coût de l'énumération des playlists partagées s'ajoute sur le fil d'Emby (à mesurer sur QUALIF).
+- **Limite acceptée** : un import légitime qui marque un média lu ne le retire plus de la liste (R4c, état inconnu).
+
+### Condition de livraison
+
+La sonde de ré-entrance (U11) et les endpoints `Spike/*` (issue #15) doivent être **retirés avant tout tag `v0.2.0`**. La sonde ne doit **jamais** être livrée en production.
 
 ## 8. Guide utilisateur
 

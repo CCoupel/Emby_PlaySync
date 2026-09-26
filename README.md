@@ -16,7 +16,7 @@ Une playlist appartient à un utilisateur (le propriétaire), qui la partage ave
 - Dès qu'une playlist est partagée, le plugin pose `remove-si-lu=NON` et `propager-lu=NON` (et, si la description est vide, un message d'aide). Tant que ce sont des `NON`, **rien ne change** : Emby se comporte comme d'habitude (legacy).
 - Pour activer une option, le propriétaire **remplace `NON` par `OUI`** : ajouter `...=OUI` et retirer `...=NON` dans la même édition (Modifier les métadonnées > Mot-clé). Si `OUI` et `NON` sont présents ensemble, `NON` l'emporte. Le plugin ne supprime jamais une étiquette. Casse et espaces autour du `=` sont sans importance.
 - Seul le **propriétaire** gère les membres et les étiquettes ; les membres en écriture peuvent ajouter et retirer des médias.
-- Seule la **transition** non lu → lu retire le média : relire un média déjà lu ne le retire pas. Sortie manuelle d'un média lu resté dans la liste : décocher puis recocher « lu », ou le retirer directement.
+- Seule la **transition** non lu → lu retire le média : relire un média déjà lu ne le retire pas, et mettre en favori, importer ou masquer un film déjà vu non plus (marquer « lu » explicitement reste une transition). Sortie manuelle d'un média lu resté dans la liste : décocher puis recocher « lu », ou le retirer directement.
 - Un média lu n'est retiré que des listes dont son lecteur est membre (pas de transitivité entre listes).
 - Le plugin ne mémorise rien : tout est en mémoire, il replace ce qui manque (étiquette absente, description vide) après quelques minutes.
 
