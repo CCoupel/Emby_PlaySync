@@ -17,12 +17,16 @@ pass_no = itertools.count(1)
 
 PL, PLAYED = {}, set()
 def reset():   # redémarrage du plugin : la MÉMOIRE du moteur est remise à zéro, pas les données d'Emby
-    global SEEN, GRACEC, JOURNAL, HANDLER, LASTPASS, WRITING
-    SEEN, GRACEC, JOURNAL = set(), {}, []
+    global SEEN, GRACEC, JOURNAL, HANDLER, LASTPASS, WRITING, SKIPPED
+    SEEN, GRACEC, JOURNAL, SKIPPED = set(), {}, [], {}
     HANDLER = {"Count": 0, "LastMs": 0, "MaxMs": 0}; LASTPASS = {"Ts": None, "DurationMs": 0, "PlaylistsSeen": 0, "SharedManaged": 0}; WRITING = False
 reset()
 
+NOISY = ("already-seen", "reentrant", "not-shared", "unknown-owner")
 def jr(kind, pl=None, user=None, item=None, detail=None):
+    if kind == "Skipped":
+        SKIPPED[detail] = SKIPPED.get(detail, 0) + 1          # tous les Skipped sont comptés (Diagnostics/State.SkippedCounts)
+        if detail in NOISY: return                            # ...mais les bruyants ne vont pas au journal
     JOURNAL.append({"Ts": datetime.datetime.utcnow().isoformat() + "Z", "Kind": kind, "UserId": user, "ItemId": item, "PlaylistId": pl, "Detail": detail})
 
 def state_of(tags, fam):
@@ -144,7 +148,7 @@ class H(http.server.BaseHTTPRequestHandler):
             if "Ids" in q: return self.out(200, {"Items": [self.dto(q["Ids"][0])] if q["Ids"][0] in PL else []})
             return self.out(200, {"Items": [{"Id": i, "Name": "M" + i, "RunTimeTicks": RT} for i in MEDIA]})
         if p == "/SharedPlaylist/Diagnostics/State":
-            return self.out(200, {"SeenPlaylistIds": sorted(SEEN), "GraceCounters": GRACEC, "LastPass": LASTPASS, "Handler": HANDLER, "GracePasses": GRACE})
+            return self.out(200, {"SeenPlaylistIds": sorted(SEEN), "GraceCounters": GRACEC, "LastPass": LASTPASS, "Handler": HANDLER, "SkippedCounts": SKIPPED, "GracePasses": GRACE})
         if p == "/SharedPlaylist/Diagnostics/Journal":
             res = list(JOURNAL)
             if "kind" in q: ks = q["kind"][0].split(","); res = [e for e in res if e["Kind"] in ks]

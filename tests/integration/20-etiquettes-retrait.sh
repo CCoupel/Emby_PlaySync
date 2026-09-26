@@ -343,7 +343,7 @@ i12() {
 i13() {
   echo "== I13 — première détection à l'action ; déjà vue : aucune pose"
   assert_baseline
-  local pl t before after i j
+  local pl t before after i j e13a e13b
   before=$(state | jq -r '.lastPass.ts // ""')
   pl=$(shared_pl "SPIKE-I13" "${M[0]}")
   add_item "$pl" "${M[1]}"                       # PlaylistItemsAdded sur une playlist partagée non vue
@@ -352,11 +352,13 @@ i13() {
   if [[ $before != "$after" ]]; then skip I13.action "une passe planifiée a eu lieu pendant le test : cause de pose ambiguë"; else
     ck I13.action "ajout d'une entrée à une playlist non vue : les deux NON sont posés SANS passe" "$t" bash -c 'jq -e --arg a "$1" --arg b "$2" "index(\$a)!=null and index(\$b)!=null" <<<"$0" >/dev/null' "$t" "$NON_RM" "$NON_PR"
   fi
+  e13a=$(echo_sum)
   owner_edit "$pl" '[]' "[\"$NON_PR\"]"
   add_item "$pl" "${M[2]}"; nap 6
+  e13b=$(echo_sum)
   t=$(tags_of "$pl")
   ck I13.seen "playlist déjà vue : un événement ne repose rien (propager-lu reste absente)" "$t" test "$(tag_count "$t" propager-lu)" = 0
-  skip I13.skipped "échos already-seen/reentrant : compteurs agrégés (plus d'entrées de journal) — vérifié indirectement par l'absence de repose ci-dessus"
+  ck I13.echoes "les événements de la playlist déjà vue sont ignorés et comptés (skippedCounts already-seen/reentrant +$((e13b-e13a)))" "{\"before\":$e13a,\"after\":$e13b}" test "$((e13b-e13a))" -ge 1
 }
 
 i14() {
@@ -414,18 +416,19 @@ i15() {
 i16() {
   echo "== I16 — ré-entrance : exactement un écho par écriture du plugin, aucune repose"
   assert_baseline
-  local pl jp j1 j2
+  local pl jp j1 j2 e16a e16b e16c e16d
   # (a) écriture de pose : une seule écriture (ApplyDefaults) => un seul écho, deux étiquettes posées une fois
   pl=$(shared_pl "SPIKE-I16" "${M[0]},${M[1]}"); jclear
-  prime "$pl" || true; nap 6; jp=$(journal)
+  nap 2; e16a=$(echo_sum)
+  prime "$pl" || true; nap 6; jp=$(journal); e16b=$(echo_sum)
   ck I16.posed "MarkerPosed : exactement une pose par famille (2), pas de repose 6 s plus tard" "$jp" test "$(jcount "$jp" "$pl" MarkerPosed)" = 2
-  skip I16.echo.pose "écho de l'écriture de pose : compteur agrégé (plus d'entrée de journal) ; l'absence de boucle est vérifiée par I16.posed"
+  ck I16.echo.pose "un écho au plus (already-seen/reentrant) pour l'écriture de pose (+$((e16b-e16a)))" "{\"before\":$e16a,\"after\":$e16b}" test "$((e16b-e16a))" -le 1
   # (b) écriture de retrait
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1; jclear
+  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1; jclear; e16c=$(echo_sum)
   finish "$U2" "$T2" "${M[0]}"; wait_count "$pl" "${M[0]}" 0 10 || true
-  nap 3; j1=$(journal); nap 6; j2=$(journal)
+  nap 3; j1=$(journal); nap 6; j2=$(journal); e16d=$(echo_sum)
   ck I16.removal "un seul Removal pour un retrait" "$j1" test "$(jcount "$j1" "$pl" Removal)" = 1
-  skip I16.echo.removal "écho de l'écriture de retrait : compteur agrégé (plus d'entrée de journal) ; l'absence de boucle est vérifiée par I16.norepose"
+  ck I16.echo.removal "un écho au plus pour l'écriture de retrait (+$((e16d-e16c)))" "{\"before\":$e16c,\"after\":$e16d}" test "$((e16d-e16c))" -le 1
   ck I16.norepose "6 s plus tard : aucune pose ni nouveau retrait (pas de boucle)" "null" \
     test "$(jcount "$j2" "$pl" MarkerPosed)/$(jcount "$j2" "$pl" Removal)" = "0/1"
   ck I16.noerror "aucune entrée Error pour cette playlist" "null" test "$(jcount "$j2" "$pl" Error)" = 0

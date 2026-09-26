@@ -15,6 +15,8 @@ journal() { # [KINDS_CSV] [clear] -> JSON (clés en camelCase : ts kind userId i
 }
 jclear() { api GET "$DIAG/Journal?clear=true" >/dev/null; }
 state() { api GET "$DIAG/State" >/dev/null; jq -c . "$RESP"; }
+# echo_sum : compteurs agrégés already-seen + reentrant (Diagnostics/State.skippedCounts) ; un « écho » = événement de retour d'une écriture du plugin
+echo_sum() { state | jq -r '((.skippedCounts["already-seen"]//0) + (.skippedCounts["reentrant"]//0))'; }
 # jkv DETAIL CLE -> valeur de « CLE=valeur » dans un Detail
 jkv() { grep -o "\\b$2=[^ ]*" <<<"$1" | head -n1 | cut -d= -f2-; }
 # jcount JOURNAL_JSON PLAYLIST KIND [DETAIL_REGEX] -> nombre d'entrées
