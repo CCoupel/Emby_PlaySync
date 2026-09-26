@@ -11,3 +11,4 @@
 | tests/spike/10-run-spike.sh | integration | plugin | spike-partage-natif #1 (U1–U6, U10 avancement #44 + règles propager-lu ; smoke = GET Spike/Shares) | feature | smoke |
 | tests/spike/90-cleanup.sh | integration | plugin | spike-partage-natif #1 (nettoyage, comptes protégés vérifiés) | feature | |
 | tests/spike/MANUAL.md | manuel | plugin | spike-partage-natif #1 (TV/mobile, lecture réelle, étiquettes, avancement #44) | feature | |
+| tests/spike/test-lib-offline.sh | unit (hors ligne) | plugin | spike-partage-natif #1 (lib.sh : échappement config curl, en-tête de login intact ; serveur local, sans emby2) | regression | smoke |

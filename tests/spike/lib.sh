@@ -38,20 +38,28 @@ load_env() {
   [[ -n $EMBY_URL && -n $EMBY_API_KEY ]] || die "EMBY_URL / EMBY_API_KEY manquants dans private/qualif.env"
 }
 
+# cfgq VALEUR : échappe antislashs et guillemets doubles pour une valeur entre guillemets d'un fichier de config curl.
+cfgq() {
+  local v=$1
+  [[ $v != *$'\n'* && $v != *$'\r'* ]] || die "valeur avec saut de ligne refusée dans la config curl"
+  v=${v//\\/\\\\}
+  printf '%s' "${v//\"/\\\"}"
+}
+
 # api METHODE CHEMIN [CORPS_JSON] [TOKEN] -> affiche le code HTTP, corps dans $RESP.
 # URL, token et corps passent par un fichier de config curl (rien dans argv).
 # TOKEN "-" = aucun en-tête d'auth (login). EXTRA_HDR (optionnel) : en-tête supplémentaire.
 api() {
   local m=$1 p=$2 body=${3:-} tok=${4:-$EMBY_API_KEY}
   {
-    printf 'url = "%s%s"\n' "$EMBY_URL" "$p"
-    if [[ $tok != "-" ]]; then printf 'header = "X-Emby-Token: %s"\n' "$tok"; fi
+    printf 'url = "%s"\n' "$(cfgq "$EMBY_URL$p")"
+    if [[ $tok != "-" ]]; then printf 'header = "X-Emby-Token: %s"\n' "$(cfgq "$tok")"; fi
     printf 'header = "Accept: application/json"\n'
-    if [[ -n ${EXTRA_HDR:-} ]]; then printf 'header = "%s"\n' "$EXTRA_HDR"; fi
+    if [[ -n ${EXTRA_HDR:-} ]]; then printf 'header = "%s"\n' "$(cfgq "$EXTRA_HDR")"; fi
     if [[ -n $body ]]; then
       printf '%s' "$body" > "$BODYF"
       printf 'header = "Content-Type: application/json"\n'
-      printf 'data-binary = "@%s"\n' "$BODYF"
+      printf 'data-binary = "@%s"\n' "$(cfgq "$BODYF")"
     fi
   } > "$CFG"
   : > "$RESP"
