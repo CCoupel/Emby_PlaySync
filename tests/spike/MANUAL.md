@@ -22,6 +22,7 @@ Noter si l'éditeur accepte le caractère `=` et la casse (U3, H4).
 | `test_u3` tente d'ajouter / retirer | refusé (Lecture) | |
 | `test_u2` lit un média **jusqu'au bout** (lecture réelle, générique compris) | marqué lu pour `test_u2` seulement | |
 | Éditer les étiquettes depuis TV / mobile (`test_u1`) | noter possible / impossible (H4) | |
+| **Avancement (#44)** : `test_u1` lance un média commun de la playlist (web, puis TV/mobile), l'arrête à mi-parcours ; puis `test_u2` ouvre la playlist | « Reprendre » propose la position de `test_u1` (constat de départ : sans propagation active, u2 repart du début) ; noter le client utilisé | |
 
 Après la lecture : relever les événements avec `GET /emby/SharedPlaylist/Spike/Events` (clé admin) et vérifier une entrée `UserDataSaved` pour `test_u2` (SaveReason, `played=true`, `pluginWrite=false`) — c'est la preuve U1 en conditions réelles.
 

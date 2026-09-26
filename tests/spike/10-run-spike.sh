@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 10-run-spike.sh — scénarios U1–U6 du spike (issue #1) sur emby2 (QUALIF uniquement).
+# 10-run-spike.sh — scénarios U1–U6 et U10 (avancement de lecture, #44) du spike (issue #1) sur emby2 (QUALIF uniquement).
 # Prérequis : 00-setup-users.sh exécuté ; plugin déployé avec EnableSpikeEndpoints=true.
 # Sortie : tableau console + JSON de preuves (SPIKE_OUT, défaut _work/spike-out/spike-evidence-<ts>.json).
 # Aucun secret dans la sortie (tokens/mots de passe jamais journalisés).
@@ -334,6 +334,79 @@ if [[ -n $SPID ]]; then
   x=$(entries "$SPID" "$T2" "$U2")
   ck U6 setup-visible probe "la playlist créée par le plugin est visible par u2 (même Id)" "$x" jq -e 'length>=1' <<<"$x"
 fi
+
+# ---------------------------------------------------------------- U10 : avancement de lecture (issue #44)
+echo "== U10 — propagation de la position de lecture (u1 commence, u2 poursuit)"
+# Hypothèse de contrat (à aligner sur contracts/http-endpoints.md) : POST Spike/SetPosition
+#   {userId, itemId, positionTicks} -> 200. Position lue côté événement : playbackPositionTicks|positionTicks.
+is_test_user "$U2" && is_test_user "$U1" || die "garde : u1/u2 ne sont pas des comptes de test"
+RT3=$(runtime "$M3")
+playi() { # ITEM SESSION POSITION
+  jc -n --arg i "$1" --arg s "$2" --argjson p "$3" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}'
+}
+play_to() { # TOKEN ITEM POSITION : lecture simulée démarrée à 0, arrêtée à POSITION
+  local sid="spike-$RANDOM$RANDOM"
+  api POST /Sessions/Playing "$(playi "$2" "$sid" 0)" "$1" >/dev/null
+  api POST /Sessions/Playing/Progress "$(playi "$2" "$sid" $(($3/2)))" "$1" >/dev/null
+  api POST /Sessions/Playing/Stopped "$(playi "$2" "$sid" "$3")" "$1"
+}
+pos_of() { # UID TOKEN ITEM -> position REST (ticks)
+  api GET "/Users/$1/Items/$3" "" "$2" >/dev/null; jq -r '.UserData.PlaybackPositionTicks // 0' "$RESP"
+}
+played_of() { api GET "/Users/$1/Items/$3" "" "$2" >/dev/null; jq -r '.UserData.Played' "$RESP"; }
+in_resume() { # UID TOKEN ITEM
+  api GET "/Users/$1/Items/Resume?Recursive=true&MediaTypes=Video&Limit=100" "" "$2" >/dev/null
+  jq -e --arg i "$3" "$DEFS"'[.Items[]|.Id|n]|index($i|n)!=null' "$RESP" >/dev/null
+}
+near() { local d=$(($1-$2)); ((d<0)) && d=$((-d)); ((d<=10000000)); }   # tolérance 1 s
+ev_user() { # UID ITEM -> événements UserDataSaved compacts
+  jq -c --arg u "$1" --arg i "$2" "$DEFS"'[.[]|select(.kind=="UserDataSaved" and (.userId|n)==($u|n) and (.itemId|n)==($i|n))|{saveReason,played,position:(.playbackPositionTicks // .positionTicks // null),pluginWrite}]' <<<"${EV:-[]}"
+}
+
+P1=$((RT3*40/100)); P2=$((RT3*70/100))
+ev_clear
+st=$(play_to "$T1" "$M3" "$P1")
+ck U10 a-stop hard "u1 : lecture simulée de M3 arrêtée à 40 % (Playing, Progress, Stopped acceptés)" "{\"stopped\":\"$st\"}" is2xx "$st"
+ev_wait "[.[]|select(.kind==\"UserDataSaved\" and (.userId|n)==(\"$U1\"|n) and (.itemId|n)==(\"$M3\"|n))]|length>0" 12 || true
+E=$(ev_user "$U1" "$M3")
+ck U10 a-event probe "UserDataSaved reçu pour (u1, M3) à l'arrêt ; SaveReason et position relevés" "$E" jq -e 'length>0' <<<"$E"
+ck U10 a-event-pos probe "l'événement expose une position de lecture non nulle (sinon relire via IUserDataManager)" "$E" \
+  jq -e 'any(.position!=null and .position>0)' <<<"$E"
+X=$(pos_of "$U1" "$T1" "$M3")
+ck U10 a-rest-pos probe "position REST de u1 = position d'arrêt (±1 s), média non lu" "{\"expected\":$P1,\"got\":$X,\"played\":\"$(played_of "$U1" "$T1" "$M3")\"}" \
+  near "$X" "$P1"
+
+ev_clear
+st=$(api POST "$SPK/SetPosition" "$(jc -n --arg u "$U2" --arg i "$M3" --argjson p "$X" '{userId:$u,itemId:$i,positionTicks:$p}')")
+ck U10 b-set probe "plugin : SetPosition(u2, M3, position de u1) accepté (HTTP $st)" "{\"status\":\"$st\"}" test "$st" = 200
+Y=$(pos_of "$U2" "$T2" "$M3")
+ck U10 b-pos probe "position de u2 relue par REST = position de u1 (±1 s)" "{\"expected\":$X,\"got\":$Y}" near "$Y" "$X"
+PL2=$(played_of "$U2" "$T2" "$M3")
+ck U10 b-notplayed probe "le média n'est PAS marqué lu chez u2 (Played=false)" "{\"played\":\"$PL2\"}" test "$PL2" = false
+if in_resume "$U2" "$T2" "$M3"; then rs=true; else rs=false; fi
+ck U10 b-resume probe "M3 apparaît dans /Users/{u2}/Items/Resume (« reprendre » proposé)" "{\"inResume\":$rs}" test "$rs" = true
+ev_wait "[.[]|select(.kind==\"UserDataSaved\" and (.userId|n)==(\"$U2\"|n) and (.itemId|n)==(\"$M3\"|n))]|length>0" 8 || true
+E=$(ev_user "$U2" "$M3")
+ck U10 b-echo probe "l'écriture plugin de la position est reconnue (pluginWrite=true) : pas de boucle u1<->u2" "$E" jq -e 'length>0 and .[0].pluginWrite==true' <<<"$E"
+
+ev_clear
+st=$(play_to "$T2" "$M3" "$P2")
+ck U10 c-stop hard "u2 poursuit : lecture simulée de M3 arrêtée à 70 %" "{\"stopped\":\"$st\"}" is2xx "$st"
+Y=$(pos_of "$U2" "$T2" "$M3")
+ck U10 c-pos probe "position de u2 = 70 % après sa lecture (±1 s)" "{\"expected\":$P2,\"got\":$Y}" near "$Y" "$P2"
+ev_wait "[.[]|select(.kind==\"UserDataSaved\" and (.userId|n)==(\"$U2\"|n) and (.itemId|n)==(\"$M3\"|n))]|length>0" 12 || true
+E=$(ev_user "$U2" "$M3")
+ck U10 c-event probe "l'arrêt de u2 est vu comme écriture utilisateur (pluginWrite=false)" "$E" jq -e 'length>0 and all(.pluginWrite==false)' <<<"$E"
+
+st=$(api POST "$SPK/SetPosition" "$(jc -n --arg u "$U1" --arg i "$M3" --argjson p "$Y" '{userId:$u,itemId:$i,positionTicks:$p}')")
+X2=$(pos_of "$U1" "$T1" "$M3")
+ck U10 d-reverse probe "sens inverse : SetPosition(u1, M3, position de u2) => u1 est mis à jour (dernière lecture gagne) (HTTP $st)" \
+  "{\"expected\":$Y,\"got\":$X2}" near "$X2" "$Y"
+if in_resume "$U1" "$T1" "$M3"; then rs=true; else rs=false; fi
+ck U10 d-resume probe "M3 reste dans Resume de u1 avec la nouvelle position" "{\"inResume\":$rs}" test "$rs" = true
+PLU3=$(played_of "$U3" "$T3" "$M3")
+ck U10 e-isolation hard "u3 (non concerné) n'est pas affecté : M3 sans position ni lu" "{\"u3Played\":\"$PLU3\",\"u3Pos\":$(pos_of "$U3" "$T3" "$M3")}" \
+  test "$PLU3/$(pos_of "$U3" "$T3" "$M3")" = "false/0"
 
 # ---------------------------------------------------------------- bilan
 echo "== Comptes protégés"
