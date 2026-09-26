@@ -34,7 +34,13 @@ public static class PluginRuntime
     /// alors rien (ni passe planifiée ni première détection), pour ne pas fausser la mesure ni toucher d'autres playlists.
     /// Retiré avec la sonde (#15).
     /// </summary>
-    public static bool EngineSuspended => Plugin.Instance?.Configuration.EnableReentrancyProbe == true;
+    public static bool EngineSuspended => IsSuspended(Plugin.Instance?.Configuration);
+
+    /// <summary>
+    /// Suspendu si l'option de la sonde est vraie OU si la configuration est inaccessible (fail-closed : sans configuration on
+    /// n'écrit pas). Relu à chaque appel, sans dépendre d'un état initialisé après le démarrage.
+    /// </summary>
+    public static bool IsSuspended(PluginConfiguration? configuration) => configuration == null || configuration.EnableReentrancyProbe;
 
     /// <summary>Idempotent : le premier appel construit les services, les suivants renvoient.</summary>
     public static void Initialize(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
@@ -47,16 +53,16 @@ public static class PluginRuntime
             var log = new Log(logManager.GetLogger("EmbySharedPlaylist"));
             var journal = new LoggingJournal(JournalStore, log);
             var clock = new SystemClock();
-            var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager);
+            var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager, () => EngineSuspended);
             var defaults = new DefaultsService(gateway, Seen, Locks, journal, HelpText.Message,
-                () => Plugin.Instance?.Configuration.EffectiveGracePasses ?? 2, clock);
+                () => Plugin.Instance?.Configuration.EffectiveGracePasses ?? 2, clock, null, () => EngineSuspended);
 
             Log = log;
             Journal = journal;
             Gateway = gateway;
             Defaults = defaults;
-            Reconciliation = new ReconciliationService(gateway, defaults, Seen, Locks, journal, clock);
-            FirstDetection = new FirstDetectionCoordinator(gateway, defaults, Seen, journal, clock);
+            Reconciliation = new ReconciliationService(gateway, defaults, Seen, Locks, journal, clock, null, () => EngineSuspended);
+            FirstDetection = new FirstDetectionCoordinator(gateway, defaults, Seen, journal, clock, () => EngineSuspended);
             _initialized = true;
         }
     }

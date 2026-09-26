@@ -1,4 +1,5 @@
 using EmbySharedPlaylist.Core;
+using EmbySharedPlaylist.Emby;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -24,11 +25,13 @@ public class SpikeService : IService
     private readonly IPlaylistManager _playlistManager;
     private readonly IItemRepository _itemRepository;
     private readonly Log _log;
+    private readonly PlaylistEntryReader _entryReader;
 
     public SpikeService(ILibraryManager libraryManager, IUserManager userManager, IUserDataManager userDataManager,
         IPlaylistManager playlistManager, IItemRepository itemRepository, ILogManager logManager)
     {
         _libraryManager = libraryManager;
+        _entryReader = new PlaylistEntryReader(libraryManager, userManager, itemRepository);
         _userManager = userManager;
         _userDataManager = userDataManager;
         _playlistManager = playlistManager;
@@ -312,13 +315,10 @@ public class SpikeService : IService
         return playlist;
     }
 
-    private static List<EntryDto> GetEntries(Playlist playlist, User? user)
-    {
-        var query = user != null ? new InternalItemsQuery(user) : new InternalItemsQuery();
-        return playlist.GetChildren(query)
-            .Select(c => new EntryDto { PlaylistItemId = c.ListItemEntryId.ToString(), ItemId = c.InternalId.ToString() })
+    private List<EntryDto> GetEntries(Playlist playlist, User? user) =>
+        _entryReader.Read(playlist, user).Entries
+            .Select(e => new EntryDto { PlaylistItemId = e.EntryId.ToString(), ItemId = e.ItemId.ToString() })
             .ToList();
-    }
 
     private UserItemShare[] GetShareRows(Playlist playlist) =>
         _itemRepository.GetUserItemShares(new UserItemShareQuery { ItemIds = new[] { playlist.InternalId } }, CancellationToken.None);

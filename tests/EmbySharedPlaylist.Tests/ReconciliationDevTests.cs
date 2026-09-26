@@ -32,6 +32,7 @@ internal sealed class FakeGateway : IPlaylistGateway
 
     public readonly Dictionary<string, State> Playlists = new();
     public int ApplyCalls;
+    public int ListCalls;
     public int GetCalls;
     public Func<string, bool>? ThrowOnApplyFor;
     public bool ThrowOnList;
@@ -49,6 +50,7 @@ internal sealed class FakeGateway : IPlaylistGateway
 
     public IReadOnlyList<PlaylistSnapshot> ListSharedPlaylists()
     {
+        Interlocked.Increment(ref ListCalls);
         if (ThrowOnList) throw new InvalidOperationException("liste");
         lock (Gate) return Playlists.Select(p => Snap(p.Key, p.Value)).Where(s => s.IsShared).ToList();
     }

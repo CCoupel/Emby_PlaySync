@@ -14,18 +14,22 @@ public sealed class FirstDetectionCoordinator
     private readonly SeenPlaylists _seen;
     private readonly IJournal _journal;
     private readonly IClock? _clock;
+    private readonly Func<bool> _isSuspended;
 
-    public FirstDetectionCoordinator(IPlaylistGateway gateway, DefaultsService defaults, SeenPlaylists seen, IJournal journal, IClock? clock = null)
+    public FirstDetectionCoordinator(IPlaylistGateway gateway, DefaultsService defaults, SeenPlaylists seen, IJournal journal, IClock? clock = null,
+        Func<bool>? isSuspended = null)
     {
         _gateway = gateway;
         _defaults = defaults;
         _seen = seen;
         _journal = journal;
         _clock = clock;
+        _isSuspended = isSuspended ?? (() => false);
     }
 
     public void OnPlaylistEvent(string playlistId)
     {
+        if (_isSuspended()) return; // suspendu (sonde U11 active) : ni lecture, ni écriture, ni journal
         try
         {
             if (WriteScope.Active) { _journal.Add(JournalEntries.SkippedEntry(_clock, playlistId, "reentrant")); return; }

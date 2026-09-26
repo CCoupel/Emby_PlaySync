@@ -23,12 +23,18 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
     private readonly IUserManager _userManager;
     private readonly IItemRepository _itemRepository;
     private readonly IPlaylistManager _playlistManager;
+    private readonly PlaylistEntryReader _entries;
+    private readonly Func<bool> _isSuspended;
 
     /// <summary>Verrou d'écriture unique de la passerelle : la passe planifiée et les gestionnaires peuvent se croiser.</summary>
     private readonly object _writeGate = new();
 
-    public EmbyPlaylistGateway(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository, IPlaylistManager playlistManager)
+    /// <param name="isSuspended">Vrai = le moteur est suspendu (sonde U11 active) : aucune écriture, quoi que demande l'appelant (dernier garde-fou).</param>
+    public EmbyPlaylistGateway(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository, IPlaylistManager playlistManager,
+        Func<bool>? isSuspended = null)
     {
+        _entries = new PlaylistEntryReader(libraryManager, userManager, itemRepository);
+        _isSuspended = isSuspended ?? (() => false);
         _libraryManager = libraryManager;
         _userManager = userManager;
         _itemRepository = itemRepository;
@@ -56,12 +62,14 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
     public IReadOnlyList<PlaylistSnapshot> ListSharedPlaylistsOfUserContaining(string userId, string itemId)
     {
         if (!long.TryParse(itemId, out var item)) return Array.Empty<PlaylistSnapshot>();
+        User? member = null;
+        try { member = _userManager.GetUserById(userId); } catch { /* id invalide : lecture sans utilisateur préféré */ }
         var result = new List<PlaylistSnapshot>();
         foreach (var snapshot in ListSharedPlaylists())
         {
             if (!snapshot.MemberIds.Contains(userId, StringComparer.Ordinal)) continue;
             if (long.TryParse(snapshot.Id, out var pid) && _libraryManager.GetItemById(pid) is Playlist playlist
-                && Entries(playlist).Any(c => c.InternalId == item))
+                && _entries.Read(playlist, member).Entries.Any(c => c.ItemId == item))
                 result.Add(snapshot);
         }
         return result;
@@ -77,15 +85,16 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
 
     public bool RemoveOneEntry(string playlistId, string itemId)
     {
+        if (_isSuspended()) return false;
         var playlist = FindPlaylist(playlistId);
         if (playlist == null || !long.TryParse(itemId, out var item)) return false;
         // Résolution par ItemId à l'instant : les identifiants d'entrée ne sont pas stables.
-        var entry = Entries(playlist).FirstOrDefault(c => c.InternalId == item);
+        var entry = _entries.Read(playlist).Entries.FirstOrDefault(c => c.ItemId == item);
         if (entry == null) return false;
 
         using (WriteScope.Enter())
         {
-            var task = _playlistManager.RemoveFromPlaylist(playlist, new[] { entry.ListItemEntryId });
+            var task = _playlistManager.RemoveFromPlaylist(playlist, new[] { entry.EntryId });
             if (!task.Wait(CallTimeoutMs)) throw new TimeoutException("RemoveFromPlaylist > 5 s");
             task.GetAwaiter().GetResult();
         }
@@ -94,6 +103,7 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
 
     public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, string? overviewIfEmpty)
     {
+        if (_isSuspended()) return new ApplyResult();
         lock (_writeGate)
         {
             // Lecture fraîche PUIS écriture, dans la même section critique : on ne pose que ce qui manque à cet instant.
@@ -135,8 +145,6 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
 
     private Playlist? FindPlaylist(string playlistId) =>
         long.TryParse(playlistId, out var id) ? _libraryManager.GetItemById(id) as Playlist : null;
-
-    private static BaseItem[] Entries(Playlist playlist) => playlist.GetChildren(new InternalItemsQuery());
 
     private PlaylistSnapshot Snapshot(Playlist playlist, IEnumerable<UserItemShare> rows)
     {

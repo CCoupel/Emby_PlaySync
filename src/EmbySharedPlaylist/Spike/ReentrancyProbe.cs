@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using EmbySharedPlaylist.Core;
+using EmbySharedPlaylist.Emby;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
@@ -37,6 +38,7 @@ public sealed class ReentrancyProbe
     private readonly IPlaylistManager _playlistManager;
     private readonly IItemRepository _itemRepository;
     private readonly PlaylistLocks _locks;
+    private readonly PlaylistEntryReader _entryReader;
     private readonly Log _log;
 
     private readonly ConcurrentDictionary<string, byte> _seen = new();
@@ -52,6 +54,7 @@ public sealed class ReentrancyProbe
         _playlistManager = playlistManager;
         _itemRepository = itemRepository;
         _locks = locks;
+        _entryReader = new PlaylistEntryReader(libraryManager, userManager, itemRepository);
         _log = log;
     }
 
@@ -88,22 +91,40 @@ public sealed class ReentrancyProbe
     {
         try
         {
-            if (WriteScope.Active || pluginWrite) return;
-            if (e.UserData?.Played != true) return;
-            if (e.SaveReason != UserDataSaveReason.TogglePlayed && e.SaveReason != UserDataSaveReason.PlaybackFinished) return;
-            if (!IsEligible(e.User)) return;
+            // Chaque sortie précoce est journalisée avec sa raison (ids seulement) : la sonde ne doit jamais rester muette.
+            // Les rejets courants (lecture en cours, autre motif) sont en Debug ; les rejets décisifs en Info.
+            var user = e.User.Id.ToString("N");
+            var item = e.Item.InternalId.ToString();
+            if (WriteScope.Active) { SkipDebug("write-scope-active", user, item); return; }
+            if (pluginWrite) { SkipDebug("plugin-write", user, item); return; }
+            if (e.UserData?.Played != true) { SkipDebug("not-played", user, item); return; }
+            if (e.SaveReason != UserDataSaveReason.TogglePlayed && e.SaveReason != UserDataSaveReason.PlaybackFinished)
+            { SkipDebug("save-reason-" + e.SaveReason, user, item); return; }
+            if (!IsEligible(e.User)) { SkipInfo("user-not-eligible", user, item, null); return; }
 
-            foreach (var (playlist, scenario) in FindProbePlaylists(e.User, e.Item))
+            var search = FindProbePlaylists(e.User, e.Item);
+            if (search.Found.Count == 0)
             {
-                Run(scenario, playlist, e.User, e.Item);
-                break; // une playlist de sonde par transition
+                SkipInfo("no-probe-playlist", user, item,
+                    $"listed={search.Listed} probeNamed={search.ProbeNamed} withItem={search.WithItem} entries=[{string.Join(";", search.Diagnostics)}]");
+                return;
             }
+
+            var (playlist, scenario) = search.Found[0]; // une playlist de sonde par transition
+            _log.Info($"{SpikeLogFormat.Prefix}Probe trigger scenario=P{scenario} playlist={playlist.InternalId} user={user} item={item}");
+            Run(scenario, playlist, e.User, e.Item);
         }
         catch (Exception ex)
         {
             _log.Error("EmbySharedPlaylist spike : erreur dans la sonde (UserDataSaved)", ex);
         }
     }
+
+    private void SkipDebug(string reason, string? user, string? item) =>
+        _log.Debug($"{SpikeLogFormat.Prefix}Probe skipped reason={reason} user={user ?? "-"} item={item ?? "-"}");
+
+    private void SkipInfo(string reason, string? user, string? item, string? extra) =>
+        _log.Info($"{SpikeLogFormat.Prefix}Probe skipped reason={reason} user={user ?? "-"} item={item ?? "-"}" + (extra != null ? " " + extra : string.Empty));
 
     public void OnPlaylistItemsAdded(PlaylistItemsAddedEventArgs e)
     {
@@ -174,7 +195,7 @@ public sealed class ReentrancyProbe
                     {
                         extra = scenario switch
                         {
-                            1 or 5 => BodyRemove(playlist, item!),
+                            1 or 5 => BodyRemove(playlist, item!, user),
                             2 => BodyMetadata(playlist, "probe-p2"),
                             3 => BodySaveUserData(target!, item!),
                             4 => BodyMetadata(playlist, "probe-p4"),
@@ -225,13 +246,14 @@ public sealed class ReentrancyProbe
         });
     }
 
-    private string BodyRemove(Playlist playlist, BaseItem item)
+    private string BodyRemove(Playlist playlist, BaseItem item, User? user)
     {
-        var target = ListEntries(playlist).FirstOrDefault(c => c.InternalId == item.InternalId);
-        if (target == null) return " removed=0 note=absent";
-        WaitOrThrow(_playlistManager.RemoveFromPlaylist(playlist, new[] { target.ListItemEntryId }));
-        var remaining = ListEntries(playlist).Count(c => c.InternalId == item.InternalId);
-        return $" removed=1 remaining={remaining}";
+        var read = _entryReader.Read(playlist, user);
+        var target = read.Entries.FirstOrDefault(c => c.ItemId == item.InternalId);
+        if (target == null) return $" removed=0 note=absent entries={read.Strategy}";
+        WaitOrThrow(_playlistManager.RemoveFromPlaylist(playlist, new[] { target.EntryId }));
+        var remaining = _entryReader.Read(playlist, user).Entries.Count(c => c.ItemId == item.InternalId);
+        return $" removed=1 remaining={remaining} entries={read.Strategy}";
     }
 
     private string BodyMetadata(Playlist playlist, string tag)
@@ -271,22 +293,34 @@ public sealed class ReentrancyProbe
         task.GetAwaiter().GetResult(); // relève l'exception éventuelle
     }
 
-    private static BaseItem[] ListEntries(Playlist playlist) => playlist.GetChildren(new InternalItemsQuery());
-
     private bool IsEligible(User user) =>
         SpikeRules.IsEligibleForSpikeWrite(user.Name, _userManager.GetUserPolicy(user).IsAdministrator);
 
-    private IEnumerable<(Playlist Playlist, int Scenario)> FindProbePlaylists(User user, BaseItem item)
+    private sealed record ProbeSearch(List<(Playlist Playlist, int Scenario)> Found, int Listed, int ProbeNamed, int WithItem, List<string> Diagnostics);
+
+    /// <summary>Playlists de sonde (P1, P2, P3, P5, P6 ; P4 est déclenchée par les événements de playlist) contenant le média.</summary>
+    private ProbeSearch FindProbePlaylists(User user, BaseItem item)
     {
+        var found = new List<(Playlist, int)>();
+        var diagnostics = new List<string>();
+        var listed = 0;
+        var probeNamed = 0;
+        var withItem = 0;
         var query = new InternalItemsQuery(user) { IncludeItemTypes = new[] { "Playlist" }, Recursive = true };
         foreach (var candidate in _libraryManager.GetItemList(query))
         {
             if (candidate is not Playlist playlist) continue;
+            listed++;
             var scenario = SpikeRules.ProbeScenario(playlist.Name);
             if (scenario == 0 || scenario == 4) continue; // P4 est déclenché par les événements de playlist
-            if (!ListEntries(playlist).Any(c => c.InternalId == item.InternalId)) continue;
-            yield return (playlist, scenario);
+            probeNamed++;
+            var read = _entryReader.Read(playlist, user);
+            diagnostics.Add($"{playlist.InternalId}:P{scenario}:{read.Entries.Count}:{read.Strategy}");
+            if (!read.Entries.Any(c => c.ItemId == item.InternalId)) continue;
+            withItem++;
+            found.Add((playlist, scenario));
         }
+        return new ProbeSearch(found, listed, probeNamed, withItem, diagnostics);
     }
 
     private User? FindOtherTestUser(Playlist playlist, User eventUser)
