@@ -12,3 +12,8 @@
 | tests/spike/90-cleanup.sh | integration | plugin | spike-partage-natif #1 (nettoyage, comptes protégés vérifiés) | feature | |
 | tests/spike/MANUAL.md | manuel | plugin | spike-partage-natif #1 (TV/mobile, lecture réelle, étiquettes, avancement #44) | feature | |
 | tests/spike/test-lib-offline.sh | unit (hors ligne) | plugin | spike-partage-natif #1 (lib.sh : échappement config curl, en-tête de login intact ; serveur local, sans emby2) | regression | smoke |
+| tests/integration/05-reentrancy-probe.sh | integration | plugin | sonde U11 de ré-entrance (#52) : P1–P6, échos, latence p50/p95/max, logs Emby, décision immédiat/repli | feature | critical |
+| tests/integration/probe-lib.sh | integration (support) | plugin | sonde U11 (#52) : parsing des événements Probe, statistiques, analyse des logs, décision | feature | |
+| tests/integration/test-probe-offline.sh | unit (hors ligne) | plugin | sonde U11 (#52) : fonctions pures de probe-lib.sh | feature | smoke |
+| tests/integration/test-probe-flow-offline.sh | integration (hors ligne, faux Emby) | plugin | sonde U11 (#52) : flux complet de 05-reentrancy-probe.sh contre fake_emby.py, 4 situations | feature | smoke |
+| tests/integration/fake_emby.py | integration (support) | plugin | faux serveur Emby local pour test-probe-flow-offline.sh | feature | |
