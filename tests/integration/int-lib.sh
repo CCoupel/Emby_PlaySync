@@ -47,7 +47,13 @@ run_pass() { # exécute UNE passe et attend sa fin (State.lastPass.ts change) ; 
 new_pl() { # NOM ITEM_IDS_CSV -> id (créée par u1, enregistrée pour le nettoyage)
   local st id; st=$(api POST "/Playlists?Name=$(qs "$1")&MediaType=Video&Ids=$2&UserId=$U1" "" "$T1")
   [[ $st == 200 ]] || die "création playlist $1 -> HTTP $st"
-  id=$(jq -r '.Id' "$RESP"); register_playlist "$id"; echo "$id"
+  id=$(jq -r '.Id' "$RESP"); register_playlist "$id"; echo "$id" >> "$SCRATCH/pls.run"; echo "$id"
+}
+drop_playlists() { # supprime les playlists des scénarios précédents (une playlist OUI restante réagirait aux transitions suivantes)
+  local id
+  [[ -s $SCRATCH/pls.run ]] || return 0
+  while read -r id; do api DELETE "/Items/$id" >/dev/null; done < "$SCRATCH/pls.run"
+  : > "$SCRATCH/pls.run"
 }
 share_pl() { # PLAYLIST : u2 = Write, u3 = Read
   apiok 204 POST /Items/Access "$(jq -nc --arg p "$1" --arg a "$U2" '{ItemIds:[$p],UserIds:[$a],ItemAccess:"Write"}')" "$T1"

@@ -88,6 +88,7 @@ harvest_removals() { # ajoute les durées des entrées Removal du journal (dédo
 }
 assert_baseline() { # un scénario ne doit pas dépendre du précédent : journal vidé, état « lu » des médias de test remis à zéro
   local m
+  drop_playlists
   jclear
   for m in "${M[@]}"; do
     unmark "$U1" "$T1" "$m"; unmark "$U2" "$T2" "$m"; unmark "$U3" "$T3" "$m"
@@ -173,16 +174,20 @@ i4() {
 }
 
 i5() {
-  echo "== I5 — doublons : un retrait par transition"
+  echo "== I5 — doublons : toutes les entrées du média sont retirées (une à la fois, relecture entre chaque)"
   assert_baseline
-  local pl; pl=$(shared_pl "SPIKE-I5" "${M[0]},${M[1]}"); prime "$pl" || true
+  local pl j; pl=$(shared_pl "SPIKE-I5" "${M[0]},${M[1]}"); prime "$pl" || true
   add_item "$pl" "${M[0]}"
   owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1
   ck I5.dup "M0 présent 2 fois au départ" "null" test "$(count_item "$pl" "${M[0]}")" = 2
+  jclear
   finish "$U2" "$T2" "${M[0]}"
-  ck I5.one "première transition : UNE seule entrée retirée (reste 1)" "null" wait_count "$pl" "${M[0]}" 1 10
-  unmark "$U2" "$T2" "${M[0]}"; nap 1; finish "$U2" "$T2" "${M[0]}"
-  ck I5.two "seconde transition : la dernière entrée est retirée" "null" wait_count "$pl" "${M[0]}" 0 10
+  ck I5.all "une seule transition : les DEUX entrées de M0 sont retirées" "null" wait_count "$pl" "${M[0]}" 0 10
+  j=$(journal Removal)
+  ck I5.journal "un seul Removal pour cette playlist, entries=2" "$j" test "$(jcount "$j" "$pl" Removal 'entries=2')" = 1
+  ck I5.other "l'autre média (M1) est intact" "null" test "$(count_item "$pl" "${M[1]}")" = 1
+  add_item "$pl" "${M[0]}"; unmark "$U2" "$T2" "${M[0]}"; nap 1; finish "$U2" "$T2" "${M[0]}"
+  ck I5.again "une nouvelle transition retire de nouveau l'entrée ré-ajoutée" "null" wait_count "$pl" "${M[0]}" 0 10
 }
 
 i6() {

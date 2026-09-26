@@ -102,9 +102,13 @@ def transition(user, item):
         if not shared(p): jr("Skipped", pid, user, item, "not-shared"); continue
         st = state_of(p["tags"], "remove-si-lu"); jr("MarkerSeen", pid, user, item, f"family=remove-si-lu state={st}")
         if st != "Oui" or MODE == "noremove": jr("Skipped", pid, user, item, "inactive"); continue
-        p["entries"].remove(es[0])
+        n = 0
+        while n < 50:                         # toutes les entrées du média, une à la fois
+            e = next((x for x in p["entries"] if x["item"] == item), None)
+            if e is None: break
+            p["entries"].remove(e); n += 1
         ms = 3
-        jr("Removal", pid, user, item, f"entries=1 durationMs={ms}"); jr("Skipped", pid, detail="already-seen")   # écho PlaylistItemsRemoved
+        jr("Removal", pid, user, item, f"entries={n} durationMs={ms}"); jr("Skipped", pid, detail="already-seen")   # écho PlaylistItemsRemoved
         HANDLER["Count"] += 1; HANDLER["LastMs"] = ms; HANDLER["MaxMs"] = max(HANDLER["MaxMs"], ms)
 
 def set_played(user, item, val):
