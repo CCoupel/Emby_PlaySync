@@ -130,6 +130,8 @@ i2_case() { # ID DESC AJOUTS RETRAITS ATTENDU(stays|removed) [ajouts multi-ligne
   fi
 }
 i2() {
+  # Règle décidée par l'utilisateur : casse ignorée, espaces tolérés autour de « = » => « Remove-Si-Lu = oui » est ACTIF.
+  # (La mention « casse oui : F1 reste » du plan est une erreur du plan ; REMOVE-SI-LU=non, elle, reste inactive.)
   echo "== I2 — états de remove-si-lu"
   assert_baseline
   i2_case I2.non   "remove-si-lu=NON (défaut)" '[]' '[]' stays
