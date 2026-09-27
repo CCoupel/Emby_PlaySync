@@ -3,15 +3,16 @@ namespace EmbySharedPlaylist.Core;
 /// <summary>
 /// Journal décorateur : compte TOUS les <c>Skipped</c> par raison (<see cref="SkippedCounters"/>, exposé par Diagnostics/State) et
 /// n'inscrit dans le journal borné (500) que les cas informatifs. Les raisons bruyantes — une par événement de playlist ou par
-/// lecture : <c>already-seen</c>, <c>reentrant</c>, <c>not-shared</c>, <c>unknown-owner</c> — ne vont qu'aux compteurs et, en Debug,
-/// au fichier (jamais en Info ni sur la console). Les autres entrées passent telles quelles.
+/// écriture du plugin (flag lu ou position, #21/#45) : <c>already-seen</c>, <c>reentrant</c>, <c>not-shared</c>,
+/// <c>unknown-owner</c>, <c>echo-consumed</c> — ne vont qu'aux compteurs et, en Debug, au fichier (jamais en Info ni sur la
+/// console). Les autres entrées passent telles quelles.
 /// </summary>
 public sealed class AggregatingJournal : IJournal
 {
     /// <summary>Raisons de <c>Skipped</c> agrégées seulement (pas d'entrée de journal).</summary>
     public static readonly IReadOnlySet<string> NoisyReasons = new HashSet<string>(StringComparer.Ordinal)
     {
-        "already-seen", "reentrant", "not-shared", "unknown-owner"
+        "already-seen", "reentrant", "not-shared", "unknown-owner", "echo-consumed"
     };
 
     private readonly IJournal _inner;

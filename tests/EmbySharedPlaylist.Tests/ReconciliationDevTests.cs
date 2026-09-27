@@ -19,19 +19,25 @@ internal sealed class ListJournal : IJournal
     public IEnumerable<string?> Details(string kind) => Of(kind).Select(e => e.Detail);
 }
 
-/// <summary>Passerelle simulée du flag lu (#20) : accès/état par couple (utilisateur, média), sans SDK.</summary>
+/// <summary>Passerelle simulée du flag lu (#20) et de la position (#45) : accès/état par couple (utilisateur, média), sans SDK.</summary>
 internal sealed class FakeUserDataGateway : IUserDataGateway
 {
     private readonly Dictionary<(string UserId, string ItemId), bool> _played = new();
+    private readonly Dictionary<(string UserId, string ItemId), long> _positions = new();
     private readonly HashSet<(string UserId, string ItemId)> _noAccess = new();
     public int MarkPlayedCalls;
+    public int SetPositionCalls;
     public readonly List<(string UserId, string ItemId)> Marked = new();
+    public readonly List<(string UserId, string ItemId, long Ticks)> PositionsSet = new();
     public Func<string, string, bool>? ThrowOnMarkFor;
+    public Func<string, string, bool>? ThrowOnSetPositionFor;
 
-    /// <summary>Par défaut : accès et non lu. <see cref="DenyAccess"/> et <see cref="SetPlayed"/> changent l'état avant l'appel testé.</summary>
+    /// <summary>Par défaut : accès, non lu, position 0. <see cref="DenyAccess"/>/<see cref="SetPlayed"/>/<see cref="SetPosition"/> changent l'état avant l'appel testé.</summary>
     public void DenyAccess(string userId, string itemId) => _noAccess.Add((userId, itemId));
 
     public void SetPlayed(string userId, string itemId, bool played) => _played[(userId, itemId)] = played;
+
+    public bool HasAccess(string userId, string itemId) => !_noAccess.Contains((userId, itemId));
 
     public bool? IsPlayed(string userId, string itemId)
     {
@@ -45,6 +51,24 @@ internal sealed class FakeUserDataGateway : IUserDataGateway
         if (ThrowOnMarkFor?.Invoke(userId, itemId) == true) throw new InvalidOperationException("écriture en échec avec un message secret");
         lock (Marked) Marked.Add((userId, itemId));
         _played[(userId, itemId)] = true;
+        return true;
+    }
+
+    public long? GetPosition(string userId, string itemId)
+    {
+        if (_noAccess.Contains((userId, itemId))) return null;
+        return _positions.TryGetValue((userId, itemId), out var t) ? t : 0L;
+    }
+
+    public bool SetPosition(string userId, string itemId, long ticks)
+    {
+        Interlocked.Increment(ref SetPositionCalls);
+        if (_noAccess.Contains((userId, itemId))) return false; // R8
+        if (ThrowOnSetPositionFor?.Invoke(userId, itemId) == true) throw new InvalidOperationException("écriture en échec avec un message secret");
+        var current = _positions.TryGetValue((userId, itemId), out var t) ? t : 0L;
+        if (current == ticks) return false; // déjà cette position
+        _positions[(userId, itemId)] = ticks;
+        lock (PositionsSet) PositionsSet.Add((userId, itemId, ticks));
         return true;
     }
 }

@@ -23,20 +23,21 @@ public sealed class EmbyUserDataGateway : IUserDataGateway
         _userDataManager = userDataManager;
     }
 
+    public bool HasAccess(string userId, string itemId) => Resolve(userId, itemId) != null;
+
     public bool? IsPlayed(string userId, string itemId)
     {
-        var user = FindUser(userId);
-        var item = FindItem(itemId);
-        if (user == null || item == null) return null;
-        if (!item.IsVisibleStandalone(user)) return null; // R8 : pas d'accès (bibliothèque, contrôle parental)
+        var resolved = Resolve(userId, itemId);
+        if (resolved == null) return null; // R8 : inconnu ou pas d'accès (bibliothèque, contrôle parental)
+        var (user, item) = resolved.Value;
         return _userDataManager.GetUserData(user, item).Played;
     }
 
     public bool MarkPlayed(string userId, string itemId)
     {
-        var user = FindUser(userId);
-        var item = FindItem(itemId);
-        if (user == null || item == null) return false;
+        var resolved = Resolve(userId, itemId);
+        if (resolved == null) return false;
+        var (user, item) = resolved.Value;
 
         var data = _userDataManager.GetUserData(user, item);
         data.Played = true;
@@ -47,6 +48,43 @@ public sealed class EmbyUserDataGateway : IUserDataGateway
             _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.TogglePlayed, CancellationToken.None);
         }
         return true;
+    }
+
+    public long? GetPosition(string userId, string itemId)
+    {
+        var resolved = Resolve(userId, itemId);
+        if (resolved == null) return null; // R8
+        var (user, item) = resolved.Value;
+        return _userDataManager.GetUserData(user, item).PlaybackPositionTicks;
+    }
+
+    public bool SetPosition(string userId, string itemId, long ticks)
+    {
+        var resolved = Resolve(userId, itemId);
+        if (resolved == null) return false; // R8
+        var (user, item) = resolved.Value;
+
+        var data = _userDataManager.GetUserData(user, item);
+        if (data.PlaybackPositionTicks == ticks) return false; // déjà cette position : pas d'écriture inutile
+
+        data.PlaybackPositionTicks = ticks;
+        data.LastPlayedDate = DateTimeOffset.UtcNow;
+        // Jamais Played ni PlayCount : distinct de MarkPlayed (#45).
+        using (WriteScope.Enter())
+        {
+            _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.PlaybackProgress, CancellationToken.None);
+        }
+        return true;
+    }
+
+    /// <summary>Résout (utilisateur, média) et vérifie l'accès (bibliothèque, contrôle parental) ; null = R8 (inconnu ou sans accès).</summary>
+    private (User, BaseItem)? Resolve(string userId, string itemId)
+    {
+        var user = FindUser(userId);
+        var item = FindItem(itemId);
+        if (user == null || item == null) return null;
+        if (!item.IsVisibleStandalone(user)) return null;
+        return (user, item);
     }
 
     private User? FindUser(string userId) => _userManager.GetUserById(userId);

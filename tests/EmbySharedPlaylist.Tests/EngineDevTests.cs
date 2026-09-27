@@ -734,8 +734,11 @@ public class PropagationDevTests
         private readonly IUserDataGateway _inner;
         private readonly Action _onCall;
         public SlowUserDataGateway(IUserDataGateway inner, Action onCall) { _inner = inner; _onCall = onCall; }
+        public bool HasAccess(string userId, string itemId) => _inner.HasAccess(userId, itemId);
         public bool? IsPlayed(string userId, string itemId) { _onCall(); return _inner.IsPlayed(userId, itemId); }
         public bool MarkPlayed(string userId, string itemId) => _inner.MarkPlayed(userId, itemId);
+        public long? GetPosition(string userId, string itemId) => _inner.GetPosition(userId, itemId);
+        public bool SetPosition(string userId, string itemId, long ticks) => _inner.SetPosition(userId, itemId, ticks);
     }
 
     // ---- S6a-c : absence de transitivité entre listes (via l'anti-écho, testé au niveau du processeur) ------
