@@ -19,11 +19,20 @@ public enum PlaybackEventOutcome
 
 /// <summary>
 /// Logique pure du gestionnaire <c>UserDataSaved</c> (extraite de <c>PlaybackListener</c> pour être testée sans SDK) :
-/// garde anti-écho <see cref="WriteScope"/> (même fil) → garde anti-écho <see cref="PluginWriteTracker"/> (garde PRINCIPALE
-/// pour une écriture ciblant un autre utilisateur, dont l'événement retour peut arriver sur un autre fil : sans elle, l'écho
-/// d'une propagation chez un membre de plusieurs playlists redéclencherait le moteur pour ses AUTRES playlists, violant
-/// l'absence de transitivité R5/S6a-c) → chemin rapide en mémoire (tracker de transition) → traitement immédiat (moteur)
-/// avec mesure de la durée. Ne capture aucune exception : l'appelant (le listener) applique le try/catch total.
+/// garde anti-écho <see cref="PluginWriteTracker"/> EN PREMIER, puis <see cref="WriteScope"/> (repli), puis chemin rapide
+/// en mémoire (tracker de transition), puis traitement immédiat (moteur) avec mesure de la durée. Ne capture aucune
+/// exception : l'appelant (le listener) applique le try/catch total.
+/// <para>
+/// ORDRE CRITIQUE (revue A1, v0.3.0) : <c>EmbyUserDataGateway.MarkPlayed</c> (propagation, #20) enregistre l'écriture dans
+/// <see cref="PluginWriteTracker"/> PUIS appelle <c>SaveUserData</c> sous <see cref="WriteScope"/> ; si le SDK émet
+/// <c>UserDataSaved</c> de façon synchrone (même pile d'appel), cet écho arrive PENDANT le <see cref="WriteScope"/> de
+/// l'écriture qui l'a causé. Si <see cref="WriteScope"/> était vérifié en premier, il intercepterait cet écho SANS jamais
+/// consommer l'entrée du tracker, qui resterait « en attente » jusqu'à expiration (TTL 5 min) ou jusqu'à une action
+/// RÉELLE ultérieure sur ce couple (mal classée en écho) — sous-déclenchement silencieux du retrait/de la propagation pour
+/// les AUTRES playlists de ce membre pendant cette fenêtre. <see cref="PluginWriteTracker"/> est donc vérifié en premier
+/// (il ne s'active QUE sur une écriture enregistrée par le plugin) ; <see cref="WriteScope"/> reste un repli défensif pour
+/// une écriture hypothétique qui toucherait le flag lu sans passer par le tracker (aucune actuellement dans le code).
+/// </para>
 /// </summary>
 public sealed class PlaybackEventProcessor
 {
@@ -45,15 +54,17 @@ public sealed class PlaybackEventProcessor
 
     public PlaybackEventOutcome Process(string userId, string itemId, string? saveReason, bool played)
     {
-        if (_writeScopeActive()) return PlaybackEventOutcome.WriteScope;
-
         if (_writeTracker.TryConsume(userId, itemId))
         {
-            // Écho reconnu : la mémoire de transition doit rester à jour pour ne pas fausser une vraie transition future,
-            // mais le moteur n'est JAMAIS appelé pour un écho (valeur de retour ignorée intentionnellement).
+            // Écho reconnu (AVANT WriteScope, voir le commentaire de classe) : la mémoire de transition doit rester à jour
+            // pour ne pas fausser une vraie transition future, mais le moteur n'est JAMAIS appelé pour un écho (retour ignoré).
             _tracker.OnUserData(userId, itemId, saveReason, played);
             return PlaybackEventOutcome.Echo;
         }
+
+        // Repli défensif : aucune écriture actuelle du plugin sur le flag lu ne devrait arriver ici sans être passée par
+        // le tracker ci-dessus ; conservé au cas où une future écriture toucherait UserDataSaved sans s'y enregistrer.
+        if (_writeScopeActive()) return PlaybackEventOutcome.WriteScope;
 
         if (!_tracker.OnUserData(userId, itemId, saveReason, played)) return PlaybackEventOutcome.NoTransition;
 

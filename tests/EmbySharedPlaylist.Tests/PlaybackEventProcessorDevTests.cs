@@ -133,15 +133,25 @@ public class PlaybackEventProcessorDevTests
     }
 
     [Fact]
-    public void WriteScopeIsCheckedBeforeTheWriteTracker_OrderOfGuards()
+    public void TheWriteTrackerIsCheckedBeforeWriteScope_OrderOfGuards()
     {
+        // Reproduit le cas réel (revue A1) : EmbyUserDataGateway.MarkPlayed enregistre PUIS écrit sous WriteScope ; si le SDK
+        // émet l'écho de façon synchrone, il arrive PENDANT ce WriteScope. Le tracker doit gagner, sinon l'entrée reste
+        // "pending" jusqu'au TTL (5 min) et une action réelle ultérieure sur ce couple serait mal classée en écho.
         var r = new Rig();
         r.WriteTracker.Register("u", "i");
+        r.Scope = true; // écho survenant PENDANT le WriteScope de l'écriture qui l'a causé
+        Assert.Equal(PlaybackEventOutcome.Echo, r.Processor.Process("u", "i", "TogglePlayed", true));
+        Assert.Equal(0, r.WriteTracker.Count); // consommée immédiatement, jamais laissée en attente
+    }
+
+    [Fact]
+    public void WriteScope_IsStillAFallback_ForAnUnregisteredEcho()
+    {
+        // Aucune écriture actuelle ne passe par ce chemin (tout écrit via PluginWriteTracker), mais le repli reste actif.
+        var r = new Rig();
         r.Scope = true;
         Assert.Equal(PlaybackEventOutcome.WriteScope, r.Processor.Process("u", "i", "TogglePlayed", true));
-        // Le WriteScope a coupé avant le tracker : l'entrée reste enregistrée, consommée à l'appel suivant.
-        r.Scope = false;
-        Assert.Equal(PlaybackEventOutcome.Echo, r.Processor.Process("u", "i", "TogglePlayed", true));
     }
 
     [Fact]
