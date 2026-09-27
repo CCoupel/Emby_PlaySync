@@ -44,6 +44,9 @@ write_out() { # PARTIAL
 on_exit() {
   local rc=$?; set +e
   cleanup_restricted_user
+  # Nettoyage final (retour qa, 2026-09-27) : ni ce script ni 20-etiquettes-retrait.sh (relancé par I26, en
+  # sous-processus partageant private/test-state.json) ne se nettoient sinon quand ils sont imbriqués.
+  cleanup_registered_playlists
   if [[ $DONE == 0 && -s $RES ]]; then write_out true; echo "  (trap) preuves partielles : $OUT_FILE" >&2; fi
   rm -rf "$SCRATCH"; exit $rc
 }
@@ -166,7 +169,7 @@ i19() {
 
 i20() {
   echo "== I20 — R8 : membre sans accès à la bibliothèque, aucune erreur (compte créé et nettoyé dans ce run)"
-  local pl item j n1 n2 st p1
+  local pl item j n1 n2 p1
   ensure_restricted_user   # crée test_u4 (U4/T4), EnableAllFolders=false ; nettoyé en fin de scénario ET par le trap si interruption
   pl=$(shared_pl "SPIKE-I20" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
@@ -175,8 +178,10 @@ i20() {
   jclear
   finish "$U2" "$T2" "$item"
   nap 2
-  st=$(api GET "/Users/$U4/Items/$item" "" "$T4")
-  ck I20.noaccess "test_u4 n'a toujours pas accès au média (HTTP $st, inchangé)" "{\"status\":\"$st\"}" test "$st" != 200
+  # Pas de contrôle par GET /Users/{id}/Items/{item} générique (confirmé par qa : cette route REST renvoie 200 pour
+  # test_u4 malgré EnableAllFolders=false — sémantique différente de BaseItem.IsVisibleStandalone(user), utilisé en
+  # interne par le plugin, qui détecte correctement l'absence d'accès). La preuve retenue est ci-dessous : Propagation
+  # agrégée noAccess>=1 ET Skipped no-access journalisé.
   p1=$(played_of "$U1" "$T1" "$item")
   ck I20.others "les autres membres (u1) sont propagés normalement malgré le membre restreint" "{\"u1\":\"$p1\"}" test "$p1" = true
   j=$(journal "Propagation,Skipped,Removal,Error,MarkerSeen")

@@ -64,7 +64,7 @@ run ok I18 I19 I20 I21 I22 I23 I24 I25
 [[ $RC == 0 ]] && ok "code 0 (aucun KO)" || { ko "rc=$RC"; echo "$OUT" | grep -E "^  \[KO\]" | head -30; }
 for id in I18.A.removed I18.A.propagated I18.C.removed I18.C.propagated I18.E.removed I18.E.propagated \
           I19.unchanged I19.othernew I19.aggregate I19.permember \
-          I20.noaccess I20.others I20.aggregate I20.permember I20.noerror \
+          I20.others I20.aggregate I20.permember I20.noerror \
           I21.nopropagation I21.untouched I22.read \
           I23.S6a.L1removed I23.S6a.L2untouched I23.S6a.propagation I23.S6a.noecho I23.S6a.nojournalL2 \
           I23.S6b.bothremoved I23.S6b.bothpropagated I23.S6c.L2removed I23.S6c.L1untouched I23.S6c.notouch \
@@ -96,6 +96,8 @@ echo "== 5. I26 (régression I0-I17) exécute réellement 20-etiquettes-retrait.
 run ok I26
 [[ $RC == 0 ]] && ok "code 0" || { ko "rc=$RC"; echo "$OUT" | tail -40; }
 [[ $(status_of I26) == OK ]] && ok "I26 : régression v0.2.0 verte" || ko "I26 : $(status_of I26)"
+echo "$OUT" | grep -q "nettoyage final" && ok "nettoyage final exécuté (imbrication I26)" || ko "nettoyage final absent de la sortie"
+[[ ! -s "$W/private/test-state.json" ]] && ok "private/test-state.json vidé après coup (playlists des deux scripts nettoyées)" || ko "test-state.json encore rempli après le run"
 
 [[ $fail == 0 ]] || { echo "ECHEC test-propagation-flow-offline" >&2; exit 1; }
 echo "test-propagation-flow-offline : OK"

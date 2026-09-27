@@ -196,6 +196,27 @@ cleanup_restricted_user() {   # supprime test_u4 si ce run l'a créé ; idempote
   echo "  [OK] $RESTRICTED_USER_NAME supprimé"
 }
 
+# cleanup_registered_playlists : supprime les playlists créées PAR CE RUN (register_playlist, private/test-state.json),
+# après vérification du nom côté serveur (SPIKE*). Complément de 90-cleanup.sh (nettoyage manuel, à part) : un script
+# qui en imbrique un autre (ex. I26 dans 21-propagation.sh, qui relance 20-etiquettes-retrait.sh en sous-processus
+# partageant le même private/test-state.json) doit se nettoyer lui-même, sinon les playlists des deux scripts
+# s'accumulent sans qu'aucun des deux n'ait vocation à les balayer par nom (rôle de 90-cleanup.sh).
+cleanup_registered_playlists() {
+  [[ -f ${STATE:-} ]] || return 0
+  local id nm st count=0
+  while IFS= read -r id; do
+    [[ -n $id ]] || continue
+    st=$(api GET "/Items?Ids=$id")
+    nm=$(jq -r '.Items[0].Name // empty' "$RESP" 2>/dev/null || true)
+    [[ -n $nm ]] || continue                 # déjà supprimée (par ex. l'un des scénarios l'a déjà retirée)
+    [[ $nm == SPIKE* ]] || continue           # garde : jamais autre chose qu'une playlist de test
+    st=$(api DELETE "/Items/$id")
+    [[ $st == 2* ]] && count=$((count+1))
+  done < <(jq -r '.[]' "$STATE" | sort -u)
+  rm -f "$STATE"
+  echo "  [OK] nettoyage final : $count playlist(s) enregistrée(s) supprimée(s)"
+}
+
 NON_RM='remove-si-lu=NON'; NON_PR='propager-lu=NON'; OUI_RM='remove-si-lu=OUI'; OUI_PR='propager-lu=OUI'
 has_tag() { jq -e --arg t "$2" 'index($t)!=null' <<<"$1" >/dev/null; }
 tag_count() { jq -r --arg f "$2" '[.[]|select(ascii_downcase|gsub("\\s+";"")|startswith($f))]|length' <<<"$1"; }

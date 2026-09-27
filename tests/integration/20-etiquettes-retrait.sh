@@ -148,12 +148,15 @@ i2() {
 i3() {
   echo "== I3 — TogglePlayed par le propriétaire"
   assert_baseline
-  local pl; pl=$(shared_pl "SPIKE-I3" "${M[0]},${M[1]}"); prime "$pl" || true
+  local pl p2 p3; pl=$(shared_pl "SPIKE-I3" "${M[0]},${M[1]}"); prime "$pl" || true
   owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1
   finish "$U1" "$T1" "${M[0]}"
   ck I3.removed "u1 (propriétaire) passe F1 à lu : retirée" "null" wait_count "$pl" "${M[0]}" 0 10
-  ck I3.others "le lu des autres comptes est inchangé (pas de propagation en v0.2.0)" "null" \
-    test "$(played_of "$U2" "$T2" "${M[0]}")/$(played_of "$U3" "$T3" "${M[0]}")" = "false/false"
+  # évidence enrichie (KO isolé, non reproduit le 2026-09-27, cf. rapport qa) : valeurs réelles + ids pour diagnostic
+  p2=$(played_of "$U2" "$T2" "${M[0]}"); p3=$(played_of "$U3" "$T3" "${M[0]}")
+  ck I3.others "le lu des autres comptes est inchangé (pas de propagation en v0.2.0)" \
+    "{\"u2\":\"$p2\",\"u3\":\"$p3\",\"media\":\"${M[0]}\",\"playlist\":\"$pl\"}" \
+    test "$p2/$p3" = "false/false"
 }
 
 i4() {
