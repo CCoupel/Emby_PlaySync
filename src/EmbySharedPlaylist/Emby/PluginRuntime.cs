@@ -59,7 +59,7 @@ public static class PluginRuntime
             FirstDetection = new FirstDetectionCoordinator(gateway, defaults, Seen, journal, clock);
             RemovalEngine = new ReadRemovalEngine(gateway, defaults, Seen, Locks, journal, clock, budget: ReadRemovalEngine.DefaultBudget);
             var engine = RemovalEngine;
-            PlaybackProcessor = new PlaybackEventProcessor(PlayedTransitions, (u, i) => engine!.Handle(u, i), Handler);
+            PlaybackProcessor = new PlaybackEventProcessor(PlayedTransitions, Tracker, (u, i) => engine!.Handle(u, i), Handler);
             log.Info(LogFormat.Startup());
             _initialized = true;
         }

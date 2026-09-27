@@ -9,7 +9,7 @@ public sealed class PluginWriteTracker
     public const int DefaultCapacity = 1000;
 
     private readonly object _lock = new();
-    private readonly Dictionary<(long UserId, long ItemId), DateTime> _pending = new();
+    private readonly Dictionary<(string UserId, string ItemId), DateTime> _pending = new();
     private readonly TimeSpan _ttl;
     private readonly int _capacity;
     private readonly Func<DateTime> _now;
@@ -24,9 +24,10 @@ public sealed class PluginWriteTracker
 
     // TODO (#21, anti-écho) : une écriture enregistrée dont l'événement n'est jamais émis (donnée inchangée) reste
     // en attente jusqu'à expiration (TTL) et peut marquer à tort pluginWrite=true une écriture utilisateur
-    // suivante sur le même couple. Comportement volontairement inchangé pour le spike ; à traiter avec #21.
-    public void Register(long userId, long itemId)
+    // suivante sur le même couple. Comportement volontairement inchangé (impact limité, voir plan v0.3.0) ; à revoir si observé.
+    public void Register(string userId, string itemId)
     {
+        if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(itemId)) throw new ArgumentException("userId/itemId requis");
         lock (_lock)
         {
             var now = _now();
@@ -41,7 +42,7 @@ public sealed class PluginWriteTracker
     }
 
     /// <summary>Vrai (et consomme l'entrée) si (utilisateur, média) avait été enregistré et n'a pas expiré.</summary>
-    public bool TryConsume(long userId, long itemId)
+    public bool TryConsume(string userId, string itemId)
     {
         lock (_lock)
         {
