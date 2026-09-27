@@ -41,10 +41,28 @@ public class ConfigPageTests
     [InlineData("EnableDiagnostics")]
     [InlineData("LogToConsole")]
     [InlineData("LogLevel")]
-    public void ConfigPageAndScript_ExposeTheV020Parameters(string id)
+    [InlineData("AutoEnableSharing")]
+    public void ConfigPageAndScript_ExposeTheV020AndV040Parameters(string id)
     {
         Assert.Contains("id=\"" + id + "\"", ReadResource("EmbySharedPlaylist.Configuration.configPage.html"));
         Assert.Contains("#" + id, ReadResource("EmbySharedPlaylist.Configuration.configScript.js"));
+    }
+
+    [Fact]
+    public void AutoEnableSharing_IsACheckbox_LikeTheOtherBooleanParameters()
+    {
+        var html = ReadResource("EmbySharedPlaylist.Configuration.configPage.html");
+        Assert.Contains("<input type=\"checkbox\" id=\"AutoEnableSharing\" is=\"emby-checkbox\" class=\"emby-checkbox\" />", html);
+    }
+
+    [Fact]
+    public void HelpPanel_PresentsThePermissionAsAlreadyGranted_NotAManualStep()
+    {
+        var html = ReadResource("EmbySharedPlaylist.Configuration.configPage.html");
+        Assert.Contains("remove-si-lu", html);
+        Assert.Contains("propager-lu", html);
+        Assert.Contains("Gérer la collaboration", html);
+        Assert.Contains("déjà accordée automatiquement", html);
     }
 
     [Fact]

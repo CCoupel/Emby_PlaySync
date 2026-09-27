@@ -10,4 +10,16 @@ public class PluginConfigurationTests
     {
         Assert.True(new PluginConfiguration().EnableDiagnostics);
     }
+
+    [Fact]
+    public void AutoEnableSharing_IsEnabledByDefault()
+    {
+        Assert.True(new PluginConfiguration().AutoEnableSharing);
+    }
+
+    [Fact]
+    public void AutoEnableSharing_CanBeDisabled()
+    {
+        Assert.False(new PluginConfiguration { AutoEnableSharing = false }.AutoEnableSharing);
+    }
 }

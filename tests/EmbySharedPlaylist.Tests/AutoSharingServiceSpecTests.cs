@@ -36,9 +36,10 @@ public class AutoSharingServiceSpecTests
 
         // Un nouveau compte créé PENDANT que le plugin tourne : reçoit la permission SANS attendre de passe (D-d).
         r.Policy.AddUser("newcomer", sharingEnabled: false);
+        var callsBeforeCreation = r.Policy.AllUserIdsCalls; // 1 après le RunPass du déploiement (ligne 33) : compteur cumulatif
         r.Service.OnUserCreated("newcomer");
         Assert.True(r.Policy.IsSharingEnabled("newcomer"));
-        Assert.Equal(0, r.Policy.AllUserIdsCalls); // OnUserCreated : jamais de scan de tous les utilisateurs (un seul)
+        Assert.Equal(callsBeforeCreation, r.Policy.AllUserIdsCalls); // OnUserCreated : jamais de scan de tous les utilisateurs (un seul)
 
         // L'administrateur décoche manuellement la case pour existing1 (pas via le service).
         r.Policy.ManuallyDisable("existing1");
