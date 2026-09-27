@@ -111,8 +111,11 @@ public class PropagationChainSpecTests
         var echoOutcome = c.Event("o", "F1", "PlaybackFinished", true);
 
         Assert.Equal(PlaybackEventOutcome.Echo, echoOutcome);   // reconnu comme écho : JAMAIS transmis au moteur
-        Assert.Equal(new[] { "F1" }, l2.Items);                  // L2 toujours intacte : pas de transitivité
-        Assert.Equal(1, c.Gateway.RemoveCalls);                   // aucun retrait de plus que celui de L1
+        Assert.Equal(new[] { "F1" }, l2.Items);                  // L2 toujours intacte : pas de transitivité (déjà vérifié ci-dessus)
+        // RemoveOneEntry est rappelé une dernière fois après le retrait pour constater qu'il n'y a plus rien à retirer
+        // (même mécanisme que les doublons en v0.2.0, I5) : 2 appels pour la SEULE entrée de F1 dans L1, aucun de plus
+        // pour L2 (l'assertion pertinente sur l'absence de transitivité est Assert.Empty/Assert.Equal(l2.Items) ci-dessus).
+        Assert.Equal(2, c.Gateway.RemoveCalls);
         Assert.Equal(1, c.UserDataGateway.MarkPlayedCalls);       // aucune écriture de plus que celle de « o » sur L1
     }
 
