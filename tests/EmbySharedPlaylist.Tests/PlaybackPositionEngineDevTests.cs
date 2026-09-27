@@ -145,6 +145,33 @@ public class PlaybackPositionEngineDevTests
         Assert.Equal(new[] { "no-access", "no-access" }, r.Journal.Details("Skipped"));
     }
 
+    // ---- #30/#31 (v0.5.0) : confirmation explicite, aucun mecanisme special pour le proprietaire -------------
+
+    [Fact]
+    public void DeletedOwner_AsAPropagationTarget_IsSkippedLikeAnyMemberWithoutAccess_NoCrash()
+    {
+        // "o" reste dans MemberIds (le proprietaire est un membre comme un autre) mais son compte n'existe plus :
+        // EmbyUserDataGateway.HasAccess renverrait faux (GetUserById ne trouve plus l'utilisateur), simule ici par
+        // DenyAccess (R8, meme chemin que n'importe quel membre).
+        var r = new Rig();
+        r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        r.UserData.DenyAccess("o", "m1"); // "o" = proprietaire supprime
+        var ex = Record.Exception(() => r.Engine.Handle("u", "m1", 1000));
+        Assert.Null(ex);
+        Assert.Equal(1000L, r.UserData.GetPosition("v", "m1")); // l'autre membre recoit quand meme la propagation
+        Assert.Contains("no-access", r.Journal.Details("Skipped"));
+    }
+
+    [Fact]
+    public void ManagedPlaylistWithNoMedia_IsNeverACandidate_NoCrash()
+    {
+        var r = new Rig();
+        r.Add("1", new[] { "propager-lu=OUI" }); // aucun media (params vide)
+        var ex = Record.Exception(() => r.Engine.Handle("u", "m1", 1000));
+        Assert.Null(ex);
+        Assert.Empty(r.Journal.Of("PositionPropagation"));
+    }
+
     [Fact]
     public void SamePosition_ProducesNoWrite_AndIsCounted()
     {

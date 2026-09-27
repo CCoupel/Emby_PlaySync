@@ -9,6 +9,17 @@ namespace EmbySharedPlaylist.Core;
 /// tentative lève <see cref="InvalidOperationException"/> (erreur de programmation) ; (3) le même fil peut retraverser
 /// le verrou de la MÊME playlist (réentrance) ; (4) à utiliser dans du code synchrone : un Monitor est lié au fil.
 /// Toujours libérer par <c>using</c>.
+/// <para>
+/// <b>D18/D-b (v0.5.0, #33) Décision consciente : <c>_locks</c> ne retire JAMAIS une entrée</b>, contrairement à
+/// <see cref="SeenPlaylists"/> (explicitement borné, LRU 5000). Chaque identifiant de playlist un jour verrouillé laisse
+/// un objet minuscule (quelques dizaines d'octets) en mémoire pour la durée de vie du processus, même après suppression
+/// de la playlist. Coût réel négligeable (borné en pratique par le nombre total de playlists jamais créées sur un
+/// serveur, pas un nombre pathologique). Alternative rejetée : une éviction active retirerait une entrée du
+/// dictionnaire pendant qu'un fil détient encore son objet de verrou, ce qui romprait l'exclusion mutuelle pour cette
+/// playlist (un nouvel appelant obtiendrait un AUTRE objet de verrou et entrerait en même temps que le premier) — le
+/// coût de complexité/risque d'une purge sûre (compteur de référence, verrou du verrou) est disproportionné par
+/// rapport au bénéfice. Ne pas « corriger » sans revoir cette analyse.
+/// </para>
 /// </summary>
 public sealed class PlaylistLocks
 {

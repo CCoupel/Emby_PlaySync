@@ -663,6 +663,35 @@ public class PropagationDevTests
         Assert.True(r.UserData.IsPlayed("readonly", "m1"));
     }
 
+    // ---- #30/#31 (v0.5.0) : confirmation explicite, aucun mecanisme special pour le proprietaire -------------
+
+    [Fact]
+    public void DeletedOwner_AsAPropagationTarget_IsSkippedLikeAnyMemberWithoutAccess_NoCrash()
+    {
+        // "o" reste dans MemberIds (le proprietaire est un membre comme un autre, ShareClassifier ne le distingue
+        // pas ailleurs que pour IsShared/unknown-owner) mais son compte n'existe plus : EmbyUserDataGateway.Resolve
+        // renverrait null (GetUserById ne trouve plus l'utilisateur), simule ici par DenyAccess (R8, meme chemin).
+        var r = new Rig();
+        var s = r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        s.Members = new List<string> { "o", "u", "v" };
+        r.UserData.DenyAccess("o", "m1"); // "o" = proprietaire supprime
+        var ex = Record.Exception(() => r.Engine.Handle("u", "m1"));
+        Assert.Null(ex);
+        Assert.True(r.UserData.IsPlayed("v", "m1")); // l'autre membre recoit quand meme la propagation
+        Assert.Contains("no-access", r.Journal.Details("Skipped"));
+    }
+
+    [Fact]
+    public void ManagedPlaylistWithNoMedia_IsNeverACandidate_NoCrash()
+    {
+        var r = new Rig();
+        r.Add("1", new[] { "propager-lu=OUI" }); // aucun media (params vide)
+        var ex = Record.Exception(() => r.Engine.Handle("u", "m1"));
+        Assert.Null(ex);
+        Assert.Empty(r.Journal.Of("Propagation"));
+        Assert.Empty(r.Journal.Of("Removal"));
+    }
+
     [Fact]
     public void PropagationRegistersTheWriteTracker_BeforeMarking()
     {
