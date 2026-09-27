@@ -23,6 +23,7 @@ public static class PluginRuntime
     public static PlaylistLocks Locks { get; } = new();
     public static SeenPlaylists Seen { get; } = new();
     public static PlayedTransitionTracker PlayedTransitions { get; } = new();
+    public static PauseTransitionTracker PauseTransitions { get; } = new();
     public static HandlerStats Handler { get; } = new();
     public static SkippedCounters Skipped { get; } = new();
 
@@ -33,6 +34,7 @@ public static class PluginRuntime
     public static ReconciliationService? Reconciliation { get; private set; }
     public static FirstDetectionCoordinator? FirstDetection { get; private set; }
     public static ReadRemovalEngine? RemovalEngine { get; private set; }
+    public static PlaybackPositionEngine? PositionEngine { get; private set; }
     public static PlaybackEventProcessor? PlaybackProcessor { get; private set; }
     public static IUserDataGateway? UserData { get; private set; }
 
@@ -63,6 +65,9 @@ public static class PluginRuntime
             RemovalEngine = new ReadRemovalEngine(gateway, userData, Tracker, defaults, Seen, Locks, journal, clock, budget: ReadRemovalEngine.DefaultBudget);
             var engine = RemovalEngine;
             PlaybackProcessor = new PlaybackEventProcessor(PlayedTransitions, Tracker, (u, i) => engine!.Handle(u, i), Handler);
+            // Cousin de RemovalEngine, flux d'événements séparé (ISessionManager, pas UserDataSaved) : même verrou/budget par
+            // playlist (constante partagée), branché depuis PlaybackSessionListener, jamais depuis PlaybackListener (#45).
+            PositionEngine = new PlaybackPositionEngine(gateway, userData, Tracker, defaults, Seen, Locks, journal, clock, budget: ReadRemovalEngine.DefaultBudget);
             log.Info(LogFormat.Startup());
             _initialized = true;
         }
