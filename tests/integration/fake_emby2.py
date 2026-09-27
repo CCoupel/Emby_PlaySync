@@ -291,8 +291,11 @@ class H(http.server.BaseHTTPRequestHandler):
         if p == "/Sessions/Playing/Stopped":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
             item = body["ItemId"]; ticks = body.get("PositionTicks", 0)
+            # D-c (v3, S1 code-reviewer) : IsPlayed lu AVANT le passage à lu causé par CET arrêt — pas de marge de ratio,
+            # un arrêt à 95-99% NON lu à l'instant DOIT propager (quitte à être écrasé par le lu dès qu'il arrive, #20).
+            # Bug corrigé ici : set_played AVANT position_transition aurait fait gagner le lu à tort sur tout arrêt >= 90%.
+            position_transition(user, item, ticks)   # systématique (D-b), la garde D-c filtre déjà-lu (pré-événement) à l'intérieur
             if ticks >= 0.9 * RT: set_played(user, item, True)
-            position_transition(user, item, ticks)   # systématique (D-b), la garde D-c filtre déjà-lu à l'intérieur
             PAUSED.pop((user, item), None)
             return self.out(204)
         r = re.fullmatch(r"/Items/(\d+)", p)

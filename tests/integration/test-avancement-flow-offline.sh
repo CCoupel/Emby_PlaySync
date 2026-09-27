@@ -51,6 +51,7 @@ for id in I27.propagated I27.notplayed I28.propagated I28.journal \
           I31.first I31.stillsame I31.samejournal \
           I32.removed I32.propagatedplayed I32.noposition I32.nojournal \
           I33.propagated I33.notransitivity I33.noecho \
+          I37 \
           I35.noposition I35.nojournal \
           I36.others I36.aggregate I36.permember I36.noerror \
           PROTECTED; do

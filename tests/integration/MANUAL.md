@@ -56,6 +56,7 @@ Sur une playlist avec `propager-lu=OUI` (retirer `propager-lu=NON` dans la même
 | `test_u1` reprend le film et **finit sa lecture** (jusqu'au bout) | le film est marqué lu chez tous les membres concernés (comme en v0.3.0) ; aucune position n'est proposée sur ce film une fois lu | |
 | **Pause** (sans arrêter la lecture) : `test_u1` **met en pause** vers le milieu, sans jamais arrêter | `test_u2`/`test_u3`, en ouvrant le film, voient la position se rapprocher de celle de la pause de `test_u1` (à vérifier en particulier sur TV/mobile — c'est le point le plus nouveau de cette version ; noter le délai observé et le client) | |
 | Arrêt très bref (quelques secondes après le début) | aucune position n'est proposée aux autres (en dessous du seuil de 30 s) | |
+| Arrêt à un pourcentage élevé (~95-99%) d'un film **non lu** | la position est proposée normalement aux autres (garde D-c : pas de marge de ratio ; automatisé en I37, `tests/integration/22-avancement.sh`) — si ce n'est pas le cas, noter si Emby a lui-même marqué le film lu à ce stade (config serveur, hors du plugin) | |
 
 ## 6. Nettoyage
 `tests/integration/90-cleanup.sh` (option `--delete-users` pour supprimer aussi les comptes `test_*`). Consigner les résultats dans le rapport de recette (U8, Q7).

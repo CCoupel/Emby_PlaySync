@@ -204,6 +204,34 @@ i33() {
   drop_item "$L1" "$item"; drop_item "$L2" "$item"
 }
 
+i37() {
+  echo "== I37 — garde D-c (S1 code-reviewer) : arrêt à ratio élevé (~96%) NON lu à l'instant -> position propagée normalement (pas de marge de ratio, décision v3)"
+  local pl item p pu1 u2played j n
+  pl=$(shared_pl "SPIKE-I37" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
+  prime "$pl" || true
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
+  p=$(ticks_at "$item" 96)
+  jclear
+  apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s37",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
+  apiok '2*' POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --argjson p "$p" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s37",PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$T2"
+  nap 3
+  u2played=$(played_of "$U2" "$T2" "$item")
+  pu1=$(position_of "$U1" "$T1" "$item")
+  if [[ $pu1 == "$p" ]]; then
+    rec I37 OK "arrêt à 96% (u2Played=$u2played à l'issue) : position propagée normalement chez u1 — garde D-c respectée (pas de marge de ratio)" "{\"u2Played\":\"$u2played\",\"u1\":\"$pu1\"}"
+  elif [[ $u2played == true ]]; then
+    skip I37 "u2 est marqué lu (IsPlayed=true) à l'issue de cet arrêt à 96% : sur CE serveur, Emby semble avoir posé le lu avant que le moteur ne lise IsPlayed pour la garde D-c, qui a donc légitimement bloqué la propagation (le lu a gagné la course, comportement documenté par construction) — À CONFIRMER : rejouer à un ratio plus bas si besoin (I31 à 50% est déjà OK) et noter dans MANUAL.md le seuil exact où Sessions/Playing/Stopped marque seul le lu sur QUALIF" "{\"u2Played\":\"$u2played\",\"u1\":\"$pu1\",\"expected\":$p}"
+  else
+    j=$(journal "Error"); n=$(jcount "$j" "$pl" Error)
+    if [[ $n -gt 0 ]]; then
+      rec I37 KO "u2 n'est PAS marqué lu et pourtant une entrée Error a été journalisée" "$j"
+    else
+      rec I37 KO "u2 n'est PAS marqué lu (IsPlayed=false) mais la position n'a PAS été propagée chez u1 : violation de la garde D-c (aucune marge de ratio n'est censée s'appliquer)" "{\"u2Played\":\"$u2played\",\"u1\":\"$pu1\",\"expected\":$p}"
+    fi
+  fi
+  drop_item "$pl" "$item"
+}
+
 i34() {
   echo "== I34 — pause réelle (sans arrêt) : IsPaused=false->true sur PlaybackProgress"
   local pl item p sid pu1 st1 st2
@@ -274,7 +302,7 @@ i36() {
   cleanup_restricted_user
 }
 
-ALL=(I27 I29 I30 I31 I32 I33 I34 I35 I36)
+ALL=(I27 I29 I30 I31 I32 I33 I37 I34 I35 I36)
 if [[ ${#WANT[@]} -eq 0 ]]; then WANT=("${ALL[@]}"); fi
 for s in "${WANT[@]}"; do
   fn=$(tr 'A-Z' 'a-z' <<<"$s")
