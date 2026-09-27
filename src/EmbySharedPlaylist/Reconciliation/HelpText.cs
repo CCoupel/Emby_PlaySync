@@ -20,7 +20,7 @@ public static class HelpText
         "Playlist partagée gérée par Emby Shared Playlist.\n" +
         "Deux étiquettes (Modifier les métadonnées > Mot-clé) règlent son comportement. Elles sont à NON par défaut : rien ne change.\n" +
         "- remove-si-lu=OUI : un média qui passe à « lu » est retiré de la playlist.\n" +
-        "- propager-lu=OUI : quand un média est lu par un membre, le flag « lu » est posé chez les autres.\n" +
+        "- propager-lu=OUI : quand un média est lu par un membre, le flag « lu » est posé chez les autres ; l'avancement de lecture (position, pause) est aussi propagé.\n" +
         "Pour activer une option, remplacez NON par OUI : ajoutez l'étiquette « ...=OUI » et retirez « ...=NON » (si les deux sont présentes, NON l'emporte).";
 
     /// <summary>Alias historique de <see cref="V1"/> (v0.2.0), conservé pour compatibilité de lecture.</summary>
