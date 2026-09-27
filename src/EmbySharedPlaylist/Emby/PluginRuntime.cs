@@ -37,6 +37,8 @@ public static class PluginRuntime
     public static PlaybackPositionEngine? PositionEngine { get; private set; }
     public static PlaybackEventProcessor? PlaybackProcessor { get; private set; }
     public static IUserDataGateway? UserData { get; private set; }
+    public static IUserPolicyGateway? PolicyGateway { get; private set; }
+    public static AutoSharingService? AutoSharing { get; private set; }
 
     /// <summary>Idempotent : le premier appel construit les services, les suivants renvoient.</summary>
     public static void Initialize(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
@@ -70,6 +72,10 @@ public static class PluginRuntime
             // Revue C1 : même HandlerStats partagée que PlaybackProcessor, pour que Diagnostics/State.Handler confonde les deux flux.
             PositionEngine = new PlaybackPositionEngine(gateway, userData, Tracker, defaults, Seen, Locks, journal, clock,
                 budget: ReadRemovalEngine.DefaultBudget, handler: Handler);
+            // #26 : port/service indépendants des playlists (aucun verrou/budget partagé, voir AutoSharingService).
+            var policyGateway = new EmbyUserPolicyGateway(userManager);
+            PolicyGateway = policyGateway;
+            AutoSharing = new AutoSharingService(policyGateway, journal, clock, () => Plugin.Instance?.Configuration.AutoEnableSharing ?? true);
             log.Info(LogFormat.Startup());
             _initialized = true;
         }

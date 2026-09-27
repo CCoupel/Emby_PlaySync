@@ -43,10 +43,11 @@ public sealed class ReconciliationTask : IScheduledTask, IConfigurableScheduledT
     {
         return Task.Run(() =>
         {
+            // #26 (D-a) : réutilise cette tâche existante (démarrage + périodique) pour la passe de permission, sous
+            // son propre try/catch isolé — une erreur sur l'un n'empêche jamais l'autre.
             try
             {
                 var result = PluginRuntime.Reconciliation!.RunPass(cancellationToken);
-                progress?.Report(100);
                 PluginRuntime.Log?.Info($"{LogFormat.FilePrefix}réconciliation terminée playlists={result.Playlists} posed={result.Posed} pending={result.Pending} durationMs={result.DurationMs}");
             }
             catch (OperationCanceledException)
@@ -57,6 +58,22 @@ public sealed class ReconciliationTask : IScheduledTask, IConfigurableScheduledT
             {
                 PluginRuntime.Log?.Error(LogFormat.FilePrefix + "réconciliation en erreur", ex);
             }
+
+            try
+            {
+                var permission = PluginRuntime.AutoSharing!.RunPass(cancellationToken);
+                PluginRuntime.Log?.Info($"{LogFormat.FilePrefix}permission terminée users={permission.Users} enabled={permission.Enabled} alreadyEnabled={permission.AlreadyEnabled} durationMs={permission.DurationMs}");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                PluginRuntime.Log?.Error(LogFormat.FilePrefix + "permission en erreur", ex);
+            }
+
+            progress?.Report(100);
         }, cancellationToken);
     }
 }

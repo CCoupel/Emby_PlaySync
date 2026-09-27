@@ -19,4 +19,10 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Off | Info | Debug. Défaut Info. Aucun état de fonctionnement n'est stocké dans la configuration.</summary>
     public LogLevel LogLevel { get; set; } = LogLevel.Info;
+
+    /// <summary>
+    /// Pose automatiquement <c>Policy.AllowSharingPersonalItems=true</c> pour tous les utilisateurs, existants et
+    /// nouveaux (#26). Désactivé : aucune écriture, mais ne révoque JAMAIS un accès déjà accordé. Défaut vrai.
+    /// </summary>
+    public bool AutoEnableSharing { get; set; } = true;
 }

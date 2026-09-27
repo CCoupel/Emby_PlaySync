@@ -73,6 +73,40 @@ internal sealed class FakeUserDataGateway : IUserDataGateway
     }
 }
 
+/// <summary>Passerelle simulée de la permission de partage (#26) : par utilisateur connu, sharing on/off ; jamais de révocation.</summary>
+internal sealed class FakeUserPolicyGateway : IUserPolicyGateway
+{
+    private readonly Dictionary<string, bool> _sharing = new();
+    public readonly List<string> Enabled = new();
+    public int AllUserIdsCalls;
+    public bool ThrowOnAllUserIds;
+    public Func<string, bool>? ThrowOnEnableFor;
+
+    public void AddUser(string userId, bool sharingEnabled = false) => _sharing[userId] = sharingEnabled;
+
+    /// <summary>Simule un décochage manuel par l'admin (D-e) : remet à faux sans passer par EnableSharingIfNeeded.</summary>
+    public void ManuallyDisable(string userId) => _sharing[userId] = false;
+
+    public IReadOnlyList<string> AllUserIds()
+    {
+        Interlocked.Increment(ref AllUserIdsCalls);
+        if (ThrowOnAllUserIds) throw new InvalidOperationException("liste en échec avec un message secret");
+        return _sharing.Keys.ToList();
+    }
+
+    public bool? IsSharingEnabled(string userId) => _sharing.TryGetValue(userId, out var v) ? v : (bool?)null;
+
+    public bool EnableSharingIfNeeded(string userId)
+    {
+        if (!_sharing.ContainsKey(userId)) return false; // utilisateur inconnu
+        if (ThrowOnEnableFor?.Invoke(userId) == true) throw new InvalidOperationException("écriture en échec avec un message secret");
+        if (_sharing[userId]) return false; // déjà actif : jamais réécrit, jamais révoqué
+        _sharing[userId] = true;
+        lock (Enabled) Enabled.Add(userId);
+        return true;
+    }
+}
+
 /// <summary>Passerelle simulée : mêmes garanties que la vraie (ajout seul, re-vérification à l'écriture).</summary>
 internal sealed class FakeGateway : IPlaylistGateway
 {

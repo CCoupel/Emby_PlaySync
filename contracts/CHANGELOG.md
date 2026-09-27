@@ -1,5 +1,14 @@
 # Changelog des contrats
 
+## [20260927] — v0.4.0 : encart d'aide, permission automatique, guide, audit sécurité (#25 #26 #27 #28 #29, planifié)
+
+- **[NEW]** Config plugin : `AutoEnableSharing` (bool, défaut `true`) — pose `Policy.AllowSharingPersonalItems=true` pour tous les utilisateurs (existants et nouveaux) ; désactivé = aucune écriture, **ne révoque jamais** un accès déjà accordé (comportement décidé, sans exception par utilisateur ni mémoire d'un décochage manuel — cohérent avec R11, aucun état persisté : un opt-out manuel serait réappliqué à la passe suivante ; seule l'issue globale est de désactiver `AutoEnableSharing`).
+- **[NEW]** kinds `Diagnostics/Journal` : `PermissionPass` (résumé d'une passe : `users/enabled/alreadyEnabled/durationMs`), `PermissionPosed` (par utilisateur, id seulement). Déclenchés à la passe de réconciliation (tous les utilisateurs, y compris au démarrage via son `StartupTrigger`) et à `IUserManager.UserCreated` (nouveau listener `Emby/UserPolicyListener`).
+- **[NEW]** Port `Core/IUserPolicyGateway` (lecture/écriture bornée de `UserPolicy.AllowSharingPersonalItems`) + adaptateur `Emby/EmbyUserPolicyGateway` (`IUserManager.GetUserPolicy/UpdateUserPolicy`, déjà validé faisable par le spike U5 en v0.1.0).
+- **[INFO]** Page de configuration (#25) : encart d'aide statique (HTML/JS, comme l'existant), aucune nouvelle logique serveur ; le texte reflète le comportement réel une fois #26 livrée (permission déjà accordée automatiquement, pas d'étape manuelle sauf `AutoEnableSharing` désactivé).
+- Aucun endpoint HTTP nouveau ni modifié (uniquement `Diagnostics/Journal`/`State`, config, et un port interne).
+
+
 ## [20260927] — v0.3.1 : propagation de l'avancement de lecture (#45 #46 #47 #48, planifié)
 
 - **[NEW]** kind `PositionPropagation` (Diagnostics/Journal) : propagation de `PlaybackPositionTicks` vers les autres membres, journalisée une fois par playlist (`members/propagated/samePosition/noAccess/durationMs`). Déclenchée par le même marqueur `propager-lu=OUI` que le flag lu (#20).
