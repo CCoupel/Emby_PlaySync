@@ -15,12 +15,14 @@ public class PlaybackPositionEngineDevTests
         public readonly SeenPlaylists Seen = new();
         public readonly PlaylistLocks Locks = new();
         public readonly ListJournal Journal = new();
+        public readonly HandlerStats Handler = new();
         public readonly PlaybackPositionEngine Engine;
 
         public Rig()
         {
             var defaults = new DefaultsService(Gateway, Seen, Locks, Journal, "AIDE", () => 2, null, TimeSpan.FromMilliseconds(150));
-            Engine = new PlaybackPositionEngine(Gateway, UserData, WriteTracker, defaults, Seen, Locks, Journal, new FakeClock(), TimeSpan.FromMilliseconds(150));
+            Engine = new PlaybackPositionEngine(Gateway, UserData, WriteTracker, defaults, Seen, Locks, Journal, new FakeClock(),
+                TimeSpan.FromMilliseconds(150), handler: Handler);
         }
 
         public FakeGateway.State Add(string id, string[] tags, params string[] items)
@@ -68,6 +70,46 @@ public class PlaybackPositionEngineDevTests
         r.Engine.Handle("u", "m1", 999);
         Assert.Equal(999L, r.UserData.GetPosition("v", "m1"));
         Assert.Equal(new[] { "m1" }, s.Items); // l'engine de position ne retire jamais rien
+    }
+
+    // ---- Revue C1 : HandlerStats confondue avec le flux du lu (Diagnostics/State.Handler) ---------------------
+
+    [Fact]
+    public void Handle_RecordsItsDurationInHandlerStats_LikeThePlaybackProcessor()
+    {
+        var r = new Rig();
+        r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        Assert.Equal(0, r.Handler.Snapshot().Count);
+
+        r.Engine.Handle("u", "m1", 100);
+
+        Assert.Equal(1, r.Handler.Snapshot().Count);
+    }
+
+    [Fact]
+    public void Handle_RecordsInHandlerStats_EvenOnTheErrorExitPath()
+    {
+        // Revue C1 : la mesure doit couvrir CHAQUE appel, quel que soit le chemin de sortie (pas seulement le cas nominal).
+        var handler = new HandlerStats();
+        var defaults = new DefaultsService(new ThrowingGateway(), new SeenPlaylists(), new PlaylistLocks(), new ListJournal(), "A", () => 2);
+        var engine = new PlaybackPositionEngine(new ThrowingGateway(), new FakeUserDataGateway(), new PluginWriteTracker(), defaults,
+            new SeenPlaylists(), new PlaylistLocks(), new ListJournal(), new FakeClock(), handler: handler);
+
+        engine.Handle("u", "m1", 1);
+
+        Assert.Equal(1, handler.Snapshot().Count);
+    }
+
+    [Fact]
+    public void Handle_WithNoHandlerStatsProvided_NeverThrows()
+    {
+        var gateway = new FakeGateway();
+        gateway.Add("1", "propager-lu=OUI").Members = new List<string> { "o", "u", "v" };
+        var defaults = new DefaultsService(gateway, new SeenPlaylists(), new PlaylistLocks(), new ListJournal(), "A", () => 2);
+        var engine = new PlaybackPositionEngine(gateway, new FakeUserDataGateway(), new PluginWriteTracker(), defaults,
+            new SeenPlaylists(), new PlaylistLocks(), new ListJournal(), new FakeClock()); // handler omis (paramètre optionnel)
+        var ex = Record.Exception(() => engine.Handle("u", "m1", 1));
+        Assert.Null(ex);
     }
 
     // ---- Propagation, R8, "same-position" ------------------------------------------------------------------

@@ -32,10 +32,11 @@ public sealed class PlaybackPositionEngine
     private readonly IClock _clock;
     private readonly TimeSpan _lockTimeout;
     private readonly TimeSpan _budget;
+    private readonly HandlerStats? _handler;
 
     public PlaybackPositionEngine(IPlaylistGateway gateway, IUserDataGateway userData, PluginWriteTracker writeTracker,
         DefaultsService defaults, SeenPlaylists seen, PlaylistLocks locks, IJournal journal, IClock clock,
-        TimeSpan? lockTimeout = null, TimeSpan? budget = null)
+        TimeSpan? lockTimeout = null, TimeSpan? budget = null, HandlerStats? handler = null)
     {
         _gateway = gateway;
         _userData = userData;
@@ -47,8 +48,14 @@ public sealed class PlaybackPositionEngine
         _clock = clock;
         _lockTimeout = lockTimeout ?? PlaylistLocks.DefaultTimeout;
         _budget = budget ?? ReadRemovalEngine.DefaultBudget;
+        _handler = handler;
     }
 
+    /// <summary>
+    /// Revue C1 : la durée est enregistrée dans <see cref="HandlerStats"/> (même instance partagée que
+    /// <c>PlaybackEventProcessor</c> côté flux du lu) pour CHAQUE appel, quel que soit le chemin de sortie — le contrat
+    /// (<c>Diagnostics/State.Handler</c>) annonce les deux flux d'événements confondus.
+    /// </summary>
     public PositionPropagationResult Handle(string userId, string itemId, long ticks)
     {
         var total = Stopwatch.StartNew();
@@ -59,47 +66,54 @@ public sealed class PlaybackPositionEngine
 
         try
         {
-            IReadOnlyList<PlaylistSnapshot> playlists;
             try
             {
-                playlists = _gateway.ListSharedPlaylistsOfUserContaining(userId, itemId);
+                IReadOnlyList<PlaylistSnapshot> playlists;
+                try
+                {
+                    playlists = _gateway.ListSharedPlaylistsOfUserContaining(userId, itemId);
+                }
+                catch (Exception ex)
+                {
+                    Journal(JournalEntries.ErrorEntry(_clock, null, ex));
+                    return new PositionPropagationResult(0, 0, 0, 0, total.ElapsedMilliseconds);
+                }
+
+                candidates = playlists.Count;
+                for (var index = 0; index < playlists.Count; index++)
+                {
+                    var snapshot = playlists[index];
+                    if (total.Elapsed >= _budget)
+                    {
+                        skipped += playlists.Count - index;
+                        Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "budget-exceeded"));
+                        break;
+                    }
+                    try
+                    {
+                        var outcome = HandlePlaylist(snapshot, userId, itemId, ticks, total);
+                        if (outcome < 0) skipped++;
+                        else if (outcome > 0) { changed++; propagated += outcome; }
+                        else skipped++;
+                    }
+                    catch (Exception ex)
+                    {
+                        skipped++;
+                        Journal(JournalEntries.ErrorEntry(_clock, snapshot.Id, ex)); // une playlist en erreur n'arrête pas les suivantes
+                    }
+                }
             }
             catch (Exception ex)
             {
                 Journal(JournalEntries.ErrorEntry(_clock, null, ex));
-                return new PositionPropagationResult(0, 0, 0, 0, total.ElapsedMilliseconds);
             }
 
-            candidates = playlists.Count;
-            for (var index = 0; index < playlists.Count; index++)
-            {
-                var snapshot = playlists[index];
-                if (total.Elapsed >= _budget)
-                {
-                    skipped += playlists.Count - index;
-                    Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "budget-exceeded"));
-                    break;
-                }
-                try
-                {
-                    var outcome = HandlePlaylist(snapshot, userId, itemId, ticks, total);
-                    if (outcome < 0) skipped++;
-                    else if (outcome > 0) { changed++; propagated += outcome; }
-                    else skipped++;
-                }
-                catch (Exception ex)
-                {
-                    skipped++;
-                    Journal(JournalEntries.ErrorEntry(_clock, snapshot.Id, ex)); // une playlist en erreur n'arrête pas les suivantes
-                }
-            }
+            return new PositionPropagationResult(candidates, changed, propagated, skipped, total.ElapsedMilliseconds);
         }
-        catch (Exception ex)
+        finally
         {
-            Journal(JournalEntries.ErrorEntry(_clock, null, ex));
+            _handler?.Record(total.ElapsedMilliseconds);
         }
-
-        return new PositionPropagationResult(candidates, changed, propagated, skipped, total.ElapsedMilliseconds);
     }
 
     /// <returns>Nombre de membres propagés (&gt; 0), 0 si rien propagé (inactif/déjà à cette position/personne), -1 si passée (verrou occupé).</returns>

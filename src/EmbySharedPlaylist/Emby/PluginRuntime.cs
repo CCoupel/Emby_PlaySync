@@ -67,7 +67,9 @@ public static class PluginRuntime
             PlaybackProcessor = new PlaybackEventProcessor(PlayedTransitions, Tracker, (u, i) => engine!.Handle(u, i), Handler);
             // Cousin de RemovalEngine, flux d'événements séparé (ISessionManager, pas UserDataSaved) : même verrou/budget par
             // playlist (constante partagée), branché depuis PlaybackSessionListener, jamais depuis PlaybackListener (#45).
-            PositionEngine = new PlaybackPositionEngine(gateway, userData, Tracker, defaults, Seen, Locks, journal, clock, budget: ReadRemovalEngine.DefaultBudget);
+            // Revue C1 : même HandlerStats partagée que PlaybackProcessor, pour que Diagnostics/State.Handler confonde les deux flux.
+            PositionEngine = new PlaybackPositionEngine(gateway, userData, Tracker, defaults, Seen, Locks, journal, clock,
+                budget: ReadRemovalEngine.DefaultBudget, handler: Handler);
             log.Info(LogFormat.Startup());
             _initialized = true;
         }
