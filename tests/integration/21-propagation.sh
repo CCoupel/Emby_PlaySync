@@ -75,6 +75,8 @@ mapfile -t M < <(jq -r '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|.Id][0:
 # I23 (S6a-c) reste sur des médias JAMAIS réutilisés : ces playlists (L1/L2/L1b/L2b/L1c/L2c) ne sont ni nettoyées
 # ni supprimées pendant le run, et un média recyclé y resterait candidat indéfiniment (le point le plus sensible).
 [[ ${#M[@]} -ge 13 ]] || die "moins de 13 médias (>= 10 min) dans la bibliothèque (demander à l'utilisateur)"
+reset_pool_full "${M[@]}"   # remise à zéro complète (lu+position) : un run précédent (même script, même invocation séparée) ne doit rien laisser
+echo "  [OK] bassin de ${#M[@]} médias remis à zéro (lu=false, position=0)"
 S6_MEDIA=("${M[0]}" "${M[1]}" "${M[2]}")
 POOL=("${M[@]:3}")   # le reste (>= 10 si 13 médias) : recyclé
 [[ ${#POOL[@]} -ge 1 ]] || die "aucun média disponible pour le bassin recyclé (après réservation de 3 pour S6a-c)"

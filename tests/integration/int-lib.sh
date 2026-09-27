@@ -288,6 +288,32 @@ prime() {
 # lecture / marquage ------------------------------------------------------------------------------------
 finish() { unmark "$1" "$2" "$3"; api POST "/Users/$1/PlayedItems/$3" "" "$2" >/dev/null; }   # UID TOKEN ITEM : (dé)coche puis TogglePlayed => transition non lu -> lu garantie
 unmark() { api DELETE "/Users/$1/PlayedItems/$3" "" "$2" >/dev/null; }
+
+# reset_pool_full ITEM... : remise à zéro COMPLÈTE (Played=false ET position=0) pour test_u1/u2/u3 (et test_u4 si
+# une session est active, T4 défini) sur chaque média listé — à faire UNE FOIS en tête de script (pas par
+# scénario, contrairement à assert_baseline qui ne remet que le lu) : un bassin de médias partagé entre les 3
+# scripts ET entre invocations séparées (QUALIF) peut porter un résidu (lu, position) d'un run précédent — cause
+# racine confirmée d'I27/I28/I33/I34/I18.E/I18.G (qa-integration-v031-20260927-210414-verified.md) : la garde D-c
+# faisait alors exactement son travail (refuser de propager pour un compte déjà lu à l'instant de l'événement),
+# ce n'était pas un défaut du plugin. DELETE PlayedItems remet Played=false (ne propage jamais, R6) ; un
+# aller-retour Playing/Stopped à ticks=0 remet la position à 0 SANS jamais franchir le seuil de 30 s (#45) :
+# TryExtract rejette l'événement avant même d'atteindre le moteur — aucune propagation ne peut être déclenchée
+# par cette remise à zéro elle-même.
+_reset_one() { # UID TOKEN ITEM
+  unmark "$1" "$2" "$3"
+  local sid; sid="reset-$RANDOM$RANDOM"
+  api POST /Sessions/Playing "$(jq -nc --arg i "$3" --arg s "$sid" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$2" >/dev/null
+  api POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$3" --arg s "$sid" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$2" >/dev/null
+}
+reset_pool_full() {
+  local it
+  for it in "$@"; do
+    _reset_one "$U1" "$T1" "$it"
+    _reset_one "$U2" "$T2" "$it"
+    _reset_one "$U3" "$T3" "$it"
+    if [[ -n ${T4:-} ]]; then _reset_one "$U4" "$T4" "$it"; fi   # set -e : jamais `[[ ]] && cmd` en position de dernière commande
+  done
+}
 runtime_of() { api GET "/Users/$U1/Items/$1" "" "$T1" >/dev/null; jq -r '.RunTimeTicks // empty' "$RESP"; }
 play_to() { # UID TOKEN ITEM POURCENT [progress-only] : Playing, Progress à mi-chemin, Stopped à POURCENT % (ou seulement Progress)
   local tok=$2 item=$3 pct=$4 rt sid

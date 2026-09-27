@@ -63,6 +63,8 @@ st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=
 [[ $st == 200 ]] || die "GET /Items -> $st"
 mapfile -t M < <(jq -r '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|.Id][0:20][]' "$RESP")
 [[ ${#M[@]} -ge 11 ]] || die "moins de 11 médias (>= 10 min) : I27/28(1)+I29(4)+I30+I31+I32+I33+I34+I35+I36(=11) (demander à l'utilisateur)"
+reset_pool_full "${M[@]}"   # remise à zéro complète (lu+position) : un run précédent (même script, même invocation séparée) ne doit rien laisser
+echo "  [OK] bassin de ${#M[@]} médias remis à zéro (lu=false, position=0)"
 echo 0 > "$SCRATCH/next_m"
 next_media() {   # un média frais par sous-cas ; pas de recyclage (11 suffisent largement sur les 13 disponibles)
   local n; n=$(cat "$SCRATCH/next_m")

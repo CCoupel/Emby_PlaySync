@@ -69,6 +69,8 @@ st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=
 [[ $st == 200 ]] || die "GET /Items -> $st"
 mapfile -t M < <(jq -r '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|.Id][0:6][]' "$RESP")
 [[ ${#M[@]} -ge 6 ]] || die "moins de 6 médias (>= 10 min) : I14/I15 exigent 6 médias (demander à l'utilisateur)"
+reset_pool_full "${M[@]}"   # remise à zéro complète (lu+position) : un run précédent (même script, même invocation séparée) ne doit rien laisser
+echo "  [OK] bassin de ${#M[@]} médias remis à zéro (lu=false, position=0)"
 st=$(api GET "$DIAG/State"); [[ $st == 200 ]] || die "Diagnostics/State -> HTTP $st : plugin v0.2.0 non déployé ou EnableDiagnostics=false"
 GRACE=$(jq -r '.gracePasses // 2' "$RESP")
 task_id >/dev/null
@@ -91,6 +93,14 @@ assert_baseline() { # un scénario ne doit pas dépendre du précédent : journa
   jclear
   for m in "${M[@]}"; do
     unmark "$U1" "$T1" "$m"; unmark "$U2" "$T2" "$m"; unmark "$U3" "$T3" "$m"
+  done
+  # attente active (#47, réserve qa sur I3.others : un effet différé d'un sous-scénario immédiatement précédent) :
+  # confirme que le retour à « non lu » est bien retombé côté serveur AVANT de rendre la main au scénario suivant,
+  # au lieu de faire confiance à la réponse HTTP synchrone des unmark seule.
+  for m in "${M[@]}"; do
+    wait_played "$U1" "$T1" "$m" false 5 || true
+    wait_played "$U2" "$T2" "$m" false 5 || true
+    wait_played "$U3" "$T3" "$m" false 5 || true
   done
 }
 
