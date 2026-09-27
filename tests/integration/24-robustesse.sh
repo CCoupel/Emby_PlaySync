@@ -150,7 +150,7 @@ i43() {
   apiok 204 POST /Items/Access "$(jq -nc --arg p "$pl" --arg a "$U2" '{ItemIds:[$p],UserIds:[$a],ItemAccess:"Write"}')" "$ownertok"
   apiok 204 POST /Items/Access "$(jq -nc --arg p "$pl" --arg a "$U3" '{ItemIds:[$p],UserIds:[$a],ItemAccess:"Read"}')" "$ownertok"
   prime "$pl" || true
-  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
+  set_marker_state "$pl" remove-si-lu non "$ownerid" "$ownertok"; set_marker_state "$pl" propager-lu oui "$ownerid" "$ownertok"
   jclear
   api DELETE "/Users/$ownerid" >/dev/null   # supprime le PROPRIÉTAIRE (pas la playlist directement)
   st1=$(api GET "/Playlists/$pl/Items?UserId=$U2" "" "$T2")

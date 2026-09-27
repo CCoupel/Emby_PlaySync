@@ -185,22 +185,27 @@ stays() { # PLAYLIST ITEM ATTENDU [SECONDES] : le nombre d'entrées reste ATTEND
 admin_item() { api GET "/Items?Ids=$1&Fields=Tags,TagItems,Overview" >/dev/null; jq -c '.Items[0]' "$RESP"; }
 tags_of() { admin_item "$1" | jq -c '((.TagItems//[])|map(.Name)) + (.Tags//[]) | unique | sort'; }
 overview_of() { admin_item "$1" | jq -r '.Overview // ""'; }
-owner_edit() { # PLAYLIST AJOUTS_JSON RETRAITS_JSON [OVERVIEW_JSON] : enregistrement de l'éditeur natif (DTO complet)
-  local pl=$1 add=$2 del=$3 ov=${4:-__keep__} st dto
-  st=$(api GET "/Users/$U1/Items/$pl?Fields=Tags,TagItems,Overview" "" "$T1"); [[ $st == 200 ]] || die "lecture DTO playlist -> $st"
+owner_edit() { # PLAYLIST AJOUTS_JSON RETRAITS_JSON [OVERVIEW_JSON] [OWNER_UID] [OWNER_TOK] : enregistrement de
+               # l'éditeur natif (DTO complet), par défaut le propriétaire habituel (test_u1) ; UID/TOK explicites
+               # pour une playlist dont le propriétaire est un autre compte (I43, v0.5.0 : new_pl_owned).
+  local pl=$1 add=$2 del=$3 ov=${4:-__keep__} ouid=${5:-$U1} otok=${6:-$T1} st dto
+  st=$(api GET "/Users/$ouid/Items/$pl?Fields=Tags,TagItems,Overview" "" "$otok"); [[ $st == 200 ]] || die "lecture DTO playlist -> $st"
   dto=$(jq -c --argjson add "$add" --argjson del "$del" --arg ov "$ov" '
     (((.TagItems//[])|map(.Name)) + (.Tags//[]) | unique) as $cur
     | (($cur - $del) + $add | unique) as $new
     | .Tags=$new | .TagItems=($new|map({Name:.}))
     | if $ov=="__keep__" then . else .Overview=($ov|fromjson) end' "$RESP")
-  apiok 204 POST "/Items/$pl" "$dto" "$T1"
+  apiok 204 POST "/Items/$pl" "$dto" "$otok"
 }
 # étiquettes de la famille en minuscules exactes (posées par le plugin)
 
-# set_marker_state PLAYLIST FAMILLE(remove-si-lu|propager-lu) ETAT(none|non|oui|both) : atteint l'état en UNE édition du
-# propriétaire (ajoute/retire ce qu'il faut ; ne touche jamais à l'autre famille ni aux étiquettes du propriétaire).
+# set_marker_state PLAYLIST FAMILLE(remove-si-lu|propager-lu) ETAT(none|non|oui|both) [OWNER_UID] [OWNER_TOK] :
+# atteint l'état en UNE édition du propriétaire (ajoute/retire ce qu'il faut ; ne touche jamais à l'autre famille
+# ni aux étiquettes du propriétaire). UID/TOK optionnels transmis à owner_edit (défaut test_u1, comportement
+# inchangé pour tous les appels existants) — nécessaires pour une playlist dont le propriétaire n'est pas
+# test_u1 (I43, v0.5.0 : new_pl_owned).
 set_marker_state() {
-  local pl=$1 fam=$2 state=$3 add=() del=()
+  local pl=$1 fam=$2 state=$3 ouid=${4:-$U1} otok=${5:-$T1} add=() del=()
   case $state in
     none) del=("$fam=NON" "$fam=OUI") ;;
     non)  add=("$fam=NON"); del=("$fam=OUI") ;;
@@ -209,7 +214,8 @@ set_marker_state() {
     *) die "set_marker_state : état inconnu '$state'" ;;
   esac
   owner_edit "$pl" "$(printf '%s\n' "${add[@]}" | jq -R . | jq -sc 'map(select(length>0))')" \
-             "$(printf '%s\n' "${del[@]}" | jq -R . | jq -sc 'map(select(length>0))')"
+             "$(printf '%s\n' "${del[@]}" | jq -R . | jq -sc 'map(select(length>0))')" \
+             "__keep__" "$ouid" "$otok"
 }
 
 # --- compte restreint autonome (R8, v0.3.0) : créé puis nettoyé DANS LE MÊME RUN par 21-propagation.sh -----------
