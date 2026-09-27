@@ -253,8 +253,10 @@ i24() {
   nap 4
   ec_after=$(state | jq -r '.skippedCounts["echo-consumed"] // 0')
   ck I24.propagated "propagation effective (u1, u3)" "null" test "$(played_of "$U1" "$T1" "$item")/$(played_of "$U3" "$T3" "$item")" = "true/true"
-  # 2 écritures plugin (MarkPlayed u1, MarkPlayed u3) : exactement un écho consommé par écriture, ni plus (boucle) ni moins (garde absente)
-  ck I24.echoconsumed "echo-consumed == 2 (une consommation par écriture MarkPlayed, u1 et u3)" "{\"before\":$ec_before,\"after\":$ec_after}" test "$((ec_after-ec_before))" = 2
+  # 2 écritures plugin (MarkPlayed u1, MarkPlayed u3) : AU PLUS un écho consommé par écriture (non garanti selon
+  # qu'Emby réémette UserDataSaved pour une écriture du plugin — confirmé par dev-plugin, donc pas de borne basse) ;
+  # une valeur > 2 trahirait en revanche une boucle (plus d'échos que d'écritures).
+  ck I24.echoconsumed "echo-consumed <= 2 (au plus une consommation par écriture MarkPlayed, u1 et u3 ; pas de boucle)" "{\"before\":$ec_before,\"after\":$ec_after}" test "$((ec_after-ec_before))" -le 2
   nap 6
   j2=$(journal "Propagation"); n=$(jcount "$j2" "$pl" Propagation)
   ck I24.once "une seule vague de propagation (pas de repropagation après coup)" "$j2" test "$n" -le 1
