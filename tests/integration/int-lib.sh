@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# int-lib.sh — helpers de 20-etiquettes-retrait.sh (I1–I17), sourcé après tests/spike/lib.sh et probe-lib.sh.
+# int-lib.sh — helpers de 20-etiquettes-retrait.sh (I1–I17), sourcé après lib.sh.
+# stats_json et scan_log sont repris de l'ex tests/integration/probe-lib.sh (sonde U11, supprimée avec #15).
 # Fonctions génériques : journal/état Diagnostics, tâche planifiée, étiquettes, lecture simulée. Cible : emby2 uniquement.
 
 DIAG=/SharedPlaylist/Diagnostics
@@ -8,6 +9,37 @@ qs() { jq -rn --arg v "$1" '$v|@uri'; }
 now_ms() { date +%s%3N; }
 nap() { sleep "$(awk -v n="$1" -v s="${WAIT_SCALE:-1}" 'BEGIN{printf "%.2f", n*s}')"; }   # attente mise à l'échelle (WAIT_SCALE ; 1 en réel)
 is2xx() { [[ $1 == 2* ]]; }
+
+
+# stats_json FICHIER : un nombre par ligne -> {"n","p50","p95","max"} (rang le plus proche)
+stats_json() {
+  python3 - "$1" <<'PY'
+import sys, json, math
+try:
+    v = sorted(float(x) for x in open(sys.argv[1]).read().split())
+except FileNotFoundError:
+    v = []
+def pct(p):
+    if not v: return None
+    x = v[max(0, math.ceil(p / 100 * len(v)) - 1)]
+    return int(x) if x == int(x) else x
+print(json.dumps({"n": len(v), "p50": pct(50), "p95": pct(95), "max": (int(v[-1]) if v[-1] == int(v[-1]) else v[-1]) if v else None}))
+PY
+}
+
+# scan_log FICHIER -> {"lines","locked","exceptions","pluginErrors","excerpt":[...]} ; secrets masqués.
+scan_log() {
+  local f=$1
+  local mask='s/(api_key|apikey|token|x-emby-token|password|pw|authorization)([=:"[:space:]]+)[^&" ,;]+/\1\2***/Ig'
+  local locked exc plug
+  locked=$(grep -Eic 'database is locked|SQLITE_BUSY' "$f" || true)
+  exc=$(grep -Eic 'exception' "$f" || true)
+  plug=$(grep -F '[EmbySharedPlaylist]' "$f" | grep -Eic 'error|exception|fail' || true)
+  local ex
+  ex=$({ grep -Ei 'database is locked|SQLITE_BUSY|exception|\[EmbySharedPlaylist\].*(error|fail)' "$f" || true; } | head -n 10 | cut -c1-240 | sed -E "$mask" | jq -R . | jq -sc .)
+  jq -nc --argjson l "$(wc -l < "$f" | tr -d ' ')" --argjson k "${locked:-0}" --argjson e "${exc:-0}" --argjson p "${plug:-0}" --argjson x "${ex:-[]}" \
+    '{lines:$l, locked:$k, exceptions:$e, pluginErrors:$p, excerpt:$x}'
+}
 
 # --- Diagnostics -------------------------------------------------------------------------------------
 journal() { # [KINDS_CSV] [clear] -> JSON (clés en camelCase : ts kind userId itemId playlistId detail)

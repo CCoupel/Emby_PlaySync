@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Bibliothèque commune du spike (sourcée par 00-setup-users.sh, 10-run-spike.sh, 90-cleanup.sh).
+# lib.sh — bibliothèque commune des tests d'intégration (sourcée par 00-setup-users.sh, 90-cleanup.sh, 20-etiquettes-retrait.sh, int-lib.sh).
+# Reprise de tests/spike/lib.sh (v0.1.0, supprimé avec #15) : mêmes garde-fous, mêmes fonctions.
 # Cible : emby2 (QUALIF) UNIQUEMENT. URL et clé viennent de private/qualif.env (jamais affichées).
 set -euo pipefail
 umask 077
 
-SPIKE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-ROOT=$(cd "$SPIKE_DIR/../.." && pwd)
+INT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(cd "$INT_DIR/../.." && pwd)
 PRIVATE="$ROOT/private"
 QUALIF_ENV="$PRIVATE/qualif.env"
-USERS_ENV="$PRIVATE/spike-users.env"      # ids + mots de passe des comptes test_* (gitignoré)
-SNAPSHOT="$PRIVATE/spike-snapshot.json"   # état avant setup : utilisateurs + politiques protégées
-STATE="$PRIVATE/spike-state.json"         # ids des playlists créées par le spike
+USERS_ENV="$PRIVATE/test-users.env"      # ids + mots de passe des comptes test_* (gitignoré)
+SNAPSHOT="$PRIVATE/test-snapshot.json"   # état avant setup : utilisateurs + politiques protégées
+STATE="$PRIVATE/test-state.json"         # ids des playlists créées par les scripts d'intégration
 # Figé (non surchargeable). « emby2-Testing » = nom de QUALIF, confirmé le 2026-09-26 via /System/Info (dev-plugin).
 readonly EXPECTED_SERVER_NAME="emby2-Testing"
 PROTECTED_USERS=(admin cyril user2)       # comptes réels : lecture seule, JAMAIS modifiés
@@ -19,7 +20,7 @@ TEST_USERS=(test_u1 test_u2 test_u3)
 die() { echo "ERREUR : $*" >&2; exit 2; }
 for t in curl jq python3; do command -v "$t" >/dev/null || die "outil manquant : $t"; done
 
-SCRATCH=$(mktemp -d "${SPIKE_SCRATCH_BASE:-${TMPDIR:-/tmp}}/spike.XXXXXX")
+SCRATCH=$(mktemp -d "${SPIKE_SCRATCH_BASE:-${TMPDIR:-/tmp}}/int.XXXXXX")
 trap 'rm -rf "$SCRATCH"' EXIT
 RESP="$SCRATCH/resp.json"
 CFG="$SCRATCH/curl.cfg"
@@ -65,7 +66,7 @@ api() {
   : > "$RESP"
   local code
   code=$(curl -sS -K "$CFG" -X "$m" -o "$RESP" -w '%{http_code}' --max-time 30 2>/dev/null) || code=000
-  # Les endpoints /SharedPlaylist/* (Spike, Diagnostics) renvoient du PascalCase (sérialiseur Emby) : on normalise les clés en
+  # Les endpoints /SharedPlaylist/* (Diagnostics) renvoient du PascalCase (sérialiseur Emby) : on normalise les clés en
   # camelCase (1re lettre en minuscule) pour que les filtres jq ne dépendent pas de la casse.
   if [[ $p == /SharedPlaylist/* && -s $RESP ]]; then
     if jq -c 'walk(if type=="object" then with_entries(.key |= ((.[0:1]|ascii_downcase) + .[1:])) else . end)' "$RESP" > "$RESP.n" 2>/dev/null; then
@@ -170,30 +171,3 @@ policy_without_share() { jq -S -c '.Policy | del(.AllowSharingPersonalItems)' "$
 
 # need_int LIBELLE VALEUR : arrêt clair si VALEUR n'est pas un entier (ticks, durées).
 need_int() { [[ $2 =~ ^[0-9]+$ ]] || die "$1 : valeur non entière ('$2') — média sans durée ou lecture impossible"; }
-
-# Champs NON nuls attendus dans les réponses Spike/* (après normalisation camelCase).
-# Les champs nullables (ownerUserId, userId/itemId d'événements, lastPlayedDate…) ne sont pas exigés.
-spike_fields() {
-  case $1 in
-    shares)      echo "playlistId shares" ;;
-    playlists)   echo "playlistId name shareLevel entryCount entries" ;;
-    events)      echo "ts kind pluginWrite" ;;
-    remove)      echo "removed entriesAfter" ;;
-    markplayed)  echo "saved playedAfter" ;;
-    setposition) echo "saved positionTicks played" ;;
-    tags)        echo "playlistId tags" ;;
-    policy)      echo "userId allowSharingPersonalItems" ;;
-    setup)       echo "playlistId shares entries" ;;
-    *) die "spike_fields : clé inconnue $1" ;;
-  esac
-}
-# missing_fields CLE JSON -> champs manquants séparés par des virgules ("" si complet ;
-# pour un tableau : premier élément, tableau vide = rien à vérifier).
-missing_fields() {
-  local fl; fl=$(spike_fields "$1")
-  jq -r --arg fl "$fl" '
-    (if type=="array" then (.[0] // null) else . end) as $o
-    | if $o == null then "" elif ($o|type) != "object" then "(réponse non objet)"
-      else ($fl|split(" ")) | map(select(. as $k | ($o|has($k))|not)) | join(",") end' <<<"$2" 2>/dev/null \
-    || echo "(réponse non JSON)"
-}

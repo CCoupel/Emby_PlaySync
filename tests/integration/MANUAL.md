@@ -1,6 +1,6 @@
 # Procédure manuelle — v0.2.0 : étiquettes `remove-si-lu` / `propager-lu` et retrait du média lu (QUALIF emby2 uniquement)
 
-Prérequis : plugin v0.2.0 déployé sur emby2 ; comptes `test_u1` (propriétaire), `test_u2` (Écriture), `test_u3` (Lecture) créés par `tests/spike/00-setup-users.sh` (mots de passe dans `private/spike-users.env`). Ne jamais utiliser `user2` ni un compte réel. Noter pour chaque ligne le **client utilisé** (web, TV, mobile, version).
+Prérequis : plugin v0.2.0 déployé sur emby2 ; comptes `test_u1` (propriétaire), `test_u2` (Écriture), `test_u3` (Lecture) créés par `tests/integration/00-setup-users.sh` (mots de passe dans `private/test-users.env`). Ne jamais utiliser `user2` ni un compte réel. Noter pour chaque ligne le **client utilisé** (web, TV, mobile, version).
 
 ## 1. Préparer (client web, `test_u1`)
 Créer « SPIKE-manuel-v02 » avec ≥ 3 films, la partager (menu « … » > « Gérer la collaboration » : `test_u2` Écriture, `test_u3` Lecture). Attendre au plus 5 min (ou lancer la tâche « Emby Shared Playlist — réconciliation » : Tableau de bord > Tâches planifiées).
@@ -33,4 +33,4 @@ Répéter §2 (film fini, relu, décoche/recoche) sur TV et mobile ; noter si `t
 Tableau de bord > Plugins > « Emby Shared Playlist » : la page s'ouvre, les options `EnableDiagnostics`, `GracePasses`, `LogToConsole`, `LogLevel` sont lisibles et enregistrables sans erreur.
 
 ## 6. Nettoyage
-`tests/spike/90-cleanup.sh` (option `--delete-users` pour supprimer aussi les comptes `test_*`). Consigner les résultats dans le rapport de recette (U8, Q7).
+`tests/integration/90-cleanup.sh` (option `--delete-users` pour supprimer aussi les comptes `test_*`). Consigner les résultats dans le rapport de recette (U8, Q7).

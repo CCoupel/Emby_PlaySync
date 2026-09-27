@@ -4,22 +4,20 @@
 # Vérifie que le script lit bien les contrats Diagnostics, enchaîne les scénarios et détecte un moteur défaillant.
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPO=$(cd "$HERE/../.." && pwd)
 W=$(mktemp -d "${TMPDIR:-/tmp}/intflow.XXXXXX"); SRV=""
 trap '[[ -z $SRV ]] || kill $SRV 2>/dev/null; rm -rf "$W"' EXIT
 fail=0; ok() { echo "  [OK] $1"; }; ko() { echo "  [KO] $1"; fail=1; }
 PORT=${PORT:-18788}
 
-mkdir -p "$W/tests/spike" "$W/tests/integration" "$W/private" "$W/bin"
-cp "$REPO"/tests/spike/lib.sh "$W/tests/spike/"
-cp "$HERE"/20-etiquettes-retrait.sh "$HERE"/probe-lib.sh "$HERE"/int-lib.sh "$W/tests/integration/"
+mkdir -p "$W/tests/integration" "$W/private" "$W/bin"
+cp "$HERE"/lib.sh "$HERE"/20-etiquettes-retrait.sh "$HERE"/int-lib.sh "$W/tests/integration/"
 (cd "$W" && git init -q && printf 'private/*\n_work/\n' > .gitignore)
 printf 'EMBY_URL=http://127.0.0.1:%s/emby\nEMBY_API_KEY=fakekey\n' "$PORT" > "$W/private/qualif.env"
 { printf 'TEST_U1_ID=%s\nTEST_U1_PW=pw1\n' "$(printf '1%.0s' {1..32})"
   printf 'TEST_U2_ID=%s\nTEST_U2_PW=pw2\n' "$(printf '2%.0s' {1..32})"
-  printf 'TEST_U3_ID=%s\nTEST_U3_PW=pw3\n' "$(printf '3%.0s' {1..32})"; } > "$W/private/spike-users.env"
+  printf 'TEST_U3_ID=%s\nTEST_U3_PW=pw3\n' "$(printf '3%.0s' {1..32})"; } > "$W/private/test-users.env"
 POL='{"IsAdministrator":false,"BlockedTags":["x"]}'
-jq -nSc --argjson p "$POL" '{users:["admin","cyril","user2"], policies:{admin:($p|.IsAdministrator=true), cyril:$p, user2:$p}}' > "$W/private/spike-snapshot.json"
+jq -nSc --argjson p "$POL" '{users:["admin","cyril","user2"], policies:{admin:($p|.IsAdministrator=true), cyril:$p, user2:$p}}' > "$W/private/test-snapshot.json"
 printf 'apiVersion: v1\n' > "$W/private/kubeconfig.yml"
 cat > "$W/bin/kubectl" <<K
 #!/usr/bin/env bash

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# 00-setup-users.sh — crée test_u1/test_u2/test_u3 sur emby2 (QUALIF uniquement).
+# 00-setup-users.sh — crée test_u1/test_u2/test_u3 sur emby2 (QUALIF uniquement). Reprise de tests/spike/00-setup-users.sh
+# (v0.1.0, supprimé avec #15) : prérequis des scripts tests/integration/**.
 #  - politique par défaut ; AllowSharingPersonalItems=true pour test_u1 seul
 #  - échoue si un compte test_* existe déjà
 #  - compare avant/après la liste des utilisateurs et les politiques de admin, cyril, user2
 #    (user2 = compte de test de l'utilisateur : jamais modifié)
-# Mots de passe aléatoires -> private/spike-users.env (gitignoré). Aucune valeur secrète affichée.
-# Usage : tests/spike/00-setup-users.sh
+# Mots de passe aléatoires -> private/test-users.env (gitignoré). Aucune valeur secrète affichée.
+# Usage : tests/integration/00-setup-users.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 check_ignored "$USERS_ENV" "$SNAPSHOT" "$STATE" "$QUALIF_ENV"
@@ -48,7 +49,7 @@ for i in 1 2 3; do
   printf 'TEST_U%s_NAME=%s\nTEST_U%s_ID=%s\nTEST_U%s_PW=%s\n' "$i" "$n" "$i" "$id" "$i" "$pw" >> "$USERS_ENV"
   apiok 204 POST "/Users/$id/Password" "$(jq -nc --arg p "$pw" '{NewPw:$p}')"
   ids+=("$id")
-  echo "  [OK] $n créé (mot de passe dans private/spike-users.env)"
+  echo "  [OK] $n créé (mot de passe dans private/test-users.env)"
 done
 
 echo "== AllowSharingPersonalItems=true pour test_u1 seul"

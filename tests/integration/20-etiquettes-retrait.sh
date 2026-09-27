@@ -8,13 +8,12 @@
 # passes consécutives, jamais sur ItemUpdated d'une playlist déjà vue) ; retrait seulement sur transition non lu -> lu
 # avec `remove-si-lu=OUI` seule, sur une playlist PARTAGÉE ; message d'aide seulement si la description est vide.
 #
-# Prérequis : tests/spike/00-setup-users.sh exécuté (test_u1 propriétaire, test_u2 Write, test_u3 Read) ; >= 6 médias.
+# Prérequis : tests/integration/00-setup-users.sh exécuté (test_u1 propriétaire, test_u2 Write, test_u3 Read) ; >= 6 médias.
 # Usage : tests/integration/20-etiquettes-retrait.sh [--restart] [I1 I8 …]
 #   --restart : exécute aussi I10 (redémarre deployment/emby2 via kubectl ; KUBECONFIG=private/kubeconfig.yml)
 #   sans liste : tous les scénarios (I10 seulement avec --restart). Sortie : tableau + JSON (SPIKE_OUT).
 # Statuts : OK | KO | SKIP (précondition ou observation impossible, motif indiqué). Code de sortie 1 si un KO.
-source "$(dirname "${BASH_SOURCE[0]}")/../spike/lib.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/probe-lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/int-lib.sh"
 
 DO_RESTART=0; WANT=()
@@ -60,7 +59,7 @@ trap on_exit EXIT
 echo "== Préconditions"
 guard_target
 check_ignored "$USERS_ENV" "$SNAPSHOT" "$STATE" "$QUALIF_ENV" "$KUBECONFIG_FILE"
-[[ -f $USERS_ENV && -f $SNAPSHOT ]] || die "lancer tests/spike/00-setup-users.sh d'abord"
+[[ -f $USERS_ENV && -f $SNAPSHOT ]] || die "lancer tests/integration/00-setup-users.sh d'abord"
 U1=$(envget "$USERS_ENV" TEST_U1_ID); U2=$(envget "$USERS_ENV" TEST_U2_ID); U3=$(envget "$USERS_ENV" TEST_U3_ID)
 relogin() {
   T1=$(login test_u1 "$(envget "$USERS_ENV" TEST_U1_PW)"); T2=$(login test_u2 "$(envget "$USERS_ENV" TEST_U2_PW)"); T3=$(login test_u3 "$(envget "$USERS_ENV" TEST_U3_PW)")

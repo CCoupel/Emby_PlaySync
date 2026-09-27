@@ -6,17 +6,10 @@
 
 | Fichier | Niveau | Composant | Feature | Statut | Tags |
 |---------|--------|-----------|---------|--------|------|
-| tests/spike/lib.sh | integration (support) | plugin | spike-partage-natif #1 (fonctions communes, cible QUALIF vérifiée) | feature | |
-| tests/spike/00-setup-users.sh | integration | plugin | spike-partage-natif #1 (comptes test_u1/u2/u3, comptes réels inchangés) | feature | |
-| tests/spike/10-run-spike.sh | integration | plugin | spike-partage-natif #1 (U1–U6, U10 avancement #44 + règles propager-lu ; smoke = GET Spike/Shares) | feature | smoke |
-| tests/spike/90-cleanup.sh | integration | plugin | spike-partage-natif #1 (nettoyage, comptes protégés vérifiés) | feature | |
-| tests/spike/MANUAL.md | manuel | plugin | spike-partage-natif #1 (TV/mobile, lecture réelle, étiquettes, avancement #44) | feature | |
-| tests/spike/test-lib-offline.sh | unit (hors ligne) | plugin | spike-partage-natif #1 (lib.sh : échappement config curl, en-tête de login intact ; serveur local, sans emby2) | regression | smoke |
-| tests/integration/05-reentrancy-probe.sh | integration | plugin | sonde U11 de ré-entrance (#52) : P1–P6, échos, latence p50/p95/max, logs Emby, décision immédiat/repli | feature | critical |
-| tests/integration/probe-lib.sh | integration (support) | plugin | sonde U11 (#52) : parsing des événements Probe, statistiques, analyse des logs, décision | feature | |
-| tests/integration/test-probe-offline.sh | unit (hors ligne) | plugin | sonde U11 (#52) : fonctions pures de probe-lib.sh | feature | smoke |
-| tests/integration/test-probe-flow-offline.sh | integration (hors ligne, faux Emby) | plugin | sonde U11 (#52) : flux complet de 05-reentrancy-probe.sh contre fake_emby.py, 4 situations | feature | smoke |
-| tests/integration/fake_emby.py | integration (support) | plugin | faux serveur Emby local pour test-probe-flow-offline.sh | feature | |
+| tests/integration/lib.sh | integration (support) | plugin | fonctions communes (repris de tests/spike/lib.sh v0.1.0, supprimé avec #15), cible QUALIF vérifiée | feature | |
+| tests/integration/00-setup-users.sh | integration | plugin | comptes test_u1/u2/u3, comptes réels inchangés (repris de tests/spike/00-setup-users.sh, supprimé avec #15) | feature | |
+| tests/integration/90-cleanup.sh | integration | plugin | nettoyage playlists SPIKE*/comptes test_*, comptes protégés vérifiés (repris de tests/spike/90-cleanup.sh, supprimé avec #15) | feature | |
+| tests/integration/test-lib-offline.sh | unit (hors ligne) | plugin | lib.sh : échappement config curl, en-tête de login intact, compare_protected, need_int, normalisation Diagnostics/* ; serveur local, sans emby2 (repris de tests/spike/test-lib-offline.sh) | regression | smoke |
 | tests/integration/20-etiquettes-retrait.sh | integration | plugin | v0.2.0 : scénarios I0–I17 (I5 : tous les doublons retirés sur une transition) (étiquettes remove-si-lu/propager-lu, retrait à la transition, grâce, première détection, concurrence, ré-entrance, latence) ; option --restart pour I10 | feature | smoke, critical |
 | tests/integration/int-lib.sh | integration (support) | plugin | v0.2.0 : helpers Diagnostics/tâche planifiée/étiquettes/lecture simulée pour 20-etiquettes-retrait.sh | feature | |
 | tests/integration/test-int-flow-offline.sh | integration (hors ligne, faux moteur) | plugin | v0.2.0 : flux de 20-etiquettes-retrait.sh contre fake_emby2.py, 5 situations dont moteur défaillant | feature | smoke |

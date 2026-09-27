@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# 90-cleanup.sh — nettoyage du spike sur emby2 (QUALIF uniquement).
-#  - supprime les playlists SPIKE* (ids de private/spike-state.json + balayage par nom, dans les
+# 90-cleanup.sh — nettoyage des données de test (playlists SPIKE*, comptes test_*) sur emby2 (QUALIF uniquement).
+# Reprise de tests/spike/90-cleanup.sh (v0.1.0, supprimé avec #15).
+#  - supprime les playlists SPIKE* (ids de private/test-state.json + balayage par nom, dans les
 #    bibliothèques des comptes test_*) ;
 #  - comptes test_* : GARDÉS par défaut ; --delete-users pour les supprimer (+ fichiers private/spike-*) ;
 #  - vérifie que admin, cyril et user2 sont inchangés (utilisateurs + politiques) vs le snapshot.
-# Usage : tests/spike/90-cleanup.sh [--delete-users]
+# Usage : tests/integration/90-cleanup.sh [--delete-users]
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 DELETE_USERS=0
@@ -72,7 +73,7 @@ rc=0
 compare_protected "après nettoyage" "${extra[@]}" || rc=1
 if [[ $DELETE_USERS == 1 && $rc == 0 ]]; then
   rm -f "$USERS_ENV" "$SNAPSHOT"
-  echo "  fichiers private/spike-users.env et spike-snapshot.json supprimés"
+  echo "  fichiers private/test-users.env et test-snapshot.json supprimés"
 fi
 [[ $rc == 0 ]] || { echo "ECHEC : comptes protégés différents du snapshot — ne rien corriger sans validation de l'utilisateur" >&2; exit 1; }
 echo "Nettoyage terminé."
