@@ -1,5 +1,6 @@
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using EmbySharedPlaylist.Core;
@@ -7,7 +8,7 @@ using EmbySharedPlaylist.Emby;
 
 namespace EmbySharedPlaylist;
 
-public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbImage
 {
     /// <summary>Nom de la page de configuration : <c>/web/configurationpage?name=EmbySharedPlaylistConfig</c>.</summary>
     public const string ConfigPageName = "EmbySharedPlaylistConfig";
@@ -36,6 +37,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public override string Name => "Emby Shared Playlist";
 
     public override string Description => "Playlists « À voir » partagées : un média lu est retiré de la liste et marqué lu pour les membres du groupe.";
+
+    /// <summary>Icône du plugin (#49) : création originale (D-c, v1.0.0), source vectorielle <c>icon.svg</c> versionnée
+    /// à la racine du projet, embarquée en JPEG 320x180 (même format que la convention Emby_Badges).</summary>
+    public ImageFormat ThumbImageFormat => ImageFormat.Jpg;
+
+    public Stream GetThumbImage() => GetType().Assembly.GetManifestResourceStream($"{GetType().Namespace}.Configuration.thumb.jpg")!;
 
     public IEnumerable<PluginPageInfo> GetPages()
     {

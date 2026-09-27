@@ -30,6 +30,8 @@
   <ItemGroup>
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configScript.js" />
+    <!-- Icône du plugin (#49, v1.0.0) : JPEG 320x180, source vectorielle icon.svg versionnée (D-c) -->
+    <EmbeddedResource Include="Configuration\thumb.jpg" />
   </ItemGroup>
 
 </Project>

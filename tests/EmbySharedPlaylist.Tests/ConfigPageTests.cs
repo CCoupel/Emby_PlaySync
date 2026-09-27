@@ -27,6 +27,20 @@ public class ConfigPageTests
         var names = PluginAssembly.GetManifestResourceNames();
         Assert.Contains("EmbySharedPlaylist.Configuration.configPage.html", names);
         Assert.Contains("EmbySharedPlaylist.Configuration.configScript.js", names);
+        Assert.Contains("EmbySharedPlaylist.Configuration.thumb.jpg", names);
+    }
+
+    [Fact]
+    public void ThumbImage_IsAValidNonEmptyJpeg()
+    {
+        // Même nom que Plugin.GetThumbImage() (#49, v1.0.0) : ce test ne construit pas Plugin (SDK requis pour son
+        // constructeur), mais vérifie exactement ce que GetThumbImage() renvoie (GetType().Assembly.GetManifestResourceStream).
+        using var stream = PluginAssembly.GetManifestResourceStream("EmbySharedPlaylist.Configuration.thumb.jpg");
+        Assert.NotNull(stream);
+        var bytes = new byte[4];
+        Assert.Equal(4, stream!.Read(bytes, 0, 4));
+        Assert.Equal(new byte[] { 0xFF, 0xD8, 0xFF }, bytes[..3]); // signature JPEG (SOI + marqueur)
+        Assert.True(stream.Length > 1000); // pas un fichier vide/tronqué
     }
 
     [Fact]
