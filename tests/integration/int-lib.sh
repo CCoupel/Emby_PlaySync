@@ -250,6 +250,51 @@ cleanup_restricted_user() {   # supprime test_u4 si ce run l'a créé ; idempote
   echo "  [OK] $RESTRICTED_USER_NAME supprimé"
 }
 
+# --- permission de partage automatique (v0.4.0, #26) ------------------------------------------------------
+PLUGIN_ID="9ebe814e-9438-42b8-aa57-feea1ae92451"   # src/EmbySharedPlaylist/Plugin.cs
+
+plugin_cfg() { api GET "/Plugins/$PLUGIN_ID/Configuration" >/dev/null; jq -c . "$RESP"; }
+# plugin_cfg_set JSON_COMPLET : même mécanisme que configScript.js (relit toute la config, poste tout le corps).
+plugin_cfg_set() { apiok 204 POST "/Plugins/$PLUGIN_ID/Configuration" "$1"; }
+# set_auto_sharing true|false : bascule l'interrupteur global (config plugin, pas un compte).
+set_auto_sharing() { plugin_cfg_set "$(plugin_cfg | jq -c --argjson v "$1" '.AutoEnableSharing=$v')"; }
+
+policy_of() { api GET "/Users/$1" >/dev/null; jq -c '.Policy' "$RESP"; }
+sharing_of() { policy_of "$1" | jq -r '.AllowSharingPersonalItems'; }
+# jcount_user JOURNAL_JSON KIND USERID -> nombre d'entrées KIND pour cet UserId (permission, sans playlist associée,
+# contrairement à jcount qui filtre par PlaylistId).
+jcount_user() { jq -r --arg k "$2" --arg u "$3" '[.[]|select(.kind==$k and (.userId//"")==$u)]|length' <<<"$1"; }
+# set_sharing UID true|false : action ADMIN manuelle directe (simule un (dé)cochage dans le tableau de bord), PAS
+# une action du plugin — relit la Policy complète puis ne change QUE ce champ (même prudence que EmbyUserPolicyGateway).
+set_sharing() {
+  api GET "/Users/$1" >/dev/null
+  apiok 204 POST "/Users/$1/Policy" "$(jq -c --argjson v "$2" '.Policy|.AllowSharingPersonalItems=$v' "$RESP")"
+}
+wait_sharing() { # UID ATTENDU(true|false) [TIMEOUT_S=10]
+  local i t0=$(now_ms); for ((i=0; i<${3:-10}; i++)); do
+    [[ $(sharing_of "$1") == "$2" ]] && { _wait_trace "sharing uid=$1 attendu=$2" "$((i+1))" "$t0"; return 0; }
+    nap 1
+  done; return 1
+}
+# create_test_account PREFIX -> id (nom "PREFIX-<aléatoire>", mot de passe non conservé) ; à nettoyer via
+# cleanup_test_accounts (idempotent, aussi appelée par le trap) — jamais admin/cyril/user2/test_u1/u2/u3 (comptes
+# permanents, non créés/supprimés par cette fonction).
+create_test_account() {
+  local n="${1}-$RANDOM$RANDOM" st id
+  st=$(api POST /Users/New "$(jq -nc --arg n "$n" '{Name:$n}')")
+  [[ $st == 200 || $st == 204 ]] || die "création de $n -> HTTP $st"
+  id=$(jq -r '.Id // empty' "$RESP"); [[ -n $id ]] || id=$(user_id_by_name "$n")
+  [[ -n $id ]] || die "id de $n introuvable"
+  echo "$id" >> "$SCRATCH/perm_accounts.run"
+  echo "$id"
+}
+cleanup_test_accounts() {
+  [[ -s ${SCRATCH:-/nonexistent}/perm_accounts.run ]] || return 0
+  local id
+  while IFS= read -r id; do if [[ -n $id ]]; then api DELETE "/Users/$id" >/dev/null || true; fi; done < "$SCRATCH/perm_accounts.run"
+  : > "$SCRATCH/perm_accounts.run"
+}
+
 # cleanup_registered_playlists : supprime les playlists créées PAR CE RUN (register_playlist, private/test-state.json),
 # après vérification du nom côté serveur (SPIKE*). Complément de 90-cleanup.sh (nettoyage manuel, à part) : un script
 # qui en imbrique un autre (ex. I26 dans 21-propagation.sh, qui relance 20-etiquettes-retrait.sh en sous-processus

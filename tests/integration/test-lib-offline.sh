@@ -72,8 +72,19 @@ snapshot_users() { CUR; }
 CUR() { mk_state "$POL_NOW" "$USERS_NOW"; }
 POL_NOW=$POL; USERS_NOW='["admin","user2"]'
 if compare_protected "identique avec [ ]" >/dev/null; then ok "politiques identiques (avec [ ]) => égales"; else ko "faux positif : politiques identiques jugées différentes"; fi
+POL_NOW='{"EnabledFolders":["x","y","z"],"BlockedTags":[],"AllowSharingPersonalItems":false}'
+if compare_protected "politique modifiée" >/dev/null; then ko "politique modifiée non détectée"; else ok "politique modifiée (EnabledFolders) => détectée"; fi
+
+# v0.4.0 (#26, D8) : AllowSharingPersonalItems false->true est la SEULE transition tolérée (le plugin peut légitimement
+# l'accorder à un compte protégé dès la première passe après déploiement) ; l'inverse (révocation, contraire à D-e)
+# reste détecté comme n'importe quelle autre différence. Snapshot inchangé (POL, user2 à false) pour ces deux essais.
 POL_NOW='{"EnabledFolders":["x","y"],"BlockedTags":[],"AllowSharingPersonalItems":true}'
-if compare_protected "politique modifiée" >/dev/null; then ko "politique modifiée non détectée"; else ok "politique modifiée => détectée"; fi
+if compare_protected "AllowSharingPersonalItems false->true" >/dev/null; then ok "AllowSharingPersonalItems false->true toléré (#26)"; else ko "faux positif : false->true jugé différent"; fi
+
+mk_state '{"EnabledFolders":["x","y"],"BlockedTags":[],"AllowSharingPersonalItems":true}' '["admin","user2"]' > "$SNAPSHOT"   # snapshot où user2 est DÉJÀ à true
+POL_NOW='{"EnabledFolders":["x","y"],"BlockedTags":[],"AllowSharingPersonalItems":false}'
+if compare_protected "AllowSharingPersonalItems true->false" >/dev/null; then ko "révocation AllowSharingPersonalItems non détectée (contraire à D-e)"; else ok "révocation AllowSharingPersonalItems (true->false) toujours détectée"; fi
+mk_state "$POL" '["admin","user2"]' > "$SNAPSHOT"   # remet le snapshot d'origine pour la suite
 POL_NOW=$POL; USERS_NOW='["admin","test_u1","user2"]'
 if compare_protected "extra non déclaré" >/dev/null; then ko "utilisateur en trop non détecté"; else ok "utilisateur en trop => détecté"; fi
 if compare_protected "extra déclaré" test_u1 >/dev/null; then ok "utilisateur attendu (test_u1) accepté"; else ko "utilisateur attendu rejeté"; fi

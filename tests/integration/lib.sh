@@ -142,8 +142,24 @@ compare_protected() {
   local now_users; now_users=$(jq -c '.users|sort' <<<"$now")
   local ok=0
   if [[ "$exp_users" != "$now_users" ]]; then echo "  [KO] $label : liste des utilisateurs différente"; ok=1; fi
-  local pol_exp pol_now
+  local pol_exp pol_now norm
   pol_exp=$(jq -S -c '.policies' "$SNAPSHOT"); pol_now=$(jq -S -c '.policies' <<<"$now")
+  # AllowSharingPersonalItems (v0.4.0, #26, D8) : le plugin peut légitimement poser ce champ à true pour TOUT compte,
+  # y compris protégé, dès la première passe de réconciliation qui tourne après le déploiement de v0.4.0 (même une
+  # déclenchée par un autre script pour une tout autre raison, ex. prime()/run_pass) — jamais l'inverse (D-e : aucune
+  # révocation). Neutralisé dans la comparaison SEULEMENT dans ce sens (false/absent -> true, par compte) ; une
+  # révocation (true -> false) ou toute AUTRE différence de politique reste détectée normalement.
+  norm='
+    def tolerate($u):
+      ($u.e.AllowSharingPersonalItems // false) as $ve | ($u.n.AllowSharingPersonalItems // false) as $vn |
+      if ($ve != true) and ($vn == true)
+      then {e: ($u.e + {AllowSharingPersonalItems:"tolerated"}), n: ($u.n + {AllowSharingPersonalItems:"tolerated"})}
+      else $u end;
+    ($exp[0]) as $exp | ($now[0]) as $now |
+    ([($exp|keys)[] as $k | {($k): (tolerate({e:($exp[$k]//{}), n:($now[$k]//{})}))}] | add // {}) as $merged
+    | {exp: ($merged|with_entries(.value|=.e)), now: ($merged|with_entries(.value|=.n))}'
+  local both; both=$(jq -nc --slurpfile exp <(echo "$pol_exp") --slurpfile now <(echo "$pol_now") "$norm")
+  pol_exp=$(jq -S -c '.exp' <<<"$both"); pol_now=$(jq -S -c '.now' <<<"$both")
   if [[ "$pol_exp" != "$pol_now" ]]; then
     echo "  [KO] $label : politique d'un compte protégé modifiée"; ok=1
   fi

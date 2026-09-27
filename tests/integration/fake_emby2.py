@@ -27,8 +27,10 @@ def _load_help_texts():
     return v1, v2
 V1_TEXT, V2_TEXT = _load_help_texts()
 
-PORT = int(sys.argv[1]); MODE = sys.argv[2] if len(sys.argv) > 2 else "ok"   # ok | noremove | nopropagate (v0.3.0)
+PORT = int(sys.argv[1]); MODE = sys.argv[2] if len(sys.argv) > 2 else "ok"   # ok | noremove | nopropagate | noautoshare (v0.4.0)
 GRACE = 2
+PLUGIN_ID = "9ebe814e-9438-42b8-aa57-feea1ae92451"
+CONFIG = {"GracePasses": GRACE, "EnableDiagnostics": True, "LogToConsole": True, "LogLevel": "Info", "AutoEnableSharing": True}
 lock = threading.RLock()
 ids = itertools.count(1000)
 USERS = {"admin": "a" * 32, "cyril": "c" * 32, "user2": "b" * 32, "test_u1": "1" * 32, "test_u2": "2" * 32, "test_u3": "3" * 32}
@@ -40,8 +42,8 @@ pass_no = itertools.count(1)
 
 PL, PLAYED, PLAYDATA, POLICY, POSITION = {}, set(), {}, {}, {}   # POSITION[(user,item)] = ticks (donnée Emby, persiste)
 TICKS_30S = 300_000_000   # v0.3.1 : seuil minimal (30 s, 100 ns/tick)
-DEFAULT_POLICY = {"EnableAllFolders": True, "EnabledFolders": []}
-def has_access(userid, item): return POLICY.get(userid, DEFAULT_POLICY)["EnableAllFolders"]
+DEFAULT_POLICY = {"EnableAllFolders": True, "EnabledFolders": [], "AllowSharingPersonalItems": False}
+def has_access(userid, item): return {**DEFAULT_POLICY, **POLICY.get(userid, {})}["EnableAllFolders"]
 def members(p): return list(dict.fromkeys([p["owner"]] + list(p["shares"].keys())))
 def reset():   # redémarrage du PLUGIN uniquement : la mémoire du moteur est remise à zéro (Emby/PLAYED/PLAYDATA/POLICY/POSITION persistent)
     global SEEN, GRACEC, JOURNAL, HANDLER, LASTPASS, WRITING, SKIPPED, PAUSED
@@ -133,6 +135,23 @@ def do_pass():
     ms = int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)
     LASTPASS.update({"Ts": datetime.datetime.utcnow().isoformat() + "Z#" + str(next(pass_no)), "DurationMs": ms, "PlaylistsSeen": n, "SharedManaged": managed})
     jr("ScanPass", detail=f"playlists={n} shared={managed} posed=0 pending=0 durationMs={ms}")
+    # AutoSharingService (v0.4.0, #26, D-a) : APRÈS le retrait/la propagation, indépendant des playlists (tourne même
+    # s'il n'y en a aucune) ; interrupteur relu à chaque passe (config live) ; jamais de révocation (D-e : un compte
+    # déjà à True le reste, un décochage manuel est reposé à la passe suivante, testé comme un succès).
+    if CONFIG.get("AutoEnableSharing", True) and MODE != "noautoshare":
+        enabled = already = 0
+        for uid in list(USERS.values()):
+            # {} et non dict(DEFAULT_POLICY) : EnableSharingIfNeeded (D-b) ne modifie QUE ce champ, jamais les autres
+            # (matérialiser EnableAllFolders/EnabledFolders ici romprait la comparaison compare_protected des comptes
+            # protégés jamais autrement touchés — même écueil que la revue A1 sur #20/#21, ne modifier QUE le nécessaire).
+            pol = POLICY.setdefault(uid, {})
+            if pol.get("AllowSharingPersonalItems"):
+                already += 1
+            else:
+                pol["AllowSharingPersonalItems"] = True
+                enabled += 1
+                jr("PermissionPosed", user=uid)
+        jr("PermissionPass", detail=f"users={len(USERS)} enabled={enabled} alreadyEnabled={already} durationMs=1")
 
 def mark_played(user, item):   # écriture PLUGIN (propagation) : distincte d'un set_played utilisateur (pas de ré-entrée)
     PLAYED.add((user, item)); PLAYDATA[(user, item)] = {"LastPlayedDate": datetime.datetime.utcnow().isoformat() + "Z", "PlayCount": 1}
@@ -219,7 +238,13 @@ class H(http.server.BaseHTTPRequestHandler):
             name = body["Name"]
             uid = ("u" + str(next(ids))).ljust(32, "0")[:32]   # id factice unique, longueur 32 comme un vrai GUID sans tirets
             USERS[name] = uid
+            # UserCreated (v0.4.0, #26) : pose immédiate, SANS attendre la passe suivante — simule Emby/UserPolicyListener.
+            if CONFIG.get("AutoEnableSharing", True) and MODE != "noautoshare":
+                pol = POLICY.setdefault(uid, {}); pol["AllowSharingPersonalItems"] = True
+                jr("PermissionPosed", user=uid)
             return self.out(200, {"Id": uid, "Name": name})
+        if p == f"/Plugins/{PLUGIN_ID}/Configuration" and m == "GET": return self.out(200, dict(CONFIG))
+        if p == f"/Plugins/{PLUGIN_ID}/Configuration" and m == "POST": CONFIG.update(body); return self.out(204)
         r = re.fullmatch(r"/Users/(\w+)/Password", p)
         if r and m == "POST": PASSWORDS[r.group(1)] = body.get("NewPw"); return self.out(204)
         r = re.fullmatch(r"/Users/(\w+)", p)
@@ -233,7 +258,10 @@ class H(http.server.BaseHTTPRequestHandler):
             pol = POLICY.setdefault(r.group(1), dict(DEFAULT_POLICY)); pol.update(body); return self.out(204)
         r = re.fullmatch(r"/Users/(\w+)", p)
         if r and m == "GET":
-            pol = {"IsAdministrator": r.group(1) == USERS["admin"], "BlockedTags": ["x"]}
+            # AllowSharingPersonalItems (v0.4.0, #26) : présent par défaut à False pour TOUT compte (comme un vrai
+            # Emby fraîchement créé), contrairement à EnableAllFolders/EnabledFolders qui restent ABSENTS tant que
+            # /Policy n'a jamais été posté (forme volontairement différente, cf. commentaire ci-dessous, R8).
+            pol = {"IsAdministrator": r.group(1) == USERS["admin"], "BlockedTags": ["x"], "AllowSharingPersonalItems": False}
             if r.group(1) in POLICY: pol.update(POLICY[r.group(1)])   # champs EnableAllFolders/EnabledFolders : seulement si réglés (POST Policy),
             return self.out(200, {"Policy": pol})                     # pour ne pas changer la forme des réponses des comptes jamais touchés
         if p == "/Items" and m == "GET":
