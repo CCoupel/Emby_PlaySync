@@ -38,13 +38,14 @@ RT = 7_000_000_000
 TASK_ID = "77"
 pass_no = itertools.count(1)
 
-PL, PLAYED, PLAYDATA, POLICY = {}, set(), {}, {}   # POLICY[userid] = {"EnableAllFolders": bool, "EnabledFolders": [...]}
+PL, PLAYED, PLAYDATA, POLICY, POSITION = {}, set(), {}, {}, {}   # POSITION[(user,item)] = ticks (donnée Emby, persiste)
+TICKS_30S = 300_000_000   # v0.3.1 : seuil minimal (30 s, 100 ns/tick)
 DEFAULT_POLICY = {"EnableAllFolders": True, "EnabledFolders": []}
 def has_access(userid, item): return POLICY.get(userid, DEFAULT_POLICY)["EnableAllFolders"]
 def members(p): return list(dict.fromkeys([p["owner"]] + list(p["shares"].keys())))
-def reset():   # redémarrage du PLUGIN uniquement : la mémoire du moteur est remise à zéro (Emby/PLAYED/PLAYDATA/POLICY persistent)
-    global SEEN, GRACEC, JOURNAL, HANDLER, LASTPASS, WRITING, SKIPPED
-    SEEN, GRACEC, JOURNAL, SKIPPED = set(), {}, [], {}
+def reset():   # redémarrage du PLUGIN uniquement : la mémoire du moteur est remise à zéro (Emby/PLAYED/PLAYDATA/POLICY/POSITION persistent)
+    global SEEN, GRACEC, JOURNAL, HANDLER, LASTPASS, WRITING, SKIPPED, PAUSED
+    SEEN, GRACEC, JOURNAL, SKIPPED, PAUSED = set(), {}, [], {}, {}
     HANDLER = {"Count": 0, "LastMs": 0, "MaxMs": 0}; LASTPASS = {"Ts": None, "DurationMs": 0, "PlaylistsSeen": 0, "SharedManaged": 0}; WRITING = False
 reset()
 
@@ -170,6 +171,23 @@ def transition(user, item):
 
         HANDLER["Count"] += 1; HANDLER["LastMs"] = ms; HANDLER["MaxMs"] = max(HANDLER["MaxMs"], ms)
 
+def position_transition(user, item, ticks):
+    # D-c : seuil minimal (30 s) et garde du lu CONNU à l'instant de l'événement, aucune marge de ratio.
+    if ticks < TICKS_30S: return
+    if (user, item) in PLAYED: return   # déjà lu pour le déclencheur : la règle du lu prend le relais, rien à propager
+    for pid, p in list(PL.items()):
+        if user not in members(p) or item not in [e["item"] for e in p["entries"]]: continue
+        if not shared(p): continue
+        if state_of(p["tags"], "propager-lu") != "Oui" or MODE == "nopropagate": continue
+        propagated = already = noaccess = 0
+        for m in members(p):
+            if m == user: continue
+            if not has_access(m, item): jr("Skipped", pid, m, item, "no-access"); noaccess += 1; continue
+            if POSITION.get((m, item)) == ticks: jr("Skipped", pid, m, item, "same-position"); already += 1; continue
+            POSITION[(m, item)] = ticks; propagated += 1
+        total = len(members(p)) - 1
+        jr("PositionPropagation", pid, user, item, f"members={total} propagated={propagated} samePosition={already} noAccess={noaccess} durationMs=3")
+
 def set_played(user, item, val):
     if val:
         if (user, item) in PLAYED: return
@@ -259,11 +277,23 @@ class H(http.server.BaseHTTPRequestHandler):
                 return self.out(403, {"error": "no library access (fake R8)"})
             key = (r.group(1), r.group(2)); pd = PLAYDATA.get(key, {"LastPlayedDate": None, "PlayCount": 0})
             return self.out(200, {"Id": r.group(2), "RunTimeTicks": RT,
-                                   "UserData": {"Played": key in PLAYED, "LastPlayedDate": pd["LastPlayedDate"], "PlayCount": pd["PlayCount"]}})
-        if p == "/Sessions/Playing" or p == "/Sessions/Playing/Progress": return self.out(204)
+                                   "UserData": {"Played": key in PLAYED, "LastPlayedDate": pd["LastPlayedDate"], "PlayCount": pd["PlayCount"],
+                                                "PlaybackPositionTicks": POSITION.get(key, 0)}})
+        if p == "/Sessions/Playing": return self.out(204)
+        if p == "/Sessions/Playing/Progress":
+            user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
+            item = body["ItemId"]; paused = bool(body.get("IsPaused", False))
+            was_paused = PAUSED.get((user, item), False)
+            PAUSED[(user, item)] = paused
+            if paused and not was_paused:   # transition false -> true (D-b) : SEUL déclencheur de Progress
+                position_transition(user, item, body.get("PositionTicks", 0))
+            return self.out(204)
         if p == "/Sessions/Playing/Stopped":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
-            if body.get("PositionTicks", 0) >= 0.9 * RT: set_played(user, body["ItemId"], True)
+            item = body["ItemId"]; ticks = body.get("PositionTicks", 0)
+            if ticks >= 0.9 * RT: set_played(user, item, True)
+            position_transition(user, item, ticks)   # systématique (D-b), la garde D-c filtre déjà-lu à l'intérieur
+            PAUSED.pop((user, item), None)
             return self.out(204)
         r = re.fullmatch(r"/Items/(\d+)", p)
         if r and m == "POST":

@@ -245,6 +245,27 @@ play_to() { # UID TOKEN ITEM POURCENT [progress-only] : Playing, Progress à mi-
   if [[ ${5:-} != progress-only ]]; then api POST /Sessions/Playing/Stopped "$(body $((rt*pct/100)))" "$tok" >/dev/null; fi
 }
 played_of() { api GET "/Users/$1/Items/$3" "" "$2" >/dev/null; jq -r '.UserData.Played' "$RESP"; }
+position_of() { api GET "/Users/$1/Items/$3" "" "$2" >/dev/null; jq -r '.UserData.PlaybackPositionTicks // 0' "$RESP"; }
+
+# --- session de lecture (v0.3.1, avancement #45) : Start puis Progress/Stopped à la demande, sur la MÊME session
+# (PlaySessionId) pour ressembler à un vrai client. play_to() (v0.2.0/v0.3.0, ci-dessus) reste pour les scénarios de
+# « lu » ; ces fonctions donnent le contrôle explicite du POSITIONNEMENT et de IsPaused nécessaire à l'avancement.
+play_start() { # UID TOKEN ITEM -> SID (session)
+  local sid; sid="int-$RANDOM$RANDOM"
+  api POST /Sessions/Playing "$(jq -nc --arg i "$3" --arg s "$sid" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$2" >/dev/null
+  echo "$sid"
+}
+play_progress() { # UID TOKEN ITEM SID POSITION_TICKS IS_PAUSED(true|false) -> HTTP status
+  api POST /Sessions/Playing/Progress "$(jq -nc --arg i "$3" --arg s "$4" --argjson p "$5" --argjson pa "$6" \
+    '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,IsPaused:$pa,CanSeek:true}')" "$2"
+}
+play_stop() { # UID TOKEN ITEM SID POSITION_TICKS -> HTTP status
+  api POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$3" --arg s "$4" --argjson p "$5" \
+    '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$2"
+}
+ticks_at() { # ITEM POURCENT -> ticks (position à ce pourcentage de la durée), avec need_int sur la durée
+  local rt; rt=$(runtime_of "$1"); need_int "RunTimeTicks($1)" "$rt"; echo $((rt*$2/100))
+}
 
 # appels concurrents (fichiers de config propres ; ms cumulées) --------------------------------------------
 bg_call() { # ID TAG METHODE CHEMIN [CORPS] [TOKEN]

@@ -1,4 +1,4 @@
-# Procédure manuelle — v0.2.0/v0.3.0 : étiquettes `remove-si-lu` / `propager-lu`, retrait et propagation du lu (QUALIF emby2 uniquement)
+# Procédure manuelle — v0.2.0/v0.3.0/v0.3.1 : étiquettes `remove-si-lu` / `propager-lu`, retrait, propagation du lu et de l'avancement (QUALIF emby2 uniquement)
 
 Prérequis : plugin déployé sur emby2 ; comptes `test_u1` (propriétaire), `test_u2` (Écriture), `test_u3` (Lecture) créés par `tests/integration/00-setup-users.sh` (mots de passe dans `private/test-users.env`). Ne jamais utiliser `user2` ni un compte réel. Noter pour chaque ligne le **client utilisé** (web, TV, mobile, version).
 
@@ -44,6 +44,18 @@ Tableau de bord > Plugins > « Emby Shared Playlist » : la page s'ouvre, les op
 
 ## 5bis. Message d'aide (#51)
 Sur une playlist dont la description est encore le texte v0.2.0 (mentionnant « fonction à venir » pour `propager-lu`), attendre une passe de réconciliation (5 min, ou la lancer depuis Tableau de bord > Tâches planifiées) : le texte est remplacé par une version qui décrit la propagation comme active. Une description modifiée entre-temps par le propriétaire n'est jamais touchée.
+
+## 5ter. Avancement de lecture (v0.3.1, `propager-lu=OUI` seul, sans `remove-si-lu`)
+Sur une playlist avec `propager-lu=OUI` (retirer `propager-lu=NON` dans la même édition), média non lu par personne.
+
+| Étape | Attendu | OK ? |
+|---|---|---|
+| `test_u2` lit un film, l'**arrête** vers le milieu (pas jusqu'au bout) | `test_u1` et `test_u3` : « Reprendre » propose la position d'arrêt de `test_u2` (pas de repli au début) | |
+| `test_u2` reprend ce film **exactement à la même position**, l'arrête à nouveau sans avancer | rien ne change chez les autres (pas de nouvelle écriture visible) | |
+| `test_u2` reprend et avance jusqu'à une position **plus tardive**, s'arrête | `test_u1`/`test_u3` reprennent maintenant à cette position plus tardive (dernier arrêt gagne) | |
+| `test_u1` reprend le film et **finit sa lecture** (jusqu'au bout) | le film est marqué lu chez tous les membres concernés (comme en v0.3.0) ; aucune position n'est proposée sur ce film une fois lu | |
+| **Pause** (sans arrêter la lecture) : `test_u1` **met en pause** vers le milieu, sans jamais arrêter | `test_u2`/`test_u3`, en ouvrant le film, voient la position se rapprocher de celle de la pause de `test_u1` (à vérifier en particulier sur TV/mobile — c'est le point le plus nouveau de cette version ; noter le délai observé et le client) | |
+| Arrêt très bref (quelques secondes après le début) | aucune position n'est proposée aux autres (en dessous du seuil de 30 s) | |
 
 ## 6. Nettoyage
 `tests/integration/90-cleanup.sh` (option `--delete-users` pour supprimer aussi les comptes `test_*`). Consigner les résultats dans le rapport de recette (U8, Q7).
