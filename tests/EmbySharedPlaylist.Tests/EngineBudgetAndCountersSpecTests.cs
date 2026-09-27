@@ -130,6 +130,8 @@ public class SkippedCountersSpecTests
     [InlineData("suspended")]
     [InlineData("no-effect")]
     [InlineData("budget-exceeded")]
+    [InlineData("no-access")]      // R8, #45 : par membre, un par événement — informatif, jamais bruyant
+    [InlineData("same-position")]  // #45 : idem, une écriture évitée par membre
     public void OtherReasons_AreCounted_AndStayInTheJournal(string reason)
     {
         var inner = new ListJournal();
