@@ -61,7 +61,6 @@ guard_target
 check_ignored "$USERS_ENV" "$SNAPSHOT" "$STATE" "$QUALIF_ENV" "$KUBECONFIG_FILE"
 [[ -f $USERS_ENV && -f $SNAPSHOT ]] || die "lancer tests/integration/00-setup-users.sh d'abord"
 U1=$(envget "$USERS_ENV" TEST_U1_ID); U2=$(envget "$USERS_ENV" TEST_U2_ID); U3=$(envget "$USERS_ENV" TEST_U3_ID)
-PROTECTED_EXTRA_RESTRICTED=(); [[ -n "$(envget "$USERS_ENV" TEST_U_RESTRICTED_ID)" ]] && PROTECTED_EXTRA_RESTRICTED=("${RESTRICTED_USERS[@]}")   # v0.3.0 : présent seulement si 00-setup-users.sh l'a créé
 relogin() {
   T1=$(login test_u1 "$(envget "$USERS_ENV" TEST_U1_PW)"); T2=$(login test_u2 "$(envget "$USERS_ENV" TEST_U2_PW)"); T3=$(login test_u3 "$(envget "$USERS_ENV" TEST_U3_PW)")
 }
@@ -471,7 +470,7 @@ else
   skip LOGS "logs kubectl indisponibles (kubectl ou private/kubeconfig.yml)"
 fi
 echo "== Comptes protégés"
-compare_protected "fin des scénarios" "${TEST_USERS[@]}" "${PROTECTED_EXTRA_RESTRICTED[@]}" && rec PROTECTED OK "admin, cyril, user2 inchangés" || rec PROTECTED KO "comptes protégés modifiés" "null"
+compare_protected "fin des scénarios" "${TEST_USERS[@]}" && rec PROTECTED OK "admin, cyril, user2 inchangés" || rec PROTECTED KO "comptes protégés modifiés" "null"
 
 write_out false; DONE=1
 echo

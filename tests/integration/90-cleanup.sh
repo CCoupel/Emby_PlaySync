@@ -3,7 +3,7 @@
 # Reprise de tests/spike/90-cleanup.sh (v0.1.0, supprimé avec #15).
 #  - supprime les playlists SPIKE* (ids de private/test-state.json + balayage par nom, dans les
 #    bibliothèques des comptes test_*) ;
-#  - comptes test_*/test_u_restricted : GARDÉS par défaut ; --delete-users pour les supprimer (+ fichiers private/test-*) ;
+#  - comptes test_* : GARDÉS par défaut ; --delete-users pour les supprimer (+ fichiers private/test-*) ;
 #  - vérifie que admin, cyril et user2 sont inchangés (utilisateurs + politiques) vs le snapshot.
 # Usage : tests/integration/90-cleanup.sh [--delete-users]
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -24,7 +24,7 @@ ids=$([[ -f $STATE ]] && jq -r '.[]' "$STATE" || true)
 st=$(api GET /Users); [[ $st == 200 ]] || die "GET /Users -> $st"
 USERS_JSON=$(jq -c . "$RESP")
 declare -a test_ids=()
-for n in "${TEST_USERS[@]}" "${RESTRICTED_USERS[@]}"; do
+for n in "${TEST_USERS[@]}"; do
   uid=$(jq -r --arg n "$n" '.[]|select(.Name==$n)|.Id' <<<"$USERS_JSON")
   if [[ -n $uid ]]; then test_ids+=("$uid"); fi
 done
@@ -57,7 +57,7 @@ if [[ $DELETE_USERS == 1 ]]; then
   for uid in "${test_ids[@]}"; do
     # garde : jamais un compte protégé
     name=$(jq -r --arg i "$uid" '.[]|select(.Id==$i)|.Name' <<<"$USERS_JSON")
-    [[ $name == test_u[123] || $name == test_u_restricted ]] || die "garde : $name n'est pas un compte test_u*"
+    [[ $name == test_u[123] ]] || die "garde : $name n'est pas un compte test_u*"
     apiok '2*' DELETE "/Users/$uid"
     echo "  [OK] $name supprimé"
   done

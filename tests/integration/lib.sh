@@ -16,7 +16,6 @@ STATE="$PRIVATE/test-state.json"         # ids des playlists créées par les sc
 readonly EXPECTED_SERVER_NAME="emby2-Testing"
 PROTECTED_USERS=(admin cyril user2)       # comptes réels : lecture seule, JAMAIS modifiés
 TEST_USERS=(test_u1 test_u2 test_u3)
-RESTRICTED_USERS=(test_u_restricted)         # v0.3.0 (R8) : bibliothèque exclue, créé à part par 00-setup-users.sh
 
 die() { echo "ERREUR : $*" >&2; exit 2; }
 for t in curl jq python3; do command -v "$t" >/dev/null || die "outil manquant : $t"; done

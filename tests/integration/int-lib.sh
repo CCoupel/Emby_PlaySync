@@ -146,6 +146,44 @@ set_marker_state() {
              "$(printf '%s\n' "${del[@]}" | jq -R . | jq -sc 'map(select(length>0))')"
 }
 
+# --- compte restreint autonome (R8, v0.3.0) : créé puis nettoyé DANS LE MÊME RUN par 21-propagation.sh -----------
+RESTRICTED_USER_NAME="test_u4"
+U4=""; T4=""   # id / token, mêmes conventions que U1..U3/T1..T3 ; vides tant que ensure_restricted_user() n'a pas tourné
+
+ensure_restricted_user() {   # crée test_u4 sans accès à AUCUNE bibliothèque (EnableAllFolders=false, EnabledFolders=[])
+  local n=$RESTRICTED_USER_NAME st id pw
+  st=$(api GET /Users); [[ $st == 200 ]] || die "GET /Users -> $st"
+  if jq -e --arg n "$n" '.[]|select(.Name==$n)' "$RESP" >/dev/null; then
+    echo "  [WARN] $n existait déjà (run précédent interrompu ?) : suppression avant recréation" >&2
+    id=$(jq -r --arg n "$n" '.[]|select(.Name==$n)|.Id' "$RESP")
+    api DELETE "/Users/$id" >/dev/null
+  fi
+  st=$(api POST /Users/New "$(jq -nc --arg n "$n" '{Name:$n}')")
+  [[ $st == 200 || $st == 204 ]] || die "création de $n -> HTTP $st"
+  id=$(jq -r '.Id // empty' "$RESP"); [[ -n $id ]] || id=$(user_id_by_name "$n")
+  [[ -n $id ]] || die "id de $n introuvable"
+  U4=$id; echo "$id" > "$SCRATCH/restricted_user_id"   # filet de sécurité : cleanup_restricted_user (trap) le retrouve même après un die()
+  pw=$(python3 -c 'import secrets;print(secrets.token_urlsafe(18))')
+  apiok 204 POST "/Users/$id/Password" "$(jq -nc --arg p "$pw" '{NewPw:$p}')"
+  st=$(api GET "/Users/$id"); [[ $st == 200 ]] || die "GET $n -> $st"
+  pol=$(jq -c '.Policy | .EnableAllFolders=false | .EnabledFolders=[]' "$RESP")
+  apiok 204 POST "/Users/$id/Policy" "$pol"
+  st=$(api GET "/Users/$id"); [[ $st == 200 ]] || die "GET $n (relecture) -> $st"
+  [[ $(jq -r '.Policy.IsAdministrator' "$RESP") == false ]] || die "$n est administrateur"
+  [[ $(jq -r '.Policy.EnableAllFolders' "$RESP") == false ]] || die "$n : la restriction n'est pas effective"
+  T4=$(login "$n" "$pw")
+  echo "  [OK] $n créé (id $id), EnableAllFolders=false, EnabledFolders=[] (aucune bibliothèque)"
+}
+
+cleanup_restricted_user() {   # supprime test_u4 si ce run l'a créé ; idempotent, jamais d'erreur fatale (appelé aussi par le trap)
+  local id=${U4:-}
+  [[ -n $id ]] || id=$(cat "${SCRATCH:-/nonexistent}/restricted_user_id" 2>/dev/null || true)
+  [[ -n $id ]] || return 0
+  api DELETE "/Users/$id" >/dev/null || true
+  rm -f "${SCRATCH:-/nonexistent}/restricted_user_id"; U4=""; T4=""
+  echo "  [OK] $RESTRICTED_USER_NAME supprimé"
+}
+
 NON_RM='remove-si-lu=NON'; NON_PR='propager-lu=NON'; OUI_RM='remove-si-lu=OUI'; OUI_PR='propager-lu=OUI'
 has_tag() { jq -e --arg t "$2" 'index($t)!=null' <<<"$1" >/dev/null; }
 tag_count() { jq -r --arg f "$2" '[.[]|select(ascii_downcase|gsub("\\s+";"")|startswith($f))]|length' <<<"$1"; }

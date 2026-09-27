@@ -32,8 +32,7 @@ GRACE = 2
 lock = threading.RLock()
 ids = itertools.count(1000)
 USERS = {"admin": "a" * 32, "cyril": "c" * 32, "user2": "b" * 32, "test_u1": "1" * 32, "test_u2": "2" * 32, "test_u3": "3" * 32}
-if os.environ.get("FAKE_RESTRICTED_USER") == "1":   # v0.3.0 (I20/R8) : absent par défaut, n'affecte pas les tests v0.2.0 existants
-    USERS["test_u_restricted"] = "4" * 32
+PASSWORDS = {}   # userid -> mot de passe courant (créés dynamiquement via /Users/New, comme test_u4/R8 en v0.3.0)
 MEDIA = [str(100 + i) for i in range(24)]
 RT = 7_000_000_000
 TASK_ID = "77"
@@ -90,7 +89,7 @@ def maybe_replace_help(pid):   # #51 : Overview == V1 EXACT -> V2 (à la premiè
     p = PL[pid]
     if p["overview"] == V1_TEXT:
         p["overview"] = V2_TEXT
-        jr("DescriptionWritten", pid, detail="cause=help-v2")
+        jr("DescriptionWritten", pid, detail="cause=v1-to-v2")
 
 def first_detection(pid):
     p = PL[pid]
@@ -165,6 +164,7 @@ def transition(user, item):
                 if (m, item) in PLAYED:
                     jr("Skipped", pid, m, item, "already-played"); already += 1; continue
                 mark_played(m, item); propagated += 1
+                jr("Skipped", detail="echo-consumed")   # anti-écho : l'écho de CETTE écriture (UserDataSaved du membre) est consommé
             total = len(members(p)) - 1
             jr("Propagation", pid, user, item, f"members={total} propagated={propagated} alreadyPlayed={already} noAccess={noaccess}")
 
@@ -197,6 +197,19 @@ class H(http.server.BaseHTTPRequestHandler):
         if p == "/System/Info": return self.out(200, {"ServerName": "emby2-Testing"})
         if p == "/Users/AuthenticateByName": return self.out(200, {"AccessToken": "tok-" + body["Username"], "User": {"Id": USERS.get(body["Username"], "?")}})
         if p == "/Users" and m == "GET": return self.out(200, [{"Name": n, "Id": i} for n, i in USERS.items()])
+        if p == "/Users/New" and m == "POST":
+            name = body["Name"]
+            uid = ("u" + str(next(ids))).ljust(32, "0")[:32]   # id factice unique, longueur 32 comme un vrai GUID sans tirets
+            USERS[name] = uid
+            return self.out(200, {"Id": uid, "Name": name})
+        r = re.fullmatch(r"/Users/(\w+)/Password", p)
+        if r and m == "POST": PASSWORDS[r.group(1)] = body.get("NewPw"); return self.out(204)
+        r = re.fullmatch(r"/Users/(\w+)", p)
+        if r and m == "DELETE":
+            name = next((n for n, i in USERS.items() if i == r.group(1)), None)
+            if name: del USERS[name]
+            POLICY.pop(r.group(1), None); PASSWORDS.pop(r.group(1), None)
+            return self.out(204)
         r = re.fullmatch(r"/Users/(\w+)/Policy", p)
         if r and m == "POST":
             pol = POLICY.setdefault(r.group(1), dict(DEFAULT_POLICY)); pol.update(body); return self.out(204)

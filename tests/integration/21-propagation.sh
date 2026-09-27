@@ -8,8 +8,9 @@
 # plugin pose le flag lu chez les autres membres de CETTE playlist qui ne l'ont pas déjà et ont accès au média.
 # Les deux familles sont indépendantes (matrice 2×2, docs/chronogrammes.md §2).
 #
-# Prérequis : tests/integration/00-setup-users.sh exécuté (test_u1 propriétaire, test_u2 Write, test_u3 Read,
-# test_u_restricted sans accès à aucune bibliothèque pour I20/R8 — SKIP explicite si absent) ; >= 16 médias.
+# Prérequis : tests/integration/00-setup-users.sh exécuté (test_u1 propriétaire, test_u2 Write, test_u3 Read) ;
+# >= 18 médias. I20 (R8) crée puis nettoie LUI-MÊME test_u4 (aucune bibliothèque accessible) dans ce même run :
+# aucun prérequis supplémentaire, aucun état laissé après un run complet.
 # Usage : tests/integration/21-propagation.sh [I18 I23 …]   (sans liste : tous les scénarios)
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/int-lib.sh"
@@ -40,6 +41,7 @@ write_out() { # PARTIAL
 }
 on_exit() {
   local rc=$?; set +e
+  cleanup_restricted_user
   if [[ $DONE == 0 && -s $RES ]]; then write_out true; echo "  (trap) preuves partielles : $OUT_FILE" >&2; fi
   rm -rf "$SCRATCH"; exit $rc
 }
@@ -54,8 +56,6 @@ U1=$(envget "$USERS_ENV" TEST_U1_ID); U2=$(envget "$USERS_ENV" TEST_U2_ID); U3=$
 T1=$(login test_u1 "$(envget "$USERS_ENV" TEST_U1_PW)")
 T2=$(login test_u2 "$(envget "$USERS_ENV" TEST_U2_PW)")
 T3=$(login test_u3 "$(envget "$USERS_ENV" TEST_U3_PW)")
-UR=$(envget "$USERS_ENV" TEST_U_RESTRICTED_ID)
-if [[ -n $UR ]]; then TR=$(login test_u_restricted "$(envget "$USERS_ENV" TEST_U_RESTRICTED_PW)"); fi
 
 st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=RunTimeTicks&SortBy=SortName&Limit=200")
 [[ $st == 200 ]] || die "GET /Items -> $st"
@@ -72,7 +72,7 @@ next_media() {   # un média frais par sous-cas : aucune interférence entre cas
 
 st=$(api GET "$DIAG/State"); [[ $st == 200 ]] || die "Diagnostics/State -> HTTP $st : plugin v0.3.0 non déployé ou EnableDiagnostics=false"
 GRACE=$(jq -r '.gracePasses // 2' "$RESP")
-echo "  [OK] ${#M[@]} médias ; GracePasses=$GRACE ; compte restreint : $([[ -n $UR ]] && echo présent || echo absent)"
+echo "  [OK] ${#M[@]} médias ; GracePasses=$GRACE"
 
 # ---------------------------------------------------------------- scénarios
 i18() {
@@ -129,28 +129,33 @@ i19() {
   ck I19.unchanged "compteur/date/flag de u3 (déjà lu) inchangés après une transition qui le concerne" "{\"before\":$before,\"after\":$after}" test "$before" = "$after"
   p1=$(played_of "$U1" "$T1" "$item")
   ck I19.othernew "u1 (pas encore lu) est bien propagé par la même transition" "{\"u1\":\"$p1\"}" test "$p1" = true
-  j=$(journal "Propagation,Skipped,Removal,Error,MarkerSeen"); n1=$(jcount "$j" "$pl" Propagation '(^|[^A-Za-z])alreadyPlayed=[1-9]'); n2=$(jcount "$j" "$pl" Skipped 'already-played')
-  ck I19.evidence "trace already-played (agrégat ou Skipped par membre)" "$j" bash -c '[[ $0 -ge 1 || $1 -ge 1 ]]' "$n1" "$n2"
+  j=$(journal "Propagation,Skipped,Removal,Error,MarkerSeen")
+  n1=$(jcount "$j" "$pl" Propagation '(^|[^A-Za-z])alreadyPlayed=[1-9]'); n2=$(jcount "$j" "$pl" Skipped 'already-played')
+  ck I19.aggregate "l'entrée Propagation agrégée compte alreadyPlayed >= 1" "$j" test "$n1" -ge 1
+  ck I19.permember "Skipped already-played journalisé pour u3" "$j" test "$n2" -ge 1
 }
 
 i20() {
-  echo "== I20 — R8 : membre sans accès à la bibliothèque, aucune erreur"
-  if [[ -z $UR ]]; then skip I20 "test_u_restricted absent (00-setup-users.sh non exécuté avec le support v0.3.0, ou compte non créé)"; return; fi
+  echo "== I20 — R8 : membre sans accès à la bibliothèque, aucune erreur (compte créé et nettoyé dans ce run)"
   local pl item j n1 n2 st p1
+  ensure_restricted_user   # crée test_u4 (U4/T4), EnableAllFolders=false ; nettoyé en fin de scénario ET par le trap si interruption
   pl=$(shared_pl "SPIKE-I20" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
-  apiok 204 POST /Items/Access "$(jq -nc --arg p "$pl" --arg u "$UR" '{ItemIds:[$p],UserIds:[$u],ItemAccess:"Read"}')" "$T1"
+  apiok 204 POST /Items/Access "$(jq -nc --arg p "$pl" --arg u "$U4" '{ItemIds:[$p],UserIds:[$u],ItemAccess:"Read"}')" "$T1"
   set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
   jclear
   finish "$U2" "$T2" "$item"
   nap 2
-  st=$(api GET "/Users/$UR/Items/$item" "" "$TR")
-  ck I20.noaccess "test_u_restricted n'a toujours pas accès au média (HTTP $st, inchangé)" "{\"status\":\"$st\"}" test "$st" != 200
+  st=$(api GET "/Users/$U4/Items/$item" "" "$T4")
+  ck I20.noaccess "test_u4 n'a toujours pas accès au média (HTTP $st, inchangé)" "{\"status\":\"$st\"}" test "$st" != 200
   p1=$(played_of "$U1" "$T1" "$item")
   ck I20.others "les autres membres (u1) sont propagés normalement malgré le membre restreint" "{\"u1\":\"$p1\"}" test "$p1" = true
-  j=$(journal "Propagation,Skipped,Removal,Error,MarkerSeen"); n1=$(jcount "$j" "$pl" Propagation '(^|[^A-Za-z])noAccess=[1-9]'); n2=$(jcount "$j" "$pl" Skipped 'no-access')
-  ck I20.evidence "trace no-access (agrégat ou Skipped par membre)" "$j" bash -c '[[ $0 -ge 1 || $1 -ge 1 ]]' "$n1" "$n2"
+  j=$(journal "Propagation,Skipped,Removal,Error,MarkerSeen")
+  n1=$(jcount "$j" "$pl" Propagation '(^|[^A-Za-z])noAccess=[1-9]'); n2=$(jcount "$j" "$pl" Skipped 'no-access')
+  ck I20.aggregate "l'entrée Propagation agrégée compte noAccess >= 1" "$j" test "$n1" -ge 1
+  ck I20.permember "Skipped no-access journalisé pour test_u4" "$j" test "$n2" -ge 1
   ck I20.noerror "aucune entrée Error causée par le membre restreint" "$j" test "$(jcount "$j" "$pl" Error)" = 0
+  cleanup_restricted_user
 }
 
 i21() {
@@ -237,19 +242,19 @@ i23() {
 }
 
 i24() {
-  echo "== I24 — S7 : un seul écho par écriture de propagation (SkippedCounts), pas de boucle"
-  local pl item e_before e_after j j2 n
+  echo "== I24 — S7 : un seul écho consommé par écriture de propagation (SkippedCounts.echo-consumed), pas de boucle"
+  local pl item ec_before ec_after j2 n
   pl=$(shared_pl "SPIKE-I24" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
   set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
   nap 2
-  e_before=$(echo_sum)
+  ec_before=$(state | jq -r '.skippedCounts["echo-consumed"] // 0')
   finish "$U2" "$T2" "$item"
   nap 4
-  e_after=$(echo_sum)
+  ec_after=$(state | jq -r '.skippedCounts["echo-consumed"] // 0')
   ck I24.propagated "propagation effective (u1, u3)" "null" test "$(played_of "$U1" "$T1" "$item")/$(played_of "$U3" "$T3" "$item")" = "true/true"
-  # 2 écritures attendues (u1, u3) : au plus 2 échos comptés (already-seen/reentrant), au plus 2 de plus si echo-consumed existe (par écriture)
-  ck I24.noloop "échos <= 4 pour 2 écritures (already-seen+reentrant, +echo-consumed éventuel), pas d'explosion" "{\"before\":$e_before,\"after\":$e_after}" test "$((e_after-e_before))" -le 4
+  # 2 écritures plugin (MarkPlayed u1, MarkPlayed u3) : exactement un écho consommé par écriture, ni plus (boucle) ni moins (garde absente)
+  ck I24.echoconsumed "echo-consumed == 2 (une consommation par écriture MarkPlayed, u1 et u3)" "{\"before\":$ec_before,\"after\":$ec_after}" test "$((ec_after-ec_before))" = 2
   nap 6
   j2=$(journal "Propagation"); n=$(jcount "$j2" "$pl" Propagation)
   ck I24.once "une seule vague de propagation (pas de repropagation après coup)" "$j2" test "$n" -le 1
@@ -259,7 +264,7 @@ i25() {
   echo "== I25 — #51 : remplacement conditionnel du message d'aide"
   # V1 extrait à l'exécution de src/EmbySharedPlaylist/Reconciliation/HelpText.cs (le seul texte contenant encore
   # « fonction à venir », quel que soit le nom de la constante) : byte-exact, jamais recopié à la main.
-  local hf V1 pl_a pl_b pl_c ov
+  local hf V1 pl_a pl_b pl_c ov j
   hf="$ROOT/src/EmbySharedPlaylist/Reconciliation/HelpText.cs"
   [[ -f $hf ]] || die "HelpText.cs introuvable ($hf)"
   V1=$(python3 - "$hf" <<'PY'
@@ -286,6 +291,7 @@ PY
   run_pass || true
   ov=$(overview_of "$pl_a")
   ck I25.replaced "description == V1 exacte => remplacée (une passe suffit)" "{\"len\":${#ov}}" test "$ov" != "$V1"
+  j=$(journal "DescriptionWritten"); ck I25.journal "DescriptionWritten cause=v1-to-v2 journalisé pour cette playlist" "$j" test "$(jcount "$j" "$pl_a" DescriptionWritten 'v1-to-v2')" -ge 1
   ck I25.stillhelp "le nouveau texte reste un message d'aide (mentionne toujours les deux étiquettes)" "{\"ov\":$(jq -Rn --arg v "$ov" '$v')}" \
     bash -c '[[ $0 == *remove-si-lu=OUI* && $0 == *propager-lu=OUI* ]]' "$ov"
   ck I25.novenir "« fonction à venir » n'apparaît plus (le texte a bien changé, pas seulement une variante)" "null" bash -c '[[ $0 != *"fonction à venir"* ]]' "$ov"
@@ -323,8 +329,7 @@ for s in "${WANT[@]}"; do
 done
 
 echo "== Comptes protégés"
-EXTRA=("${TEST_USERS[@]}"); [[ -n $UR ]] && EXTRA+=("${RESTRICTED_USERS[@]}")
-compare_protected "fin des scénarios" "${EXTRA[@]}" && rec PROTECTED OK "admin, cyril, user2 inchangés" || rec PROTECTED KO "comptes protégés modifiés" "null"
+compare_protected "fin des scénarios" "${TEST_USERS[@]}" && rec PROTECTED OK "admin, cyril, user2 inchangés" || rec PROTECTED KO "comptes protégés modifiés" "null"
 
 write_out false; DONE=1
 echo
