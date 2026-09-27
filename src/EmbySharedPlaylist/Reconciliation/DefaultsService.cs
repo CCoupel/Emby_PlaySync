@@ -16,6 +16,9 @@ public sealed record DefaultsOutcome(int MarkersPosed, bool DescriptionWritten, 
 /// puis pose immédiate de chaque famille absente et du message si la description est vide.</item>
 /// <item><b>Playlist déjà vue</b> (<see cref="OnPass"/>) : pour chaque famille absente, compteur++ ; à <c>gracePasses</c> passes
 /// consécutives, pose et remise à zéro (idem pour la description vide) ; famille présente : compteur remis à zéro.</item>
+/// <item><b>Message v0.2.0 → v0.3.0 (#51)</b> : à CHAQUE appel (première détection et chaque passe, sans grâce, aucun état
+/// mémorisé), si la description est encore identique caractère pour caractère à <see cref="HelpText.V1"/>, elle est remplacée
+/// par <see cref="HelpText.V2"/>. Idempotent naturellement : une fois remplacée, elle ne vaut plus <see cref="HelpText.V1"/>.</item>
 /// </list>
 /// Tout se fait sous le verrou de la playlist, dans un <see cref="WriteScope"/>, en UNE lecture-écriture
 /// (<see cref="IPlaylistGateway.ApplyDefaults"/> re-vérifie à l'écriture). Jamais de suppression d'étiquette. Une écriture
@@ -63,10 +66,11 @@ public sealed class DefaultsService
         if (!_seen.TryMarkSeen(p.Id)) return Skip(p.Id, "already-seen");
 
         var families = Families.Where(f => MarkerEvaluator.Evaluate(p.Tags, f) == MarkerState.None).ToList();
-        var overview = string.IsNullOrWhiteSpace(p.Overview) ? _helpText : null;
+        var overview = OverviewFor(p.Overview, _helpText);
+        var cause = overview?.RequiredCurrent == null ? "first-detection" : "v1-to-v2";
         if (families.Count == 0 && overview == null) return Skip(p.Id, "marker-present");
 
-        return Write(p, families, overview, "first-detection", pending: 0);
+        return Write(p, families, overview, cause, pending: 0);
     }
 
     public DefaultsOutcome OnPass(PlaylistSnapshot p)
@@ -91,18 +95,34 @@ public sealed class DefaultsService
             if (_seen.Bump(p.Id, key) >= grace) toPose.Add(f); else pending++;
         }
 
-        string? overview = null;
+        OverviewChange? overview = null;
+        var cause = "grace-elapsed";
         if (string.IsNullOrWhiteSpace(p.Overview))
         {
-            if (_seen.Bump(p.Id, DescriptionKey) >= grace) overview = _helpText; else pending++;
+            if (_seen.Bump(p.Id, DescriptionKey) >= grace) overview = new OverviewChange(null, _helpText); else pending++;
+        }
+        else if (string.Equals(p.Overview, HelpText.V1, StringComparison.Ordinal))
+        {
+            // #51 : remplacement immédiat, à CHAQUE passe, sans grâce (aucun état mémorisé pour ce cas).
+            overview = new OverviewChange(HelpText.V1, HelpText.V2);
+            cause = "v1-to-v2";
+            _seen.Reset(p.Id, DescriptionKey);
         }
         else _seen.Reset(p.Id, DescriptionKey);
 
         if (toPose.Count == 0 && overview == null) return new DefaultsOutcome(0, false, false, pending);
-        return Write(p, toPose, overview, "grace-elapsed", pending);
+        return Write(p, toPose, overview, cause, pending);
     }
 
-    private DefaultsOutcome Write(PlaylistSnapshot p, List<MarkerFamily> families, string? overview, string cause, int pending)
+    /// <summary>Pose <see cref="HelpText.V1"/> si vide (v0.2.0) ; le remplace par <see cref="HelpText.V2"/> s'il vaut encore exactement V1 (#51, immédiat, sans grâce).</summary>
+    private OverviewChange? OverviewFor(string? currentOverview, string helpTextForEmpty)
+    {
+        if (string.IsNullOrWhiteSpace(currentOverview)) return new OverviewChange(null, helpTextForEmpty);
+        if (string.Equals(currentOverview, HelpText.V1, StringComparison.Ordinal)) return new OverviewChange(HelpText.V1, HelpText.V2);
+        return null;
+    }
+
+    private DefaultsOutcome Write(PlaylistSnapshot p, List<MarkerFamily> families, OverviewChange? overview, string cause, int pending)
     {
         ApplyResult result;
         try

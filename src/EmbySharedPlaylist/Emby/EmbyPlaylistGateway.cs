@@ -114,7 +114,7 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         return true;
     }
 
-    public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, string? overviewIfEmpty)
+    public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, OverviewChange? overview)
     {
         lock (_writeGate)
         {
@@ -131,10 +131,14 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
                 posed.Add(family);
             }
 
+            // RequiredCurrent null = n'écrit que si vide (pose, v0.2.0) ; sinon = n'écrit que si encore égale exactement (#51, v0.3.0).
+            var overviewMatches = overview != null && (overview.RequiredCurrent == null
+                ? string.IsNullOrWhiteSpace(playlist.Overview)
+                : string.Equals(playlist.Overview, overview.RequiredCurrent, StringComparison.Ordinal));
             var overviewWritten = false;
-            if (overviewIfEmpty != null && string.IsNullOrWhiteSpace(playlist.Overview))
+            if (overviewMatches)
             {
-                playlist.Overview = overviewIfEmpty;
+                playlist.Overview = overview!.NewValue;
                 overviewWritten = true;
             }
 
@@ -150,7 +154,7 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
 
             // Relecture : tout l'avant + les ajouts (+ la description) doivent y être ; sinon Error (type seul), jamais de suppression.
             var check = FindPlaylist(playlistId);
-            if (check != null && !WriteVerifier.Verify(before, added, check.Tags, overviewWritten ? overviewIfEmpty : null, check.Overview))
+            if (check != null && !WriteVerifier.Verify(before, added, check.Tags, overviewWritten ? overview!.NewValue : null, check.Overview))
                 throw new WriteVerificationException();
             return new ApplyResult(posed, overviewWritten);
         }

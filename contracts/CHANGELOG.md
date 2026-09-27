@@ -2,6 +2,7 @@
 
 ## [20260927] — v0.3.0 : propagation du flag lu, anti-écho branché (#20 #21 #51)
 
+- **[NEW]** `DescriptionWritten` gagne la cause `v1-to-v2` (#51) : `HelpText.V2` remplace `HelpText.V1` a la premiere detection ou a chaque passe, uniquement si la description est encore identique caractere pour caractere a `V1` (aucun etat memorise, idempotent naturellement).
 - **[NEW]** kind `Propagation` (Diagnostics/Journal) : propagation du flag lu vers les autres membres, journalisee une fois par playlist (members/propagated/alreadyPlayed/noAccess).
 - **[NEW]** raisons `Skipped` : `no-access` (R8, membre sans acces bibliotheque), `already-played` (R7, aucune ecriture), `echo-consumed` (au niveau de l'evenement, anti-echo #21).
 - **[FIXED]** `PluginWriteTracker` : cle `(long, long)` -> `(string UserId, string ItemId)` (les ids d'utilisateur Emby sont des GUID, pas des entiers) ; branche dans `PlaybackEventProcessor` (garde principale contre la transitivite entre listes, S6a-c).

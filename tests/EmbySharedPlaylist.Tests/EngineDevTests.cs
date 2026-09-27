@@ -482,7 +482,7 @@ public class ReadRemovalEngineDevTests
         public IReadOnlyList<PlaylistSnapshot> ListSharedPlaylistsOfUserContaining(string userId, string itemId) => throw new InvalidOperationException("secret");
         public PlaylistSnapshot? Get(string playlistId) => throw new InvalidOperationException("secret");
         public bool RemoveOneEntry(string playlistId, string itemId) => throw new InvalidOperationException("secret");
-        public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<Marker.MarkerFamily> familiesToPose, string? overviewIfEmpty) => throw new InvalidOperationException("secret");
+        public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<Marker.MarkerFamily> familiesToPose, OverviewChange? overview) => throw new InvalidOperationException("secret");
     }
 }
 

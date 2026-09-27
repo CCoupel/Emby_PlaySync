@@ -21,7 +21,7 @@
 `Kind` et `Detail` (ids et compteurs uniquement) :
 - `ScanPass` : `playlists=<n> shared=<n> posed=<n> pending=<n> durationMs=<n>` (une entrée par passe).
 - `MarkerPosed` : `<Family>=NON` posé (`Detail` = `family=<Family> cause=first-detection|grace-elapsed`).
-- `DescriptionWritten` : message d'aide écrit, description vide (`Detail` = `cause=first-detection|grace-elapsed`).
+- `DescriptionWritten` : message d'aide écrit ou remplacé (`Detail` = `cause=first-detection|grace-elapsed|v1-to-v2`). `v1-to-v2` (#51) : la description était encore identique caractère pour caractère à `HelpText.V1` (v0.2.0) ; remplacée par `HelpText.V2` (propagation effective), à chaque première détection ou passe, sans grâce, sans état mémorisé.
 - `MarkerSeen` : état d'une famille lu à l'événement de retrait (`Detail` = `family=remove-si-lu state=Oui|Non|Both|None`).
 - `Removal` : `PlaylistId`, `ItemId`, `UserId` (déclencheur), `Detail` = `entries=<n> durationMs=<n>` (durée du traitement dans le gestionnaire, verrou compris).
 - `Propagation` : `PlaylistId`, `ItemId`, `UserId` (declencheur de la transition), `Detail` = `members=<n> propagated=<n> alreadyPlayed=<n> noAccess=<n>` (une seule entree par playlist, meme si `propagated=0`). Journalisee uniquement si `propager-lu=OUI` seule (independant de `remove-si-lu`).

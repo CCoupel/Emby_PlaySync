@@ -17,6 +17,15 @@ public sealed class ApplyResult
     public bool OverviewWritten { get; set; }
 }
 
+/// <summary>
+/// Instruction d'écriture de la description, ré-vérifiée AU MOMENT DE L'ÉCRITURE (comme les étiquettes) :
+/// <see cref="RequiredCurrent"/> null = n'écrit <see cref="NewValue"/> QUE si la description est vide à cet instant (pose,
+/// v0.2.0) ; non null = n'écrit QUE si la description est encore exactement égale à cette valeur (remplacement, #51, v0.3.0).
+/// Le port ne connaît pas le contenu métier des textes : seule <c>Reconciliation/DefaultsService</c> sait qu'il s'agit de
+/// <c>HelpText.V1</c>/<c>V2</c>.
+/// </summary>
+public sealed record OverviewChange(string? RequiredCurrent, string NewValue);
+
 /// <summary>Port vers Emby (adaptateur : <c>Emby/EmbyPlaylistGateway</c>) : uniquement des appels internes du SDK, jamais de SQL.</summary>
 public interface IPlaylistGateway
 {
@@ -34,7 +43,7 @@ public interface IPlaylistGateway
 
     /// <summary>
     /// Une seule lecture-écriture : chaque étiquette n'est ajoutée que si aucune étiquette de sa famille n'existe AU MOMENT
-    /// DE L'ÉCRITURE ; la description n'est écrite que si elle est vide à ce moment. Jamais de suppression.
+    /// DE L'ÉCRITURE ; la description suit <paramref name="overview"/> (ré-vérifiée au même instant). Jamais de suppression.
     /// </summary>
-    ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, string? overviewIfEmpty);
+    ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, OverviewChange? overview);
 }

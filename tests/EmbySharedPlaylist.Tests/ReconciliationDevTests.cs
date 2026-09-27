@@ -112,7 +112,7 @@ internal sealed class FakeGateway : IPlaylistGateway
         lock (Gate) return Playlists[playlistId].Items.Remove(itemId);
     }
 
-    public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, string? overviewIfEmpty)
+    public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, OverviewChange? overview)
     {
         Interlocked.Increment(ref ApplyCalls);
         OnApply?.Invoke(playlistId);
@@ -128,7 +128,14 @@ internal sealed class FakeGateway : IPlaylistGateway
                 posed.Add(f);
             }
             var wrote = false;
-            if (overviewIfEmpty != null && string.IsNullOrWhiteSpace(s.Overview)) { s.Overview = overviewIfEmpty; wrote = true; }
+            // RequiredCurrent null = n'écrit que si vide ; sinon = n'écrit que si encore égale exactement (re-vérifié ici).
+            if (overview != null)
+            {
+                var matches = overview.RequiredCurrent == null
+                    ? string.IsNullOrWhiteSpace(s.Overview)
+                    : string.Equals(s.Overview, overview.RequiredCurrent, StringComparison.Ordinal);
+                if (matches) { s.Overview = overview.NewValue; wrote = true; }
+            }
             return new ApplyResult(posed, wrote);
         }
     }
@@ -691,7 +698,7 @@ public class FirstDetectionCoordinatorDevTests
         public IReadOnlyList<PlaylistSnapshot> ListSharedPlaylistsOfUserContaining(string userId, string itemId) => throw new InvalidOperationException("secret");
         public PlaylistSnapshot? Get(string playlistId) => throw new InvalidOperationException("secret");
         public bool RemoveOneEntry(string playlistId, string itemId) => throw new InvalidOperationException("secret");
-        public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, string? overviewIfEmpty) => throw new InvalidOperationException("secret");
+        public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, OverviewChange? overview) => throw new InvalidOperationException("secret");
     }
 }
 
@@ -712,5 +719,153 @@ public class HelpTextDevTests
     {
         foreach (var forbidden in new[] { "http", "token", "@", "\\", "/config" })
             Assert.DoesNotContain(forbidden, HelpText.Message, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+public class HelpTextV2DevTests
+{
+    [Fact]
+    public void V2_MentionsPropagationEffective_NoLongerAFutureFeature()
+    {
+        Assert.Contains("propager-lu=OUI", HelpText.V2);
+        Assert.DoesNotContain("fonction à venir", HelpText.V2);
+        Assert.Contains("posé chez les autres", HelpText.V2);
+    }
+
+    [Fact]
+    public void V1AndV2_ShareEverythingExceptThePropagerLuLine()
+    {
+        var v1Lines = HelpText.V1.Split('\n');
+        var v2Lines = HelpText.V2.Split('\n');
+        Assert.Equal(v1Lines.Length, v2Lines.Length);
+        var diff = v1Lines.Zip(v2Lines, (a, b) => a == b).Count(same => !same);
+        Assert.Equal(1, diff); // seule la ligne propager-lu change
+    }
+
+    [Fact]
+    public void Message_IsAnAliasOfV1()
+    {
+        Assert.Equal(HelpText.V1, HelpText.Message);
+    }
+}
+
+/// <summary>#51 : remplacement conditionnel du message d'aide v0.2.0 -> v0.3.0, sans aucun état mémorisé.</summary>
+public class DefaultsServiceHelpTextReplacementDevTests
+{
+    private sealed class Rig
+    {
+        public readonly FakeGateway Gateway = new();
+        public readonly SeenPlaylists Seen = new();
+        public readonly PlaylistLocks Locks = new();
+        public readonly ListJournal Journal = new();
+        public int Grace = 2;
+        public readonly DefaultsService Service;
+
+        public Rig() => Service = new DefaultsService(Gateway, Seen, Locks, Journal, HelpText.V1, () => Grace, new FakeClock(), TimeSpan.FromMilliseconds(150));
+
+        public PlaylistSnapshot Snapshot(string id) => Gateway.Get(id)!;
+    }
+
+    [Fact]
+    public void FirstDetection_ExactV1_IsReplacedByV2_Immediately()
+    {
+        var r = new Rig();
+        var s = r.Gateway.Add("1", "remove-si-lu=OUI", "propager-lu=OUI"); // familles déjà présentes : seule la description change
+        s.Overview = HelpText.V1;
+        var outcome = r.Service.OnFirstDetection(r.Snapshot("1"));
+        Assert.Equal(HelpText.V2, s.Overview);
+        Assert.True(outcome.DescriptionWritten);
+        Assert.Equal(new[] { "cause=v1-to-v2" }, r.Journal.Details("DescriptionWritten"));
+    }
+
+    [Fact]
+    public void OnPass_ExactV1_IsReplacedByV2_WithoutWaitingForGrace()
+    {
+        var r = new Rig();
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
+        s.Overview = HelpText.V1;
+        r.Seen.TryMarkSeen("1");
+        var outcome = r.Service.OnPass(r.Snapshot("1")); // une seule passe suffit, pas deux comme pour la grâce des étiquettes
+        Assert.Equal(HelpText.V2, s.Overview);
+        Assert.True(outcome.DescriptionWritten);
+    }
+
+    [Fact]
+    public void ModifiedDescription_IsNeverTouched()
+    {
+        var r = new Rig();
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
+        s.Overview = "le propriétaire a écrit autre chose, même en partie identique à " + HelpText.V1;
+        r.Seen.TryMarkSeen("1");
+        var before = s.Overview;
+        r.Service.OnPass(r.Snapshot("1"));
+        Assert.Equal(before, s.Overview);
+        Assert.Empty(r.Journal.Of("DescriptionWritten"));
+    }
+
+    [Fact]
+    public void AlreadyV2_IsNeverTouchedAgain_NoLoop()
+    {
+        var r = new Rig();
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
+        s.Overview = HelpText.V2;
+        r.Seen.TryMarkSeen("1");
+        r.Service.OnPass(r.Snapshot("1"));
+        r.Service.OnPass(r.Snapshot("1"));
+        Assert.Equal(HelpText.V2, s.Overview);
+        Assert.Empty(r.Journal.Of("DescriptionWritten"));
+    }
+
+    [Fact]
+    public void EmptyDescription_StillPosesV1First_ThenV2OnceReplaced()
+    {
+        var r = new Rig();
+        var s = r.Gateway.Add("1");
+        r.Service.OnFirstDetection(r.Snapshot("1")); // pose V1 (description vide)
+        Assert.Equal(HelpText.V1, s.Overview);
+        r.Service.OnPass(r.Snapshot("1"));           // relu : égal à V1 -> remplacé par V2, sans grâce
+        Assert.Equal(HelpText.V2, s.Overview);
+    }
+
+    [Fact]
+    public void ReplacementDoesNotAffectTagGraceCounters()
+    {
+        var r = new Rig();
+        var s = r.Gateway.Add("1", "remove-si-lu=NON"); // propager-lu absent : compteur de grâce en cours
+        s.Overview = HelpText.V1;
+        r.Seen.TryMarkSeen("1");
+        var first = r.Service.OnPass(r.Snapshot("1"));
+        Assert.Equal(HelpText.V2, s.Overview);           // description remplacée immédiatement
+        Assert.Equal(1, first.PendingGrace);              // propager-lu reste en attente de grâce, indépendant
+        Assert.DoesNotContain("propager-lu=NON", s.Tags);
+    }
+
+    [Fact]
+    public void CaseOrWhitespaceDifference_IsNotAnExactMatch_NeverReplaced()
+    {
+        var r = new Rig();
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
+        s.Overview = HelpText.V1 + " "; // un seul caractère de différence
+        r.Seen.TryMarkSeen("1");
+        r.Service.OnPass(r.Snapshot("1"));
+        Assert.Equal(HelpText.V1 + " ", s.Overview);
+    }
+
+    [Fact]
+    public void GatewayApplyDefaults_ReplacesOnlyIfStillExactlyV1AtWriteTime()
+    {
+        // Test direct du port (OverviewChange), indépendant de DefaultsService : la ré-vérification se fait DANS
+        // ApplyDefaults, au moment de l'écriture, jamais sur une valeur lue avant.
+        var r = new Rig();
+        var s = r.Gateway.Add("1");
+        s.Overview = "le propriétaire a déjà écrit autre chose";
+        var result = r.Gateway.ApplyDefaults("1", Array.Empty<MarkerFamily>(), new OverviewChange(HelpText.V1, HelpText.V2));
+        Assert.False(result.OverviewWritten);
+        Assert.Equal("le propriétaire a déjà écrit autre chose", s.Overview);
+
+        s.Overview = HelpText.V1;
+        result = r.Gateway.ApplyDefaults("1", Array.Empty<MarkerFamily>(), new OverviewChange(HelpText.V1, HelpText.V2));
+        Assert.True(result.OverviewWritten);
+        Assert.Equal(HelpText.V2, s.Overview);
     }
 }
