@@ -94,6 +94,9 @@ share_pl() { # PLAYLIST : u2 = Write, u3 = Read
   apiok 204 POST /Items/Access "$(jq -nc --arg p "$1" --arg a "$U3" '{ItemIds:[$p],UserIds:[$a],ItemAccess:"Read"}')" "$T1"
 }
 shared_pl() { local id; id=$(new_pl "$1" "$2"); share_pl "$id"; echo "$id"; }
+share_pl_one() { # PLAYLIST USERID LEVEL(Write|Read) : partage ciblé (S6, un seul membre en plus du propriétaire)
+  apiok 204 POST /Items/Access "$(jq -nc --arg p "$1" --arg u "$2" --arg l "$3" '{ItemIds:[$p],UserIds:[$u],ItemAccess:$l}')" "$T1"
+}
 entries() { # PLAYLIST -> [{itemId, playlistItemId}] vu par u1
   api GET "/Playlists/$1/Items?UserId=$U1" "" "$T1" >/dev/null
   jq -c '[.Items[]|{itemId:.Id, playlistItemId:.PlaylistItemId}]' "$RESP"
@@ -127,6 +130,22 @@ owner_edit() { # PLAYLIST AJOUTS_JSON RETRAITS_JSON [OVERVIEW_JSON] : enregistre
   apiok 204 POST "/Items/$pl" "$dto" "$T1"
 }
 # étiquettes de la famille en minuscules exactes (posées par le plugin)
+
+# set_marker_state PLAYLIST FAMILLE(remove-si-lu|propager-lu) ETAT(none|non|oui|both) : atteint l'état en UNE édition du
+# propriétaire (ajoute/retire ce qu'il faut ; ne touche jamais à l'autre famille ni aux étiquettes du propriétaire).
+set_marker_state() {
+  local pl=$1 fam=$2 state=$3 add=() del=()
+  case $state in
+    none) del=("$fam=NON" "$fam=OUI") ;;
+    non)  add=("$fam=NON"); del=("$fam=OUI") ;;
+    oui)  add=("$fam=OUI"); del=("$fam=NON") ;;
+    both) add=("$fam=OUI" "$fam=NON") ;;
+    *) die "set_marker_state : état inconnu '$state'" ;;
+  esac
+  owner_edit "$pl" "$(printf '%s\n' "${add[@]}" | jq -R . | jq -sc 'map(select(length>0))')" \
+             "$(printf '%s\n' "${del[@]}" | jq -R . | jq -sc 'map(select(length>0))')"
+}
+
 NON_RM='remove-si-lu=NON'; NON_PR='propager-lu=NON'; OUI_RM='remove-si-lu=OUI'; OUI_PR='propager-lu=OUI'
 has_tag() { jq -e --arg t "$2" 'index($t)!=null' <<<"$1" >/dev/null; }
 tag_count() { jq -r --arg f "$2" '[.[]|select(ascii_downcase|gsub("\\s+";"")|startswith($f))]|length' <<<"$1"; }

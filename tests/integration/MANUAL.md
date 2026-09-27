@@ -1,6 +1,6 @@
-# Procédure manuelle — v0.2.0 : étiquettes `remove-si-lu` / `propager-lu` et retrait du média lu (QUALIF emby2 uniquement)
+# Procédure manuelle — v0.2.0/v0.3.0 : étiquettes `remove-si-lu` / `propager-lu`, retrait et propagation du lu (QUALIF emby2 uniquement)
 
-Prérequis : plugin v0.2.0 déployé sur emby2 ; comptes `test_u1` (propriétaire), `test_u2` (Écriture), `test_u3` (Lecture) créés par `tests/integration/00-setup-users.sh` (mots de passe dans `private/test-users.env`). Ne jamais utiliser `user2` ni un compte réel. Noter pour chaque ligne le **client utilisé** (web, TV, mobile, version).
+Prérequis : plugin déployé sur emby2 ; comptes `test_u1` (propriétaire), `test_u2` (Écriture), `test_u3` (Lecture) créés par `tests/integration/00-setup-users.sh` (mots de passe dans `private/test-users.env`). Ne jamais utiliser `user2` ni un compte réel. Noter pour chaque ligne le **client utilisé** (web, TV, mobile, version).
 
 ## 1. Préparer (client web, `test_u1`)
 Créer « SPIKE-manuel-v02 » avec ≥ 3 films, la partager (menu « … » > « Gérer la collaboration » : `test_u2` Écriture, `test_u3` Lecture). Attendre au plus 5 min (ou lancer la tâche « Emby Shared Playlist — réconciliation » : Tableau de bord > Tâches planifiées).
@@ -23,6 +23,16 @@ Créer « SPIKE-manuel-v02 » avec ≥ 3 films, la partager (menu « … » > «
 | Arrêt à mi-film | rien ne change | |
 | `propager-lu=OUI` seul (sans `remove-si-lu=OUI`) | aucun effet en v0.2.0 | |
 
+## 2bis. Propagation du lu (v0.3.0, `test_u1`, web)
+Sur une NOUVELLE playlist (ou en retirant `remove-si-lu=OUI` d'abord, pour isoler l'effet) : « Modifier les métadonnées » > Mot-clé : **ajouter `propager-lu=OUI` ET retirer `propager-lu=NON` dans la même édition** (`remove-si-lu` laissé à NON).
+
+| Étape | Attendu | OK ? |
+|---|---|---|
+| `test_u2` lit un film **jusqu'au bout** | `test_u1` et `test_u3` voient ce film marqué **lu** ; le film **reste** dans la playlist pour les 3 comptes | |
+| `test_u3` (déjà lu) relit le même film jusqu'au bout | rien ne change chez lui (compteur/date intacts) | |
+| Activer maintenant AUSSI `remove-si-lu=OUI` (les deux étiquettes actives) | `test_u2` finit un autre film : il est **retiré** de la playlist ET marqué **lu** chez `test_u1`/`test_u3` | |
+| `test_u2` décoche « lu » sur un film déjà propagé | rien ne se propage (le retour à « non lu » ne se propage jamais) | |
+
 ## 3. Lecture en file (Q7)
 Lancer la lecture en file de la playlist avec `test_u2`, finir le 1er film pendant que la file avance : noter si le film suivant se lance correctement et si l'affichage de la file se met à jour ou reste périmé.
 
@@ -31,6 +41,9 @@ Répéter §2 (film fini, relu, décoche/recoche) sur TV et mobile ; noter si `t
 
 ## 5. Page de configuration du plugin
 Tableau de bord > Plugins > « Emby Shared Playlist » : la page s'ouvre, les options `EnableDiagnostics`, `GracePasses`, `LogToConsole`, `LogLevel` sont lisibles et enregistrables sans erreur.
+
+## 5bis. Message d'aide (#51)
+Sur une playlist dont la description est encore le texte v0.2.0 (mentionnant « fonction à venir » pour `propager-lu`), attendre une passe de réconciliation (5 min, ou la lancer depuis Tableau de bord > Tâches planifiées) : le texte est remplacé par une version qui décrit la propagation comme active. Une description modifiée entre-temps par le propriétaire n'est jamais touchée.
 
 ## 6. Nettoyage
 `tests/integration/90-cleanup.sh` (option `--delete-users` pour supprimer aussi les comptes `test_*`). Consigner les résultats dans le rapport de recette (U8, Q7).

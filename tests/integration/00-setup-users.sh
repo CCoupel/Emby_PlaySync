@@ -82,6 +82,34 @@ for i in 1 2 3; do
   echo "  [OK] test_u$i s'authentifie et accède aux 4 médias de test"
 done
 
+echo "== Compte à bibliothèque restreinte (v0.3.0, R8) : ${RESTRICTED_USERS[*]}"
+api GET /Users >/dev/null
+for n in "${RESTRICTED_USERS[@]}"; do
+  if jq -e --arg n "$n" '.[]|select(.Name==$n)' "$RESP" >/dev/null; then
+    die "le compte $n existe déjà : lancer 90-cleanup.sh --delete-users d'abord"
+  fi
+  st=$(api POST /Users/New "$(jq -nc --arg n "$n" '{Name:$n}')")
+  [[ $st == 200 || $st == 204 ]] || die "création de $n -> HTTP $st"
+  rid=$(jq -r '.Id // empty' "$RESP"); [[ -n $rid ]] || rid=$(user_id_by_name "$n")
+  [[ -n $rid ]] || die "id de $n introuvable"
+  rpw=$(python3 -c 'import secrets;print(secrets.token_urlsafe(18))')
+  printf 'TEST_U_RESTRICTED_NAME=%s\nTEST_U_RESTRICTED_ID=%s\nTEST_U_RESTRICTED_PW=%s\n' "$n" "$rid" "$rpw" >> "$USERS_ENV"
+  apiok 204 POST "/Users/$rid/Password" "$(jq -nc --arg p "$rpw" '{NewPw:$p}')"
+  # Restriction totale (pas seulement la bibliothèque du média testé) : aucune bibliothèque accessible.
+  st=$(api GET "/Users/$rid"); [[ $st == 200 ]] || die "GET $n -> $st"
+  pol=$(jq -c '.Policy | .EnableAllFolders=false | .EnabledFolders=[]' "$RESP")
+  apiok 204 POST "/Users/$rid/Policy" "$pol"
+  st=$(api GET "/Users/$rid"); [[ $st == 200 ]] || die "GET $n (relecture) -> $st"
+  adm=$(jq -r '.Policy.IsAdministrator' "$RESP"); allf=$(jq -r '.Policy.EnableAllFolders' "$RESP")
+  [[ $adm == false ]] || die "$n est administrateur"
+  [[ $allf == false ]] || die "$n : EnableAllFolders=$allf (attendu false)"
+  tok=$(login "$n" "$rpw")   # login() échoue (die) si l'authentification n'aboutit pas : rien d'autre à vérifier ici
+  m0=$(jq -r '.[0]' <<<"$MEDIA")
+  st=$(api GET "/Users/$rid/Items/$m0" "" "$tok")
+  [[ $st != 200 ]] || die "$n a accès au média $m0 malgré EnableAllFolders=false (HTTP $st) : la restriction n'est pas effective"
+  echo "  [OK] $n créé, non admin, EnableAllFolders=false, EnabledFolders=[] (aucune bibliothèque), sans accès au média de test ($st)"
+done
+
 echo "== Comparaison après"
-compare_protected "après création" "${TEST_USERS[@]}" || die "comptes protégés modifiés : arrêt et investigation"
+compare_protected "après création" "${TEST_USERS[@]}" "${RESTRICTED_USERS[@]}" || die "comptes protégés modifiés : arrêt et investigation"
 echo "Setup terminé."

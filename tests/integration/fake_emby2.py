@@ -3,20 +3,47 @@
 Implémente les règles décrites par le plan (étiquettes à deux familles, première détection, grâce, retrait à la
 transition non lu -> lu, journal/état Diagnostics, tâche planifiée). Ce n'est PAS le plugin : c'est une spécification
 exécutable minimale qui vérifie que le script de test lit bien le contrat et enchaîne correctement les scénarios."""
-import sys, json, re, threading, http.server, urllib.parse, itertools, datetime
+import sys, os, json, re, threading, http.server, urllib.parse, itertools, datetime
 
-PORT = int(sys.argv[1]); MODE = sys.argv[2] if len(sys.argv) > 2 else "ok"   # ok | noremove (moteur qui ne retire pas)
+def _load_help_texts():
+    """Lit HelpText.cs sous REPO_ROOT (même mécanisme que I25, tests/integration/21-propagation.sh) :
+    V1 = la constante contenant encore « fonction à venir » ; V2 = la même, cette ligne remplacée."""
+    root = os.environ.get("REPO_ROOT", os.getcwd())
+    path = os.path.join(root, "src", "EmbySharedPlaylist", "Reconciliation", "HelpText.cs")
+    if not os.path.exists(path):
+        return None, None
+    src = open(path, encoding="utf-8").read()
+    v1 = None
+    for m in re.finditer(r"public const string \w+\s*=\s*(.*?);", src, re.S):
+        segs = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
+        if not segs: continue
+        text = "".join(segs).replace("\\n", "\n")
+        if "fonction à venir" in text:
+            v1 = text; break
+    if v1 is None:
+        return None, None
+    v2 = re.sub(r"(?m)^- propager-lu=OUI :.*$",
+                 "- propager-lu=OUI : quand un média est lu par un membre, le flag « lu » est posé chez les autres.", v1)
+    return v1, v2
+V1_TEXT, V2_TEXT = _load_help_texts()
+
+PORT = int(sys.argv[1]); MODE = sys.argv[2] if len(sys.argv) > 2 else "ok"   # ok | noremove | nopropagate (v0.3.0)
 GRACE = 2
 lock = threading.RLock()
 ids = itertools.count(1000)
 USERS = {"admin": "a" * 32, "cyril": "c" * 32, "user2": "b" * 32, "test_u1": "1" * 32, "test_u2": "2" * 32, "test_u3": "3" * 32}
-MEDIA = [str(100 + i) for i in range(8)]
+if os.environ.get("FAKE_RESTRICTED_USER") == "1":   # v0.3.0 (I20/R8) : absent par défaut, n'affecte pas les tests v0.2.0 existants
+    USERS["test_u_restricted"] = "4" * 32
+MEDIA = [str(100 + i) for i in range(24)]
 RT = 7_000_000_000
 TASK_ID = "77"
 pass_no = itertools.count(1)
 
-PL, PLAYED = {}, set()
-def reset():   # redémarrage du plugin : la MÉMOIRE du moteur est remise à zéro, pas les données d'Emby
+PL, PLAYED, PLAYDATA, POLICY = {}, set(), {}, {}   # POLICY[userid] = {"EnableAllFolders": bool, "EnabledFolders": [...]}
+DEFAULT_POLICY = {"EnableAllFolders": True, "EnabledFolders": []}
+def has_access(userid, item): return POLICY.get(userid, DEFAULT_POLICY)["EnableAllFolders"]
+def members(p): return list(dict.fromkeys([p["owner"]] + list(p["shares"].keys())))
+def reset():   # redémarrage du PLUGIN uniquement : la mémoire du moteur est remise à zéro (Emby/PLAYED/PLAYDATA/POLICY persistent)
     global SEEN, GRACEC, JOURNAL, HANDLER, LASTPASS, WRITING, SKIPPED
     SEEN, GRACEC, JOURNAL, SKIPPED = set(), {}, [], {}
     HANDLER = {"Count": 0, "LastMs": 0, "MaxMs": 0}; LASTPASS = {"Ts": None, "DurationMs": 0, "PlaylistsSeen": 0, "SharedManaged": 0}; WRITING = False
@@ -40,6 +67,7 @@ def state_of(tags, fam):
     return "Both" if oui and non else "Oui" if oui else "Non" if non else "None"
 
 def shared(p): return bool(p["shares"])
+
 def member(p, u): return u == p["owner"] or u in p["shares"]
 
 HELP = "Playlist partagée gérée par Emby Shared Playlist.\n- remove-si-lu=OUI : retrait.\n- propager-lu=OUI : à venir."
@@ -57,9 +85,17 @@ def write_defaults(pid, fams, ov, cause):
         jr("Skipped", pid, detail="reentrant")            # écho de notre propre écriture (ItemUpdated)
     finally: WRITING = False
 
+def maybe_replace_help(pid):   # #51 : Overview == V1 EXACT -> V2 (à la première détection ET à chaque passe)
+    if V1_TEXT is None: return
+    p = PL[pid]
+    if p["overview"] == V1_TEXT:
+        p["overview"] = V2_TEXT
+        jr("DescriptionWritten", pid, detail="cause=help-v2")
+
 def first_detection(pid):
     p = PL[pid]
     if pid in SEEN: jr("Skipped", pid, detail="already-seen"); return
+    maybe_replace_help(pid)
     SEEN.add(pid)
     fams = [f for f in ("remove-si-lu", "propager-lu") if state_of(p["tags"], f) == "None"]
     ov = not p["overview"].strip()
@@ -82,6 +118,7 @@ def do_pass():
         if not shared(p): continue
         managed += 1
         if pid not in SEEN: first_detection(pid); continue
+        maybe_replace_help(pid)
         toposed = []; c = GRACEC.setdefault(pid, {})
         for f in ("remove-si-lu", "propager-lu"):
             if state_of(p["tags"], f) != "None": c[f] = 0; continue
@@ -97,29 +134,47 @@ def do_pass():
     LASTPASS.update({"Ts": datetime.datetime.utcnow().isoformat() + "Z#" + str(next(pass_no)), "DurationMs": ms, "PlaylistsSeen": n, "SharedManaged": managed})
     jr("ScanPass", detail=f"playlists={n} shared={managed} posed=0 pending=0 durationMs={ms}")
 
+def mark_played(user, item):   # écriture PLUGIN (propagation) : distincte d'un set_played utilisateur (pas de ré-entrée)
+    PLAYED.add((user, item)); PLAYDATA[(user, item)] = {"LastPlayedDate": datetime.datetime.utcnow().isoformat() + "Z", "PlayCount": 1}
+
 def transition(user, item):
-    t0 = datetime.datetime.utcnow()
+    ms = 3
     for pid, p in list(PL.items()):
         es = [e for e in p["entries"] if e["item"] == item]
         if not es: continue
         if not member(p, user): jr("Skipped", pid, user, item, "not-member"); continue
         if not shared(p): jr("Skipped", pid, user, item, "not-shared"); continue
-        st = state_of(p["tags"], "remove-si-lu"); jr("MarkerSeen", pid, user, item, f"family=remove-si-lu state={st}")
-        if st != "Oui" or MODE == "noremove": jr("Skipped", pid, user, item, "inactive"); continue
-        n = 0
-        while n < 50:                         # toutes les entrées du média, une à la fois
-            e = next((x for x in p["entries"] if x["item"] == item), None)
-            if e is None: break
-            p["entries"].remove(e); n += 1
-        ms = 3
-        jr("Removal", pid, user, item, f"entries={n} durationMs={ms}"); jr("Skipped", pid, detail="already-seen")   # écho PlaylistItemsRemoved
+        rm_st = state_of(p["tags"], "remove-si-lu"); jr("MarkerSeen", pid, user, item, f"family=remove-si-lu state={rm_st}")
+        if rm_st == "Oui" and MODE != "noremove":
+            n = 0
+            while n < 50:                         # toutes les entrées du média, une à la fois
+                e = next((x for x in p["entries"] if x["item"] == item), None)
+                if e is None: break
+                p["entries"].remove(e); n += 1
+            jr("Removal", pid, user, item, f"entries={n} durationMs={ms}"); jr("Skipped", pid, detail="already-seen")   # écho PlaylistItemsRemoved
+        else:
+            jr("Skipped", pid, user, item, "inactive")
+
+        pr_st = state_of(p["tags"], "propager-lu")   # familles indépendantes : évaluée QUELLE QUE SOIT la décision remove-si-lu
+        if pr_st == "Oui" and MODE != "nopropagate":
+            propagated = already = noaccess = 0
+            for m in members(p):
+                if m == user: continue
+                if not has_access(m, item):
+                    jr("Skipped", pid, m, item, "no-access"); noaccess += 1; continue
+                if (m, item) in PLAYED:
+                    jr("Skipped", pid, m, item, "already-played"); already += 1; continue
+                mark_played(m, item); propagated += 1
+            total = len(members(p)) - 1
+            jr("Propagation", pid, user, item, f"members={total} propagated={propagated} alreadyPlayed={already} noAccess={noaccess}")
+
         HANDLER["Count"] += 1; HANDLER["LastMs"] = ms; HANDLER["MaxMs"] = max(HANDLER["MaxMs"], ms)
 
 def set_played(user, item, val):
     if val:
         if (user, item) in PLAYED: return
-        PLAYED.add((user, item)); transition(user, item)
-    else: PLAYED.discard((user, item))
+        mark_played(user, item); transition(user, item)
+    else: PLAYED.discard((user, item)); PLAYDATA.pop((user, item), None)
 
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -142,8 +197,14 @@ class H(http.server.BaseHTTPRequestHandler):
         if p == "/System/Info": return self.out(200, {"ServerName": "emby2-Testing"})
         if p == "/Users/AuthenticateByName": return self.out(200, {"AccessToken": "tok-" + body["Username"], "User": {"Id": USERS.get(body["Username"], "?")}})
         if p == "/Users" and m == "GET": return self.out(200, [{"Name": n, "Id": i} for n, i in USERS.items()])
+        r = re.fullmatch(r"/Users/(\w+)/Policy", p)
+        if r and m == "POST":
+            pol = POLICY.setdefault(r.group(1), dict(DEFAULT_POLICY)); pol.update(body); return self.out(204)
         r = re.fullmatch(r"/Users/(\w+)", p)
-        if r and m == "GET": return self.out(200, {"Policy": {"IsAdministrator": r.group(1) == USERS["admin"], "BlockedTags": ["x"]}})
+        if r and m == "GET":
+            pol = {"IsAdministrator": r.group(1) == USERS["admin"], "BlockedTags": ["x"]}
+            if r.group(1) in POLICY: pol.update(POLICY[r.group(1)])   # champs EnableAllFolders/EnabledFolders : seulement si réglés (POST Policy),
+            return self.out(200, {"Policy": pol})                     # pour ne pas changer la forme des réponses des comptes jamais touchés
         if p == "/Items" and m == "GET":
             if "Ids" in q: return self.out(200, {"Items": [self.dto(q["Ids"][0])] if q["Ids"][0] in PL else []})
             return self.out(200, {"Items": [{"Id": i, "Name": "M" + i, "RunTimeTicks": RT} for i in MEDIA]})
@@ -176,7 +237,11 @@ class H(http.server.BaseHTTPRequestHandler):
         r = re.fullmatch(r"/Users/(\w+)/Items/(\d+)", p)
         if r and m == "GET":
             if r.group(2) in PL: return self.out(200, self.dto(r.group(2)))
-            return self.out(200, {"Id": r.group(2), "RunTimeTicks": RT, "UserData": {"Played": (r.group(1), r.group(2)) in PLAYED}})
+            if not has_access(r.group(1), r.group(2)):
+                return self.out(403, {"error": "no library access (fake R8)"})
+            key = (r.group(1), r.group(2)); pd = PLAYDATA.get(key, {"LastPlayedDate": None, "PlayCount": 0})
+            return self.out(200, {"Id": r.group(2), "RunTimeTicks": RT,
+                                   "UserData": {"Played": key in PLAYED, "LastPlayedDate": pd["LastPlayedDate"], "PlayCount": pd["PlayCount"]}})
         if p == "/Sessions/Playing" or p == "/Sessions/Playing/Progress": return self.out(204)
         if p == "/Sessions/Playing/Stopped":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
