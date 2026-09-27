@@ -6,7 +6,7 @@ namespace EmbySharedPlaylist.Emby;
 /// <summary>Transformations pures des données en mémoire vers les réponses de <c>Diagnostics/*</c> (testées sans SDK).</summary>
 public static class DiagnosticsMapper
 {
-    /// <summary>Kinds des décisions du moteur : le journal partagé peut aussi contenir ceux du spike (temporaire).</summary>
+    /// <summary>Kinds des décisions du moteur, renvoyés par défaut par <see cref="Journal"/> (sans filtre <c>kind</c>).</summary>
     public static readonly string[] EngineKinds =
     {
         JournalEntries.ScanPass, JournalEntries.MarkerPosed, JournalEntries.DescriptionWritten, "MarkerSeen", "Removal",
