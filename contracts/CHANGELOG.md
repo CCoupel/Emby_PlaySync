@@ -1,5 +1,16 @@
 # Changelog des contrats
 
+## [20260927] — v0.3.1 : propagation de l'avancement de lecture (#45 #46 #47 #48, planifié)
+
+- **[NEW]** kind `PositionPropagation` (Diagnostics/Journal) : propagation de `PlaybackPositionTicks` vers les autres membres, journalisée une fois par playlist (`members/propagated/samePosition/noAccess/durationMs`). Déclenchée par le même marqueur `propager-lu=OUI` que le flag lu (#20).
+- **[INFO]** **U12 résolu (étude VirtualLib)** : la détection play/pause/stop ne passe **pas** par `UserDataSaved` (mécanisme de #20/#21) mais par **`ISessionManager.PlaybackProgress`** (`IsPaused` booléen direct, confirmé par réflexion sur les DLL et déjà exploité en production par VirtualLib) et **`ISessionManager.PlaybackStopped`** (position finale à l'arrêt réel ; hérite de la même forme que `PlaybackProgressEventArgs`, confirmé par le code fonctionnel de VirtualLib). Nouveau listener `IServerEntryPoint` dédié, **en plus** de `PlaybackListener` (`UserDataSaved`, inchangé pour #12/#20/#21). Déclenchement : transition `IsPaused` false→true (Progress) ou tout `PlaybackStopped`, position au-delà d'un seuil minimal (30 s), sauf si le média est déjà/devient lu pour l'utilisateur déclencheur (la règle du lu prend le relais, prioritaire).
+- **[NEW]** raison `Skipped` : `same-position` (aucune écriture si la position à propager est déjà celle enregistrée chez le membre).
+- **[INFO]** `Core/IUserDataGateway` étendu : `HasAccess` (extrait de `IsPlayed`, réutilisé), `GetPosition`, `SetPosition` (écrit `PlaybackPositionTicks`/`LastPlayedDate`, ne touche jamais `Played`/`PlayCount`).
+- **[INFO]** Aucun risque d'écho côté `ISessionManager` : nos écritures (`SaveUserData` via `SetPosition`) ne déclenchent que `UserDataSaved` (déjà consommé par `PluginWriteTracker`, mécanisme de #21 inchangé), jamais un événement de session. Le nouveau listener n'a donc aucune garde anti-écho propre à construire.
+- **[FIXED]** (documentaire) `contracts/http-endpoints.md`, énumération `Kind` de `Diagnostics/Journal` : ne listait pas `Propagation` (v0.3.0), alors que son détail était déjà documenté plus bas — corrigé par le planner en même temps que l'ajout de `PositionPropagation`.
+- Règle de conflit : **dernier écrit gagne**, écrasement direct sans lecture de priorité (contrairement à « le plus avancé gagne ») ; seule optimisation : pas d'écriture si la valeur est déjà identique.
+- Exécution : synchrone, sous le verrou de la playlist (même modèle que #12/#20, validé par U11) — **pas** de `FireAndForget`/fil séparé (VirtualLib l'utilise pour des appels réseau vers un connecteur distant ; nos écritures sont locales au même serveur, comme le reste du plugin).
+
 ## [20260927] — v0.3.0 : propagation du flag lu, anti-écho branché (#20 #21 #51)
 
 - **[NEW]** `DescriptionWritten` gagne la cause `v1-to-v2` (#51) : `HelpText.V2` remplace `HelpText.V1` a la premiere detection ou a chaque passe, uniquement si la description est encore identique caractere pour caractere a `V1` (aucun etat memorise, idempotent naturellement).
