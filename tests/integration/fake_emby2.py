@@ -43,8 +43,12 @@ pass_no = itertools.count(1)
 PL, PLAYED, PLAYDATA, POLICY, POSITION = {}, set(), {}, {}, {}   # POSITION[(user,item)] = ticks (donnée Emby, persiste)
 TICKS_30S = 300_000_000   # v0.3.1 : seuil minimal (30 s, 100 ns/tick)
 DEFAULT_POLICY = {"EnableAllFolders": True, "EnabledFolders": [], "AllowSharingPersonalItems": False}
-def has_access(userid, item): return {**DEFAULT_POLICY, **POLICY.get(userid, {})}["EnableAllFolders"]
-def members(p): return list(dict.fromkeys([p["owner"]] + list(p["shares"].keys())))
+def has_access(userid, item):
+    # D-d (v0.5.0, #31) : un média inexistant (FindItem -> null côté vrai plugin) est traité EXACTEMENT comme un
+    # défaut d'accès (R8), aucune distinction — item ajouté à une playlist mais absent de MEDIA (simulation I44).
+    if item not in MEDIA: return False
+    return {**DEFAULT_POLICY, **POLICY.get(userid, {})}["EnableAllFolders"]
+def members(p): return list(dict.fromkeys([p["owner"]] + [u for u, lvl in p["shares"].items() if lvl != "None"]))
 def reset():   # redémarrage du PLUGIN uniquement : la mémoire du moteur est remise à zéro (Emby/PLAYED/PLAYDATA/POLICY/POSITION persistent)
     global SEEN, GRACEC, JOURNAL, HANDLER, LASTPASS, WRITING, SKIPPED, PAUSED
     SEEN, GRACEC, JOURNAL, SKIPPED, PAUSED = set(), {}, [], {}, {}
@@ -70,7 +74,7 @@ def state_of(tags, fam):
 
 def shared(p): return bool(p["shares"])
 
-def member(p, u): return u == p["owner"] or u in p["shares"]
+def member(p, u): return u == p["owner"] or p["shares"].get(u, "None") != "None"
 
 HELP = "Playlist partagée gérée par Emby Shared Playlist.\n- remove-si-lu=OUI : retrait.\n- propager-lu=OUI : à venir."
 

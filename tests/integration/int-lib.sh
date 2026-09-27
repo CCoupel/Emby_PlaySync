@@ -288,6 +288,21 @@ create_test_account() {
   echo "$id" >> "$SCRATCH/perm_accounts.run"
   echo "$id"
 }
+# create_and_login_test_account PREFIX -> "ID TOKEN" (un seul stdout, séparés par un espace) : compte de test
+# complet (créé, mot de passe posé, connecté), suivi dans perm_accounts.run comme create_test_account (même
+# nettoyage, cleanup_test_accounts). Sert aux scénarios à plus grande échelle (v0.5.0, #34 : 5+ membres).
+create_and_login_test_account() {
+  local n="${1}-$RANDOM$RANDOM" st id pw tok
+  st=$(api POST /Users/New "$(jq -nc --arg n "$n" '{Name:$n}')")
+  [[ $st == 200 || $st == 204 ]] || die "création de $n -> HTTP $st"
+  id=$(jq -r '.Id // empty' "$RESP"); [[ -n $id ]] || id=$(user_id_by_name "$n")
+  [[ -n $id ]] || die "id de $n introuvable"
+  echo "$id" >> "$SCRATCH/perm_accounts.run"
+  pw=$(python3 -c 'import secrets;print(secrets.token_urlsafe(18))')
+  apiok 204 POST "/Users/$id/Password" "$(jq -nc --arg p "$pw" '{NewPw:$p}')"
+  tok=$(login "$n" "$pw")
+  echo "$id $tok"
+}
 cleanup_test_accounts() {
   [[ -s ${SCRATCH:-/nonexistent}/perm_accounts.run ]] || return 0
   local id
