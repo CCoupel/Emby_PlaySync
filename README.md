@@ -64,7 +64,7 @@ Les deux options sont indépendantes (l'une sans l'autre est un usage valide) et
 ### 5. Limites connues
 
 - **Clients TV et mobile** : la visibilité de la playlist partagée et le retrait fonctionnent (partage natif Emby), mais **poser ou modifier une étiquette depuis un client TV ou mobile n'est pas garanti** ; à vérifier au cas par cas (issue #28, en cours).
-- Le message écrit dans la description d'une playlist gérée décrit le retrait et la propagation du flag lu ; il ne mentionne pas encore la propagation de l'avancement de lecture (livrée en 0.3.1).
+- Le message écrit dans la description d'une playlist gérée décrit le retrait, la propagation du flag lu et celle de l'avancement de lecture.
 - Un encart d'aide sur la page de configuration du plugin est en cours (issue #25).
 
 Ce n'est pas une wishlist de demandes de médias (comme Ombi ou Seerr) : la liste ne contient que des médias déjà présents dans la bibliothèque.

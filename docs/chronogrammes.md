@@ -590,4 +590,4 @@ Bon à savoir :
 
 ### Limites
 
-Ces écrans sont décrits d'après le code du client web (non testés dans un navigateur). Le comportement des applis TV et mobile n'est **pas garanti**, en particulier l'édition des étiquettes : visibilité et retrait fonctionnent, mais poser ou modifier `remove-si-lu`/`propager-lu` depuis TV/mobile reste à vérifier manuellement (issue #28, en cours). Le message écrit dans la description d'une playlist gérée (texte exact : `HelpText.V2`) ne mentionne que le retrait et la propagation du flag lu ; il n'évoque pas la propagation de l'avancement de lecture (v0.3.1), livrée mais non encore reflétée dans ce message.
+Ces écrans sont décrits d'après le code du client web (non testés dans un navigateur). Le comportement des applis TV et mobile n'est **pas garanti**, en particulier l'édition des étiquettes : visibilité et retrait fonctionnent, mais poser ou modifier `remove-si-lu`/`propager-lu` depuis TV/mobile reste à vérifier manuellement (issue #28, en cours). Le message écrit dans la description d'une playlist gérée (texte exact : `HelpText.V2`) mentionne le retrait, la propagation du flag lu et celle de l'avancement de lecture.
