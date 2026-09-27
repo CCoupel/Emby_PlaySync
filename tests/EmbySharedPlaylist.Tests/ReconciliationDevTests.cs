@@ -767,6 +767,38 @@ public class DefaultsServiceHelpTextReplacementDevTests
     }
 
     [Fact]
+    public void FirstDetection_MarkerPosedAndDescriptionV1ToV2_HaveDistinctCauses()
+    {
+        // Cas croisé (revue, I10.cause) : la playlist reçoit sa PREMIÈRE pose de marqueur ET sa description vaut déjà
+        // exactement V1, au même passage. Les deux causes doivent rester distinctes dans le journal.
+        var r = new Rig();
+        var s = r.Gateway.Add("1", "remove-si-lu=OUI"); // propager-lu absent : première pose de ce seul marqueur
+        s.Overview = HelpText.V1;
+        r.Service.OnFirstDetection(r.Snapshot("1"));
+
+        Assert.Equal(new[] { "family=propager-lu cause=first-detection" }, r.Journal.Details("MarkerPosed"));
+        Assert.Equal(new[] { "cause=v1-to-v2" }, r.Journal.Details("DescriptionWritten"));
+        Assert.Equal(HelpText.V2, s.Overview);
+        Assert.Contains("propager-lu=NON", s.Tags);
+    }
+
+    [Fact]
+    public void OnPass_MarkerPosedAndDescriptionV1ToV2_HaveDistinctCauses()
+    {
+        var r = new Rig();
+        var s = r.Gateway.Add("1"); // les deux marqueurs absents
+        s.Overview = HelpText.V1;
+        r.Seen.TryMarkSeen("1");
+        r.Service.OnPass(r.Snapshot("1")); // 1re passe : compteurs de grâce démarrés, rien posé encore
+        var outcome = r.Service.OnPass(r.Snapshot("1")); // 2e passe : grâce atteinte pour les marqueurs
+
+        Assert.Equal(2, outcome.MarkersPosed);
+        Assert.All(r.Journal.Details("MarkerPosed"), d => Assert.EndsWith("cause=grace-elapsed", d));
+        Assert.Equal(new[] { "cause=v1-to-v2" }, r.Journal.Details("DescriptionWritten")); // jamais "grace-elapsed" ici
+        Assert.Equal(HelpText.V2, s.Overview);
+    }
+
+    [Fact]
     public void FirstDetection_ExactV1_IsReplacedByV2_Immediately()
     {
         var r = new Rig();

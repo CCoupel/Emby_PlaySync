@@ -67,10 +67,12 @@ public sealed class DefaultsService
 
         var families = Families.Where(f => MarkerEvaluator.Evaluate(p.Tags, f) == MarkerState.None).ToList();
         var overview = OverviewFor(p.Overview, _helpText);
-        var cause = overview?.RequiredCurrent == null ? "first-detection" : "v1-to-v2";
+        // Deux causes distinctes : les MarkerPosed sont TOUJOURS "first-detection" ici, la description peut être
+        // "first-detection" (pose, vide) OU "v1-to-v2" (remplacement, #51) — jamais confondues (revue, I10.cause).
+        var descriptionCause = overview?.RequiredCurrent == null ? "first-detection" : "v1-to-v2";
         if (families.Count == 0 && overview == null) return Skip(p.Id, "marker-present");
 
-        return Write(p, families, overview, cause, pending: 0);
+        return Write(p, families, overview, "first-detection", descriptionCause, pending: 0);
     }
 
     public DefaultsOutcome OnPass(PlaylistSnapshot p)
@@ -95,8 +97,10 @@ public sealed class DefaultsService
             if (_seen.Bump(p.Id, key) >= grace) toPose.Add(f); else pending++;
         }
 
+        // Cause des MarkerPosed ("grace-elapsed", cette méthode) et de DescriptionWritten (peut différer : "v1-to-v2"
+        // n'est jamais posé par grâce) tenues séparément, pour ne jamais étiqueter à tort un marqueur (revue, I10.cause).
         OverviewChange? overview = null;
-        var cause = "grace-elapsed";
+        var descriptionCause = "grace-elapsed";
         if (string.IsNullOrWhiteSpace(p.Overview))
         {
             if (_seen.Bump(p.Id, DescriptionKey) >= grace) overview = new OverviewChange(null, _helpText); else pending++;
@@ -105,13 +109,13 @@ public sealed class DefaultsService
         {
             // #51 : remplacement immédiat, à CHAQUE passe, sans grâce (aucun état mémorisé pour ce cas).
             overview = new OverviewChange(HelpText.V1, HelpText.V2);
-            cause = "v1-to-v2";
+            descriptionCause = "v1-to-v2";
             _seen.Reset(p.Id, DescriptionKey);
         }
         else _seen.Reset(p.Id, DescriptionKey);
 
         if (toPose.Count == 0 && overview == null) return new DefaultsOutcome(0, false, false, pending);
-        return Write(p, toPose, overview, cause, pending);
+        return Write(p, toPose, overview, "grace-elapsed", descriptionCause, pending);
     }
 
     /// <summary>Pose <see cref="HelpText.V1"/> si vide (v0.2.0) ; le remplace par <see cref="HelpText.V2"/> s'il vaut encore exactement V1 (#51, immédiat, sans grâce).</summary>
@@ -122,7 +126,8 @@ public sealed class DefaultsService
         return null;
     }
 
-    private DefaultsOutcome Write(PlaylistSnapshot p, List<MarkerFamily> families, OverviewChange? overview, string cause, int pending)
+    private DefaultsOutcome Write(PlaylistSnapshot p, List<MarkerFamily> families, OverviewChange? overview,
+        string markerCause, string descriptionCause, int pending)
     {
         ApplyResult result;
         try
@@ -140,12 +145,12 @@ public sealed class DefaultsService
 
         foreach (var f in result.Posed)
         {
-            _journal.Add(JournalEntries.Of(_clock, JournalEntries.MarkerPosed, p.Id, $"family={MarkerEvaluator.FamilyName(f)} cause={cause}"));
+            _journal.Add(JournalEntries.Of(_clock, JournalEntries.MarkerPosed, p.Id, $"family={MarkerEvaluator.FamilyName(f)} cause={markerCause}"));
             _seen.Reset(p.Id, MarkerEvaluator.FamilyName(f));
         }
         if (result.OverviewWritten)
         {
-            _journal.Add(JournalEntries.Of(_clock, JournalEntries.DescriptionWritten, p.Id, $"cause={cause}"));
+            _journal.Add(JournalEntries.Of(_clock, JournalEntries.DescriptionWritten, p.Id, $"cause={descriptionCause}"));
             _seen.Reset(p.Id, DescriptionKey);
         }
         return new DefaultsOutcome(result.Posed.Count, result.OverviewWritten, false, pending);
