@@ -11,10 +11,48 @@
       </div>
 
       <div class="detailSection">
+        <div class="fieldDescription">
+          <p>
+            Une playlist « À voir » devient <strong>partagée</strong> via le partage natif d'Emby : menu « … » de la
+            playlist → <strong>Gérer la collaboration</strong>. Ce plugin ajoute ensuite deux comportements réglés par
+            étiquette (Modifier les métadonnées → Mot-clé, sur la playlist elle-même), à NON par défaut (rien ne
+            change) — pour activer une option, remplacez NON par OUI :
+          </p>
+          <ul>
+            <li><code>remove-si-lu=OUI</code> : un média qui passe à « lu » est retiré de la playlist.</li>
+            <li><code>propager-lu=OUI</code> : le flag « lu » et l'avancement de lecture (position) sont propagés aux
+              autres membres.</li>
+          </ul>
+          <p>
+            <strong>La permission de partage est déjà accordée automatiquement</strong> par le plugin pour tous les
+            comptes (case « Activer le partage automatiquement » ci-dessous) : ce n'est pas une étape à effectuer
+            vous-même. Limite connue : si un administrateur retire cette permission manuellement pour un compte
+            précis, elle est <strong>réappliquée à la passe suivante</strong> (le plugin ne mémorise pas ce retrait) —
+            seule la case ci-dessous, décochée globalement, empêche cette repose.
+          </p>
+          <p>
+            Limites connues : le comportement dépend du client utilisé pour la lecture (confirmé sur le client web ;
+            TV/mobile non entièrement vérifiés à ce jour).
+          </p>
+        </div>
+      </div>
+
+      <div class="detailSection">
         <div class="inputContainer">
           <input is="emby-input" type="number" id="GracePasses" min="1" step="1" label="Passes de grâce" />
           <div class="fieldDescription">
             Nombre de passes de réconciliation consécutives sans étiquette (ou avec une description vide) avant que le plugin repose la valeur par défaut. Défaut : 2, minimum : 1. La période des passes se règle dans les tâches planifiées d'Emby.
+          </div>
+        </div>
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input type="checkbox" id="AutoEnableSharing" is="emby-checkbox" class="emby-checkbox" />
+            <span>Activer le partage automatiquement pour tous les utilisateurs</span>
+          </label>
+          <div class="fieldDescription checkboxFieldDescription">
+            Pose <code>Policy.AllowSharingPersonalItems=true</code> pour tous les comptes (existants et nouveaux), au
+            démarrage, à la réconciliation périodique et à la création d'un compte. Désactivé : aucune écriture, mais
+            ne révoque jamais un accès déjà accordé. Défaut : activé.
           </div>
         </div>
         <div class="checkboxContainer checkboxContainer-withDescription">

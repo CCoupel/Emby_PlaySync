@@ -9,6 +9,7 @@ define([], function () {
         function load() {
             ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
                 view.querySelector('#GracePasses').value = cfg.GracePasses != null ? cfg.GracePasses : 2;
+                view.querySelector('#AutoEnableSharing').checked = cfg.AutoEnableSharing !== false;
                 view.querySelector('#EnableDiagnostics').checked = cfg.EnableDiagnostics !== false;
                 view.querySelector('#LogToConsole').checked = cfg.LogToConsole !== false;
                 view.querySelector('#LogLevel').value = cfg.LogLevel || 'Info';
@@ -19,6 +20,7 @@ define([], function () {
             ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
                 var grace = parseInt(view.querySelector('#GracePasses').value, 10);
                 cfg.GracePasses = isNaN(grace) || grace < 1 ? 1 : grace;
+                cfg.AutoEnableSharing = view.querySelector('#AutoEnableSharing').checked;
                 cfg.EnableDiagnostics = view.querySelector('#EnableDiagnostics').checked;
                 cfg.LogToConsole = view.querySelector('#LogToConsole').checked;
                 cfg.LogLevel = view.querySelector('#LogLevel').value;
