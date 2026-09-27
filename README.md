@@ -2,33 +2,72 @@
 
 Plugin Emby Media Server pour partager une playlist « À voir » entre plusieurs utilisateurs.
 
-> **État : en développement (v0.2.0, QUALIF seulement).** La spécification est en cours de validation par l'utilisateur ; le spike v0.1.0 a confirmé la faisabilité (simulation API et essais réels sur Emby Web). Le moteur de retrait est en cours de livraison ; la propagation arrive en 0.3.0.
+> **État : en développement (v0.4.0).** Le partage natif, le retrait automatique du média lu, la propagation du flag lu et de l'avancement de lecture sont livrés. La permission automatique de partage, l'encart d'aide de la page de config et l'audit de sécurité sont en cours.
 
 ## Principe
 
-Une playlist appartient à un utilisateur (le propriétaire), qui la partage avec d'autres utilisateurs grâce au partage natif de playlists d'Emby (menu « … » → **Gérer la collaboration**). Le plugin ajoute la gestion de l'état « vu », réglée par **deux étiquettes indépendantes** posées sur la playlist :
+Une playlist appartient à un utilisateur (le propriétaire), qui la partage avec d'autres utilisateurs grâce au partage natif de playlists d'Emby. Le plugin ajoute la gestion de l'état « vu », réglée par **deux étiquettes indépendantes** posées sur la playlist :
 
 | Étiquette | Effet quand elle vaut `OUI` | Version |
 |---|---|---|
 | `remove-si-lu` | Quand un membre passe un média de non lu à **lu**, il est **retiré de la liste pour tous**. | 0.2.0 |
-| `propager-lu` | L'**état de lecture** est copié chez les autres membres : le « lu » (0.3.0), puis l'**avancement de lecture** — pause et arrêt, ≥ 30 s de lecture — pour commencer avec un compte et poursuivre avec l'autre, la dernière lecture gagne (0.3.1). | 0.3.0 / 0.3.1 |
+| `propager-lu` | L'**état de lecture** est copié chez les autres membres : le « lu » (0.3.0), puis l'**avancement de lecture** — position à la pause et à l'arrêt, ≥ 30 s de lecture — pour commencer avec un compte et poursuivre avec l'autre, la dernière lecture gagne (0.3.1). | 0.3.0 / 0.3.1 |
 
-- Dès qu'une playlist est partagée, le plugin pose `remove-si-lu=NON` et `propager-lu=NON` (et, si la description est vide, un message d'aide). Tant que ce sont des `NON`, **rien ne change** : Emby se comporte comme d'habitude (legacy).
-- Pour activer une option, le propriétaire **remplace `NON` par `OUI`** : ajouter `...=OUI` et retirer `...=NON` dans la même édition (Modifier les métadonnées > Mot-clé). Si `OUI` et `NON` sont présents ensemble, `NON` l'emporte. Le plugin ne supprime jamais une étiquette. Casse et espaces autour du `=` sont sans importance.
-- Seul le **propriétaire** gère les membres et les étiquettes ; les membres en écriture peuvent ajouter et retirer des médias.
-- Seule la **transition** non lu → lu retire le média : relire un média déjà lu ne le retire pas, et mettre en favori, importer ou masquer un film déjà vu non plus (marquer « lu » explicitement reste une transition). Sortie manuelle d'un média lu resté dans la liste : décocher puis recocher « lu », ou le retirer directement.
-- Un média lu n'est retiré que des listes dont son lecteur est membre (pas de transitivité entre listes).
-- Le plugin ne mémorise rien : tout est en mémoire, il replace ce qui manque (étiquette absente, description vide) après quelques minutes.
+Par défaut, les deux étiquettes sont à `NON` : le plugin ne change rien au comportement natif d'Emby (« legacy »).
+
+## Guide utilisateur
+
+### 1. Permission de partage
+
+Le partage d'une playlist nécessite, côté **propriétaire**, la permission Emby « Permettre le partage de contenus personnels tels que des listes de lecture avec d'autres utilisateurs sur ce serveur » (Tableau de bord → Utilisateurs → l'utilisateur → onglet Profil).
+
+Depuis la v0.4.0, le plugin la pose **automatiquement pour tous les comptes** (interrupteur `AutoEnableSharing` dans la configuration du plugin, **actif par défaut**). Limite à connaître :
+- si un administrateur la **décoche manuellement**, elle est **réactivée à la passe de réconciliation suivante** (5 min au plus) tant que l'interrupteur global reste actif ;
+- seul le **décochage de l'interrupteur global** `AutoEnableSharing` empêche de futures activations ;
+- désactiver l'interrupteur **ne révoque jamais** un accès déjà accordé.
+
+Les destinataires n'ont rien à activer : leurs droits viennent uniquement du niveau de partage (Écriture/Lecture).
+
+### 2. Partager une liste
+
+1. Le propriétaire crée sa playlist « À voir ».
+2. Menu « … » de la playlist → **Gérer la collaboration**.
+3. Choisir pour chaque utilisateur le niveau **Écriture** (peut ajouter et retirer des médias) ou **Lecture** (consultation seule).
+
+Seul le propriétaire gère les membres et les étiquettes. Un membre en écriture ne peut ni repartager la liste ni modifier son nom, sa description ou ses étiquettes.
+
+Dès qu'une playlist est partagée, le plugin lui ajoute les deux étiquettes **`remove-si-lu=NON`** et **`propager-lu=NON`**, et, si la description est vide, un message d'aide.
+
+### 3. Activer une option : remplacer NON par OUI
+
+Le format des étiquettes est `<option>=NON` ou `<option>=OUI` (casse et espaces autour du `=` sans importance). Pour activer une option :
+
+1. Menu « … » de la playlist → **Modifier les métadonnées**.
+2. Section **Mot-clé** (Étiquette) → **Ajouter** `remove-si-lu=OUI` (ou `propager-lu=OUI`), et **retirer** `remove-si-lu=NON` (ou `propager-lu=NON`), **dans la même édition**.
+3. Enregistrer. Sans `OUI`, rien ne change.
+
+Règles communes aux deux étiquettes :
+- Si `OUI` et `NON` sont présents ensemble, **`NON` l'emporte** : rien ne se passe.
+- Le plugin **ne supprime jamais** une étiquette qu'il trouve.
+- Retirer `NON` seul ne suffit pas : il faut ajouter `OUI`. Si toutes les étiquettes d'une option sont supprimées, le plugin repose `NON` après quelques minutes (~10 min) ; de même, le message d'aide est réécrit si la description est vidée.
+- Les playlists publiques non partagées explicitement sont ignorées.
+
+### 4. Ce que fait chaque option
+
+- **`remove-si-lu=OUI`** : quand un membre (propriétaire, Écriture ou Lecture) fait passer un média à « lu », il est **retiré de la liste pour tous**. Seule la **transition** non lu → lu déclenche le retrait : relire jusqu'au bout un média déjà lu ne le retire pas, et mettre en favori, importer ou masquer un film déjà vu non plus. Pour sortir à la main un média lu resté dans la liste : décocher puis recocher « lu » (un geste volontaire, toujours pris en compte), ou le retirer directement.
+- **`propager-lu=OUI`** : l'état de lecture est copié chez les autres membres —
+  - le **flag lu** : quand un membre finit un média, il est marqué lu chez les autres (sans jamais modifier un flag déjà posé) ;
+  - l'**avancement de lecture** : à la pause ou à l'arrêt d'une lecture d'au moins 30 s, la position est copiée chez les autres membres — commencez avec un compte, poursuivez avec l'autre ; la **dernière lecture gagne**, dans les deux sens.
+
+Les deux options sont indépendantes (l'une sans l'autre est un usage valide) et un média lu n'est retiré que des listes dont son lecteur est membre (pas de transitivité entre listes).
+
+### 5. Limites connues
+
+- **Clients TV et mobile** : la visibilité de la playlist partagée et le retrait fonctionnent (partage natif Emby), mais **poser ou modifier une étiquette depuis un client TV ou mobile n'est pas garanti** ; à vérifier au cas par cas (issue #28, en cours).
+- Le message écrit dans la description d'une playlist gérée décrit le retrait et la propagation du flag lu ; il ne mentionne pas encore la propagation de l'avancement de lecture (livrée en 0.3.1).
+- Un encart d'aide sur la page de configuration du plugin est en cours (issue #25).
 
 Ce n'est pas une wishlist de demandes de médias (comme Ombi ou Seerr) : la liste ne contient que des médias déjà présents dans la bibliothèque.
-
-### Permission de partage
-
-Emby masque le partage tant que l'utilisateur n'a pas la permission « Permettre le partage de contenus personnels tels que des listes de lecture avec d'autres utilisateurs sur ce serveur » (Tableau de bord → Utilisateurs → l'utilisateur → onglet Profil). Elle n'est requise que pour le propriétaire. Une pose automatique par le plugin est prévue en 0.4.0.
-
-### Limites
-
-La version 0.2.0 n'est déployée qu'en QUALIF. À son démarrage, elle pose les deux étiquettes `NON` et le message d'aide sur toutes les playlists déjà partagées. Les applis TV et mobile n'ont pas été vérifiées (visibilité, retrait, édition des étiquettes). Le guide utilisateur complet est au §8 de la spécification.
 
 ## Spécification
 

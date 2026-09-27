@@ -519,7 +519,7 @@ passe périodique (tâche planifiée Emby : démarrage + 5 min):
 | D5 | **Site marketing : oui** (`marketing.site = "auto"`). |
 | D6 | **Playlist « gérée » = partagée avec au moins un membre** autre que le propriétaire. Aucune liste d'identifiants dans la config du plugin. |
 | D7 | **Permission propriétaire** : `AllowSharingPersonalItems` requise pour le propriétaire uniquement (voir §0). |
-| D8 | **Permission posée automatiquement** : le plugin pose `AllowSharingPersonalItems=true` pour tous les utilisateurs (existants et nouveaux), avec un interrupteur de configuration (`AutoEnableSharing`, **actif par défaut**). Désactiver l'interrupteur **ne révoque rien**. Cette décision **élargit les droits** des utilisateurs : à auditer (issue #29). Livrée en v0.4.0. |
+| D8 | **Permission posée automatiquement** : le plugin pose `AllowSharingPersonalItems=true` pour tous les utilisateurs (existants et nouveaux), avec un interrupteur de configuration (`AutoEnableSharing`, **actif par défaut**). Un décochage manuel de la permission par un administrateur est **réactivé à la passe suivante de réconciliation** (5 min au plus, tant que l'interrupteur est actif) : seul le décochage de l'**interrupteur global** empêche de futures activations. Désactiver l'interrupteur **ne révoque jamais** un accès déjà accordé. Cette décision **élargit les droits** des utilisateurs : à auditer (issue #29). Livrée en v0.4.0. |
 | D9 | **Avancement de lecture** : la position de lecture est propagée aux autres membres quand `propager-lu=OUI` est actif (R10), sur pause ou arrêt réel, **via `ISessionManager`** (point d'entrée `PlaybackSessionListener`), indépendamment du flux `UserDataSaved` du lu. Dernière lecture gagne, pas de transitivité, seuil minimal ~30 s, aucune anticipation sur l'état lu. Livrée en v0.3.1. |
 | D10 | **Retrait sur la transition non lu → lu** (R4c) : marquage manuel, ou `played` qui passe à vrai en cours/fin de lecture quel que soit le `SaveReason`. Un média déjà lu relu ne déclenche rien ; décocher puis recocher « lu » retire (`TogglePlayed` avec `played=true` est toujours une transition). **État inconnu** : « inconnue = transition » ne vaut que pour les motifs de lecture ; `Import`, `UpdateUserRating`, `UpdateHideFromResume` et tout motif inconnu sont mémorisés sans transition (favori, import ou masquage d'un film déjà vu ne le retire pas ; limite acceptée : un import légitime qui marque lu ne retire plus le média). Un membre en lecture seule (`Read`) déclenche le retrait pour tous. Les playlists publiques sans partage explicite sont ignorées. |
 | D11 | **Aucun état persisté** (R11) : mémoire seulement (playlists vues, compteurs de grâce). « Le plugin replace ce qui manque » : une description vidée ou des étiquettes supprimées sont reposées après la grâce (accepté). |
@@ -535,7 +535,7 @@ passe périodique (tâche planifiée Emby : démarrage + 5 min):
 1. **Ré-entrance (U11, #52)** : mode d'exécution définitif (immédiat dans le gestionnaire, ou repli `Task.Run` sous verrou) selon l'essai (latence p95 ≤ 300 ms, aucun `database is locked`, aucune boucle).
 2. **Clients** : TV/mobile (U8), édition des étiquettes (`=`, casse, remplacement NON → OUI en une sauvegarde) dans l'éditeur web réel et sur TV/mobile, page de configuration du plugin (404 observé), retrait pendant la lecture d'une file.
 3. **Anti-écho** (v0.3.0, #21) : une entrée d'écriture plugin dont l'événement n'est jamais émis reste 5 min et peut marquer à tort l'écriture utilisateur suivante.
-4. **D8 (v0.4.0)** : comptes désactivés et profils enfants inclus ? Appliquer une seule fois par utilisateur pour respecter un décochage volontaire ? Événement de création d'utilisateur non établi.
+4. **D8 (v0.4.0)** : comptes désactivés et profils enfants inclus ? (Réactivation après décochage manuel : tranchée, voir D8 — réappliquée à la passe suivante tant que l'interrupteur global est actif.) Événement de création d'utilisateur non établi.
 5. **Avancement (D9, v0.3.1)** : lectures simultanées (deux membres qui arrêtent presque en même temps) ; ordre relatif entre l'écriture de position et la transition vers lu de l'autre flux (`ISessionManager` vs `UserDataSaved`, sans garantie).
 6. **Langue du message d'aide** : français seul jusqu'à la localisation FR/EN.
 
@@ -554,7 +554,7 @@ La sonde de ré-entrance (U11) et les endpoints `Spike/*` (issue #15) doivent ê
 
 ### Prérequis
 
-Pour partager une playlist, son **propriétaire** doit avoir la permission « Permettre le partage de contenus personnels tels que des listes de lecture avec d'autres utilisateurs sur ce serveur » (désactivée par défaut dans Emby). Un administrateur la coche dans : Tableau de bord → Utilisateurs → l'utilisateur → onglet Profil. Les destinataires n'ont rien à activer. *(Une pose automatique par le plugin est prévue en v0.4.0.)*
+La permission « Permettre le partage de contenus personnels tels que des listes de lecture avec d'autres utilisateurs sur ce serveur » est nécessaire côté **propriétaire** pour partager une playlist. Depuis la v0.4.0, le plugin la pose **automatiquement** pour tous les comptes (interrupteur `AutoEnableSharing` dans la configuration du plugin, actif par défaut). Si un administrateur la décoche manuellement (Tableau de bord → Utilisateurs → l'utilisateur → onglet Profil), elle est **réactivée à la passe suivante de réconciliation** (5 min au plus) tant que l'interrupteur global reste actif ; seul le décochage de cet interrupteur empêche de futures activations, sans jamais révoquer un accès déjà accordé. Les destinataires n'ont rien à activer.
 
 ### Partager une liste
 
@@ -590,4 +590,4 @@ Bon à savoir :
 
 ### Limites
 
-Ces écrans sont décrits d'après le code du client web (non testés dans un navigateur) ; le comportement des applis TV et mobile (visibilité, retrait, édition des étiquettes, reprise de lecture) n'est pas vérifié.
+Ces écrans sont décrits d'après le code du client web (non testés dans un navigateur). Le comportement des applis TV et mobile n'est **pas garanti**, en particulier l'édition des étiquettes : visibilité et retrait fonctionnent, mais poser ou modifier `remove-si-lu`/`propager-lu` depuis TV/mobile reste à vérifier manuellement (issue #28, en cours). Le message écrit dans la description d'une playlist gérée (texte exact : `HelpText.V2`) ne mentionne que le retrait et la propagation du flag lu ; il n'évoque pas la propagation de l'avancement de lecture (v0.3.1), livrée mais non encore reflétée dans ce message.
