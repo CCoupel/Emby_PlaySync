@@ -15,7 +15,7 @@ public sealed record RemovalResult(int Candidates, int PlaylistsChanged, int Ent
 /// CHAQUE playlist, un seul à la fois (jamais deux). Par playlist : première détection si non vue (marquée « vue » avant
 /// d'écrire), relecture fraîche, état lu dans le journal (<c>MarkerSeen</c>), puis retrait une entrée à la fois (résolue
 /// par ItemId à l'instant, plafond 50, doublons compris). Le flag lu n'est jamais modifié (R9). Une playlist en erreur
-/// n'arrête pas les suivantes ; <see cref="Handle"/> ne lève jamais. Suspendu quand <c>isSuspended</c> est vrai.
+/// n'arrête pas les suivantes ; <see cref="Handle"/> ne lève jamais.
 /// </summary>
 public sealed class ReadRemovalEngine
 {
@@ -31,11 +31,10 @@ public sealed class ReadRemovalEngine
     private readonly IJournal _journal;
     private readonly IClock _clock;
     private readonly TimeSpan _lockTimeout;
-    private readonly Func<bool> _isSuspended;
     private readonly TimeSpan _budget;
 
     public ReadRemovalEngine(IPlaylistGateway gateway, DefaultsService defaults, SeenPlaylists seen, PlaylistLocks locks,
-        IJournal journal, IClock clock, TimeSpan? lockTimeout = null, Func<bool>? isSuspended = null, TimeSpan? budget = null)
+        IJournal journal, IClock clock, TimeSpan? lockTimeout = null, TimeSpan? budget = null)
     {
         _gateway = gateway;
         _defaults = defaults;
@@ -44,7 +43,6 @@ public sealed class ReadRemovalEngine
         _journal = journal;
         _clock = clock;
         _lockTimeout = lockTimeout ?? PlaylistLocks.DefaultTimeout;
-        _isSuspended = isSuspended ?? (() => false);
         _budget = budget ?? DefaultBudget;
     }
 
@@ -58,8 +56,6 @@ public sealed class ReadRemovalEngine
 
         try
         {
-            if (_isSuspended()) return new RemovalResult(0, 0, 0, 0, 0);
-
             IReadOnlyList<PlaylistSnapshot> playlists;
             try
             {

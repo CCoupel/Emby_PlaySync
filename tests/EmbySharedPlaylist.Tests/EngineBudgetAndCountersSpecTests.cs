@@ -24,7 +24,7 @@ public class ReadRemovalEngineBudgetSpecTests
         public Rig() => Defaults = new DefaultsService(Gateway, Seen, Locks, Journal, "AIDE", 2);
 
         public ReadRemovalEngine Engine(TimeSpan? budget) =>
-            new(Gateway, Defaults, Seen, Locks, Journal, Clock, TimeSpan.FromMilliseconds(500), null, budget);
+            new(Gateway, Defaults, Seen, Locks, Journal, Clock, TimeSpan.FromMilliseconds(500), budget);
 
         public FakeGateway.State Playlist(string id, params string[] items)
         {

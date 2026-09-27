@@ -41,7 +41,6 @@ public sealed class PlaylistEventsListener : IServerEntryPoint
 
     private static void Handle(string playlistId)
     {
-        if (PluginRuntime.EngineSuspended) return;
         try { PluginRuntime.FirstDetection?.OnPlaylistEvent(playlistId); }
         catch { /* jamais d'exception vers Emby (le coordinateur a déjà journalisé) */ }
     }

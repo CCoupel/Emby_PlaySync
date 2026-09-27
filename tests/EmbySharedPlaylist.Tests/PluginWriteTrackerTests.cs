@@ -1,5 +1,4 @@
 using EmbySharedPlaylist.Core;
-using EmbySharedPlaylist.Spike;
 using Xunit;
 
 namespace EmbySharedPlaylist.Tests;

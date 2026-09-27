@@ -6,14 +6,8 @@ namespace EmbySharedPlaylist.Tests;
 public class PluginConfigurationTests
 {
     [Fact]
-    public void SpikeEndpoints_AreDisabledByDefault()
+    public void Diagnostics_IsEnabledByDefault()
     {
-        Assert.False(new PluginConfiguration().EnableSpikeEndpoints);
-    }
-
-    [Fact]
-    public void ReentrancyProbe_IsDisabledByDefault()
-    {
-        Assert.False(new PluginConfiguration().EnableReentrancyProbe);
+        Assert.True(new PluginConfiguration().EnableDiagnostics);
     }
 }

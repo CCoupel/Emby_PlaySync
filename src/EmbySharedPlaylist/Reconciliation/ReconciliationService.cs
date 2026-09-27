@@ -24,11 +24,10 @@ public sealed class ReconciliationService
     private readonly IJournal _journal;
     private readonly IClock _clock;
     private readonly TimeSpan _lockTimeout;
-    private readonly Func<bool> _isSuspended;
     private LastPassInfo? _last;
 
     public ReconciliationService(IPlaylistGateway gateway, DefaultsService defaults, SeenPlaylists seen, PlaylistLocks locks, IJournal journal, IClock clock,
-        TimeSpan? lockTimeout = null, Func<bool>? isSuspended = null)
+        TimeSpan? lockTimeout = null)
     {
         _gateway = gateway;
         _defaults = defaults;
@@ -37,20 +36,12 @@ public sealed class ReconciliationService
         _journal = journal;
         _clock = clock;
         _lockTimeout = lockTimeout ?? PlaylistLocks.DefaultTimeout;
-        _isSuspended = isSuspended ?? (() => false);
     }
 
     public LastPassInfo? LastPass => Volatile.Read(ref _last);
 
     public PassResult RunPass(CancellationToken cancellationToken = default)
     {
-        // Suspendu (sonde U11 active) : la passe ne lit ni n'écrit rien ; une seule entrée de journal, LastPass inchangée.
-        if (_isSuspended())
-        {
-            _journal.Add(JournalEntries.SkippedEntry(_clock, null, "suspended"));
-            return new PassResult(0, 0, 0, 0, 0);
-        }
-
         var sw = Stopwatch.StartNew();
         var shared = 0;
         var posed = 0;

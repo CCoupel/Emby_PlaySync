@@ -22,15 +22,14 @@ public class ReadRemovalEngineSpecTests
         public readonly ListJournal Journal = new();
         public readonly FakeClock Clock = new();
         public readonly PlayedTransitionTracker Tracker = new();
-        public bool Suspended;
         public readonly DefaultsService Defaults;
         public readonly ReadRemovalEngine Engine;
 
         public Flow(TimeSpan? lockTimeout = null)
         {
             var timeout = lockTimeout ?? TimeSpan.FromMilliseconds(500);
-            Defaults = new DefaultsService(Gateway, Seen, Locks, Journal, "AIDE", () => 2, Clock, timeout, () => Suspended);
-            Engine = new ReadRemovalEngine(Gateway, Defaults, Seen, Locks, Journal, Clock, timeout, () => Suspended);
+            Defaults = new DefaultsService(Gateway, Seen, Locks, Journal, "AIDE", () => 2, Clock, timeout);
+            Engine = new ReadRemovalEngine(Gateway, Defaults, Seen, Locks, Journal, Clock, timeout);
         }
 
         /// <summary>Playlist partagée : propriétaire « o », membres « m » (écriture) et « r » (lecture seule) ; description non vide par défaut.</summary>
@@ -309,7 +308,7 @@ public class ReadRemovalEngineSpecTests
     {
         var f = new Flow();
         var s = f.Playlist("p", Tags(""), null, "x");
-        var coordinator = new FirstDetectionCoordinator(f.Gateway, f.Defaults, f.Seen, f.Journal, f.Clock, () => f.Suspended);
+        var coordinator = new FirstDetectionCoordinator(f.Gateway, f.Defaults, f.Seen, f.Journal, f.Clock);
 
         using (WriteScope.Enter()) coordinator.OnPlaylistEvent("p");    // écho pendant une écriture du plugin : ignoré (compteur agrégé, pas d'entrée de journal)
         Assert.False(f.Seen.IsSeen("p"));
@@ -376,25 +375,5 @@ public class ReadRemovalEngineSpecTests
         Assert.Empty(s.Items);
         Assert.Equal(3, f.Journal.Of("Removal").Count());
         Assert.Empty(f.Journal.Of("Error"));
-    }
-
-    [Fact]
-    public void WhenSuspended_TheChainDoesNothing_ThenResumes()
-    {
-        var f = new Flow();
-        var s = f.Seenlist("p", Tags("remove-si-lu=OUI"), "x", "y");
-        f.Suspended = true;                                             // EnableReentrancyProbe=true : le moteur se tait
-
-        var result = f.UserData("m", "x", "TogglePlayed", true);
-
-        Assert.Equal(new RemovalResult(0, 0, 0, 0, 0), result);
-        Assert.Equal(new[] { "x", "y" }, s.Items);
-        Assert.Equal(0, f.Gateway.GetCalls);
-        Assert.Equal(0, f.Gateway.RemoveCalls);
-        Assert.Empty(f.Journal.Entries);
-
-        f.Suspended = false;
-        Assert.NotNull(f.UserData("m", "y", "TogglePlayed", true));     // reprise : la transition suivante est traitée
-        Assert.Equal(new[] { "x" }, s.Items);
     }
 }

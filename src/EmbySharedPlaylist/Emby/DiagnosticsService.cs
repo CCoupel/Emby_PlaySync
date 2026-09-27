@@ -11,7 +11,7 @@ namespace EmbySharedPlaylist.Emby;
 /// <summary>
 /// Diagnostic permanent (#14) : <c>GET /SharedPlaylist/Diagnostics/Journal</c> et <c>/State</c>. Administrateur uniquement
 /// (attribut sur chaque requête) ; 404 si <c>EnableDiagnostics</c> est faux ; lecture seule (sauf <c>clear</c>) ; ids seulement.
-/// Remplace <c>Spike/Events</c>. Les erreurs inattendues sont journalisées et renvoyées en 500 (type + message : acceptable
+/// Les erreurs inattendues sont journalisées et renvoyées en 500 (type + message : acceptable
 /// pour un endpoint admin de diagnostic, à ne pas reproduire dans un endpoint de production).
 /// </summary>
 public class DiagnosticsService : IService

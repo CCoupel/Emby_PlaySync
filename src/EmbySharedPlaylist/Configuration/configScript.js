@@ -12,8 +12,6 @@ define([], function () {
                 view.querySelector('#EnableDiagnostics').checked = cfg.EnableDiagnostics !== false;
                 view.querySelector('#LogToConsole').checked = cfg.LogToConsole !== false;
                 view.querySelector('#LogLevel').value = cfg.LogLevel || 'Info';
-                view.querySelector('#EnableSpikeEndpoints').checked = !!cfg.EnableSpikeEndpoints;
-                view.querySelector('#EnableReentrancyProbe').checked = !!cfg.EnableReentrancyProbe;
             });
         }
 
@@ -24,8 +22,6 @@ define([], function () {
                 cfg.EnableDiagnostics = view.querySelector('#EnableDiagnostics').checked;
                 cfg.LogToConsole = view.querySelector('#LogToConsole').checked;
                 cfg.LogLevel = view.querySelector('#LogLevel').value;
-                cfg.EnableSpikeEndpoints = view.querySelector('#EnableSpikeEndpoints').checked;
-                cfg.EnableReentrancyProbe = view.querySelector('#EnableReentrancyProbe').checked;
                 ApiClient.updatePluginConfiguration(PLUGIN_ID, cfg).then(function (result) {
                     Dashboard.processPluginConfigurationUpdateResult(result);
                 });

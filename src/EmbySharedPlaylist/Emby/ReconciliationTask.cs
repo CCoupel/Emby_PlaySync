@@ -45,11 +45,6 @@ public sealed class ReconciliationTask : IScheduledTask, IConfigurableScheduledT
         {
             try
             {
-                if (PluginRuntime.EngineSuspended)
-                {
-                    PluginRuntime.Log?.Info(LogFormat.FilePrefix + "réconciliation suspendue (sonde de réentrance active)");
-                    return;
-                }
                 var result = PluginRuntime.Reconciliation!.RunPass(cancellationToken);
                 progress?.Report(100);
                 PluginRuntime.Log?.Info($"{LogFormat.FilePrefix}réconciliation terminée playlists={result.Playlists} posed={result.Posed} pending={result.Pending} durationMs={result.DurationMs}");

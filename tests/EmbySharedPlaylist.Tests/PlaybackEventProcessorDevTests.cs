@@ -11,7 +11,6 @@ public class PlaybackEventProcessorDevTests
         public readonly PlayedTransitionTracker Tracker = new();
         public readonly HandlerStats Stats = new();
         public readonly List<(string User, string Item)> Handled = new();
-        public bool Suspended;
         public bool Scope;
         public Exception? Throw;
         public readonly PlaybackEventProcessor Processor;
@@ -23,7 +22,7 @@ public class PlaybackEventProcessorDevTests
                 Handled.Add((u, i));
                 if (Throw != null) throw Throw;
                 return new RemovalResult(1, 1, 1, 0, 0);
-            }, Stats, () => Suspended, () => Scope);
+            }, Stats, () => Scope);
         }
     }
 
@@ -49,18 +48,6 @@ public class PlaybackEventProcessorDevTests
     }
 
     [Fact]
-    public void Suspended_TouchesNothing_NotEvenTheTrackerMemory()
-    {
-        var r = new Rig();
-        r.Suspended = true;
-        Assert.Equal(PlaybackEventOutcome.Suspended, r.Processor.Process("u", "i", "PlaybackFinished", true));
-        Assert.Empty(r.Handled);
-        Assert.Equal(0, r.Tracker.Count);
-        r.Suspended = false;
-        Assert.Equal(PlaybackEventOutcome.Handled, r.Processor.Process("u", "i", "PlaybackFinished", true)); // rien n'a été mémorisé
-    }
-
-    [Fact]
     public void WriteScope_IgnoresOurOwnEvents_NotEvenTheTrackerMemory()
     {
         var r = new Rig();
@@ -68,14 +55,6 @@ public class PlaybackEventProcessorDevTests
         Assert.Equal(PlaybackEventOutcome.WriteScope, r.Processor.Process("u", "i", "TogglePlayed", true));
         Assert.Empty(r.Handled);
         Assert.Equal(0, r.Tracker.Count);
-    }
-
-    [Fact]
-    public void SuspensionIsCheckedBeforeTheWriteScope() // ordre des gardes
-    {
-        var r = new Rig();
-        r.Suspended = true; r.Scope = true;
-        Assert.Equal(PlaybackEventOutcome.Suspended, r.Processor.Process("u", "i", "TogglePlayed", true));
     }
 
     [Fact]
@@ -102,7 +81,7 @@ public class PlaybackEventProcessorDevTests
     [Fact]
     public void DefaultWriteScopeGuard_UsesTheRealWriteScope()
     {
-        var processor = new PlaybackEventProcessor(new PlayedTransitionTracker(), (u, i) => null, new HandlerStats(), () => false);
+        var processor = new PlaybackEventProcessor(new PlayedTransitionTracker(), (u, i) => null, new HandlerStats());
         using (WriteScope.Enter()) Assert.Equal(PlaybackEventOutcome.WriteScope, processor.Process("u", "i", "TogglePlayed", true));
         Assert.Equal(PlaybackEventOutcome.Handled, processor.Process("u", "i", "TogglePlayed", true));
     }

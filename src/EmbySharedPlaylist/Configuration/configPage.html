@@ -45,30 +45,6 @@
         </div>
       </div>
 
-      <div class="detailSection">
-        <div class="checkboxContainer checkboxContainer-withDescription">
-          <label>
-            <input type="checkbox" id="EnableSpikeEndpoints" is="emby-checkbox" class="emby-checkbox" />
-            <span>Activer les endpoints de diagnostic (Spike)</span>
-          </label>
-          <div class="fieldDescription checkboxFieldDescription">
-            Temporaire (v0.1.0) : expose <code>/SharedPlaylist/Spike/*</code> aux administrateurs. À laisser désactivé en production.
-          </div>
-        </div>
-      </div>
-
-      <div class="detailSection">
-        <div class="checkboxContainer checkboxContainer-withDescription">
-          <label>
-            <input type="checkbox" id="EnableReentrancyProbe" is="emby-checkbox" class="emby-checkbox" />
-            <span>Activer la sonde de réentrance (essai technique U11)</span>
-          </label>
-          <div class="fieldDescription checkboxFieldDescription">
-            Temporaire (v0.2.0) : écrit dans des playlists SPIKE-P1…P6 depuis les gestionnaires d'événements (n'importe quel compte, instance QUALIF : seules les playlists nommées SPIKE-P1…P6 sont touchées). À laisser désactivé.
-          </div>
-        </div>
-      </div>
-
       <button is="emby-button" type="button" id="btnSave" class="raised button-submit block emby-button">
         <span>Enregistrer</span>
       </button>

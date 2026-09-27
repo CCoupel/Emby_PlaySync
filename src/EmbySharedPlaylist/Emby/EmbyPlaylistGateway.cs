@@ -24,19 +24,16 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
     private readonly IItemRepository _itemRepository;
     private readonly IPlaylistManager _playlistManager;
     private readonly PlaylistEntryReader _entries;
-    private readonly Func<bool> _isSuspended;
     private readonly IJournal? _journal;
 
     /// <summary>Verrou d'écriture unique de la passerelle : la passe planifiée et les gestionnaires peuvent se croiser.</summary>
     private readonly object _writeGate = new();
 
-    /// <param name="isSuspended">Vrai = le moteur est suspendu (sonde U11 active) : aucune écriture, quoi que demande l'appelant (dernier garde-fou).</param>
     public EmbyPlaylistGateway(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository, IPlaylistManager playlistManager,
-        Func<bool>? isSuspended = null, IJournal? journal = null)
+        IJournal? journal = null)
     {
         _journal = journal;
         _entries = new PlaylistEntryReader(libraryManager, userManager, itemRepository);
-        _isSuspended = isSuspended ?? (() => false);
         _libraryManager = libraryManager;
         _userManager = userManager;
         _itemRepository = itemRepository;
@@ -87,7 +84,6 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
 
     public bool RemoveOneEntry(string playlistId, string itemId)
     {
-        if (_isSuspended()) return false;
         var playlist = FindPlaylist(playlistId);
         if (playlist == null || !long.TryParse(itemId, out var item)) return false;
         // Résolution par ItemId à l'instant : les identifiants d'entrée ne sont pas stables.
@@ -120,7 +116,6 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
 
     public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, string? overviewIfEmpty)
     {
-        if (_isSuspended()) return new ApplyResult();
         lock (_writeGate)
         {
             // Lecture fraîche PUIS écriture, dans la même section critique : on ne pose que ce qui manque à cet instant.

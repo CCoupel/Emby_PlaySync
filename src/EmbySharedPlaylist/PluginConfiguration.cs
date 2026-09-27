@@ -5,18 +5,6 @@ namespace EmbySharedPlaylist;
 
 public class PluginConfiguration : BasePluginConfiguration
 {
-    /// <summary>
-    /// Active les endpoints de diagnostic <c>/SharedPlaylist/Spike/*</c> (temporaires, v0.1.0).
-    /// Désactivé par défaut : les endpoints répondent alors 404.
-    /// </summary>
-    public bool EnableSpikeEndpoints { get; set; } = false;
-
-    /// <summary>
-    /// Active la sonde temporaire de réentrance U11 (B52, retirée avec Spike/*) : le scénario est choisi par le préfixe
-    /// du nom de la playlist (SPIKE-P1… à SPIKE-P6…). Sans garde de comptes (instance QUALIF) : seul le nom de playlist SPIKE-Pn active un scénario. Défaut : faux.
-    /// </summary>
-    public bool EnableReentrancyProbe { get; set; } = false;
-
     /// <summary>Nombre de passes de réconciliation consécutives sans étiquette (ou avec description vide) avant repose. Défaut 2, minimum 1.</summary>
     public int GracePasses { get; set; } = 2;
 

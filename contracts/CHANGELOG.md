@@ -1,5 +1,14 @@
 # Changelog des contrats
 
+## [20260927] — v0.2.0 : retrait de Spike/* et de la sonde de réentrance (#15)
+
+- **[REMOVED]** `/SharedPlaylist/Spike/*` (Setup, Playlists, RemoveItem, MarkPlayed, Events, SetPosition, Shares, Tags, Policy) et la sonde de réentrance U11 (scénarios P1–P6, pilotés par le nom de playlist `SPIKE-Pn`) : plus aucun code, endpoint ni test. Historique complet (routes, formats, garde-fous, casse JSON, divergences SDK) dans les entrées précédentes de ce fichier et dans git.
+- **[REMOVED]** Config plugin : `EnableSpikeEndpoints`, `EnableReentrancyProbe`. Retirées de `PluginConfiguration` et de la page de config.
+- **[REMOVED]** Suspension du moteur (n'avait de sens que pendant l'essai U11) : paramètre `isSuspended` de `EmbyPlaylistGateway`, `DefaultsService`, `ReconciliationService`, `FirstDetectionCoordinator`, `ReadRemovalEngine`, `PlaybackEventProcessor` ; `PluginRuntime.EngineSuspended`/`IsSuspended` ; contrôles dans `ReconciliationTask`, `PlaylistEventsListener`. Le moteur tourne désormais sans condition dès le démarrage du plugin.
+- **[CHANGED]** `Diagnostics/Journal?kind=` : le filtre ne connaît plus les kinds du spike (`Probe`, `UserDataSaved`, `PlaylistItemsAdded`…), seulement ceux du moteur.
+- **[CHANGED]** `LogFormat.Startup()`/`ConfigSaved()` : texte neutre (« démarré », « configuration enregistrée »), sans référence à Spike ni à `EnableSpikeEndpoints`. `Startup()` est désormais écrit une seule fois par `PluginRuntime.Initialize` (plus par un écouteur du spike).
+- **[INFO]** Conservés (utiles à #21 et au diagnostic permanent) : `PluginWriteTracker`, `PlaylistEntryReader`, `EventJournal`/`JournalEntry` (`Core/`).
+
 ## [20260926] — v0.2.0 : étiquettes `remove-si-lu` / `propager-lu` et retrait du média lu (planifié)
 
 - **[NEW]** `GET /SharedPlaylist/Diagnostics/Journal` — journal borné des décisions du plugin (admin, ids seulement, permanent) ; remplace `Spike/Events` (#14)

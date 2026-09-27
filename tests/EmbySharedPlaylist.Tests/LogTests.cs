@@ -1,5 +1,4 @@
 using EmbySharedPlaylist.Core;
-using EmbySharedPlaylist.Spike;
 using MediaBrowser.Model.Logging;
 using Moq;
 using Xunit;
@@ -13,9 +12,9 @@ public class LogTests
     {
         var logger = new Mock<ILogger>();
         var console = new StringWriter();
-        new Log(logger.Object, console).Info("EmbySharedPlaylist spike : ItemUpdated playlist=7 reason=MetadataEdit");
+        new Log(logger.Object, console).Info("EmbySharedPlaylist : ItemUpdated playlist=7 reason=MetadataEdit");
 
-        logger.Verify(l => l.Info("{0}", It.Is<object[]>(a => (string)a[0] == "EmbySharedPlaylist spike : ItemUpdated playlist=7 reason=MetadataEdit")), Times.Once);
+        logger.Verify(l => l.Info("{0}", It.Is<object[]>(a => (string)a[0] == "EmbySharedPlaylist : ItemUpdated playlist=7 reason=MetadataEdit")), Times.Once);
         Assert.Equal("[EmbySharedPlaylist] ItemUpdated playlist=7 reason=MetadataEdit" + Environment.NewLine, console.ToString());
     }
 
@@ -24,7 +23,7 @@ public class LogTests
     {
         var logger = new Mock<ILogger>();
         var console = new StringWriter();
-        new Log(logger.Object, console, () => new LogSettings(true, LogLevel.Debug)).Debug("EmbySharedPlaylist spike : UserDataSaved user=a item=1 reason=PlaybackProgress played=false pos=5 pluginWrite=false");
+        new Log(logger.Object, console, () => new LogSettings(true, LogLevel.Debug)).Debug("EmbySharedPlaylist : UserDataSaved user=a item=1 reason=PlaybackProgress played=false pos=5 pluginWrite=false");
 
         logger.Verify(l => l.Debug("{0}", It.IsAny<object[]>()), Times.Once);
         Assert.Equal(string.Empty, console.ToString());
@@ -61,35 +60,29 @@ public class LogTests
     public void NullLogger_StillWritesTheConsole()
     {
         var console = new StringWriter();
-        new Log(null, console).Info(LogFormat.Startup(true));
-        Assert.Equal("[EmbySharedPlaylist] écouteurs du spike enregistrés (EnableSpikeEndpoints=true)" + Environment.NewLine, console.ToString());
+        new Log(null, console).Info(LogFormat.Startup());
+        Assert.Equal("[EmbySharedPlaylist] démarré" + Environment.NewLine, console.ToString());
     }
 
     [Fact]
-    public void ConfigSaved_ReflectsTheCurrentValue_OnBothChannels()
+    public void ConfigSaved_WritesOnBothChannels()
     {
         var console = new StringWriter();
         var log = new Log(null, console);
-        log.Info(LogFormat.ConfigSaved(true));
-        log.Info(LogFormat.ConfigSaved(false));
-        Assert.Equal(new[]
-        {
-            "[EmbySharedPlaylist] configuration enregistrée (EnableSpikeEndpoints=true)",
-            "[EmbySharedPlaylist] configuration enregistrée (EnableSpikeEndpoints=false)"
-        }, console.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+        log.Info(LogFormat.ConfigSaved());
+        Assert.Equal("[EmbySharedPlaylist] configuration enregistrée" + Environment.NewLine, console.ToString());
     }
 
     [Theory]
-    [InlineData("EmbySharedPlaylist spike : Setup playlist=1 owner=g members=2", "[EmbySharedPlaylist] Setup playlist=1 owner=g members=2")]
-    [InlineData("EmbySharedPlaylist : configuration enregistrée (EnableSpikeEndpoints=true)", "[EmbySharedPlaylist] configuration enregistrée (EnableSpikeEndpoints=true)")]
+    [InlineData("EmbySharedPlaylist : configuration enregistrée", "[EmbySharedPlaylist] configuration enregistrée")]
     [InlineData("autre ligne", "[EmbySharedPlaylist] autre ligne")]
     public void ToConsole_ReplacesTheFilePrefixWithTheShortOne(string line, string expected) =>
         Assert.Equal(expected, LogFormat.ToConsole(line));
 
     [Fact]
     public void ToConsole_ErrorCarriesErrorAndExceptionType() =>
-        Assert.Equal("[EmbySharedPlaylist] ERROR SpikeSetup (ArgumentException)",
-            LogFormat.ToConsole("EmbySharedPlaylist spike : SpikeSetup", isError: true, exceptionType: "ArgumentException"));
+        Assert.Equal("[EmbySharedPlaylist] ERROR ScanPass (ArgumentException)",
+            LogFormat.ToConsole("EmbySharedPlaylist : ScanPass", isError: true, exceptionType: "ArgumentException"));
 
     private static LogSettings Set(bool console, LogLevel level) => new(console, level);
 

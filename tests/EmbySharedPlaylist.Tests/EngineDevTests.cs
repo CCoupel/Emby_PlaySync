@@ -171,13 +171,12 @@ public class ReadRemovalEngineDevTests
         public readonly SeenPlaylists Seen = new();
         public readonly PlaylistLocks Locks = new();
         public readonly ListJournal Journal = new();
-        public bool Suspended;
         public readonly ReadRemovalEngine Engine;
 
         public Rig()
         {
-            var defaults = new DefaultsService(Gateway, Seen, Locks, Journal, "AIDE", () => 2, null, TimeSpan.FromMilliseconds(150), () => Suspended);
-            Engine = new ReadRemovalEngine(Gateway, defaults, Seen, Locks, Journal, new FakeClock(), TimeSpan.FromMilliseconds(150), () => Suspended);
+            var defaults = new DefaultsService(Gateway, Seen, Locks, Journal, "AIDE", () => 2, null, TimeSpan.FromMilliseconds(150));
+            Engine = new ReadRemovalEngine(Gateway, defaults, Seen, Locks, Journal, new FakeClock(), TimeSpan.FromMilliseconds(150));
         }
 
         public FakeGateway.State Add(string id, string[] tags, params string[] items)
@@ -281,7 +280,7 @@ public class ReadRemovalEngineDevTests
         for (var i = 1; i <= 10; i++) r.Add(i.ToString(), new[] { "remove-si-lu=OUI" }, "m1");
         r.Gateway.OnRemove = _ => Thread.Sleep(60);
         var defaults = new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2, null, TimeSpan.FromSeconds(5));
-        var engine = new ReadRemovalEngine(r.Gateway, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), TimeSpan.FromSeconds(5), null, TimeSpan.FromMilliseconds(150));
+        var engine = new ReadRemovalEngine(r.Gateway, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(150));
 
         var result = engine.Handle("u", "m1");
 
@@ -298,7 +297,7 @@ public class ReadRemovalEngineDevTests
         var r = new Rig();
         var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
         var defaults = new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2);
-        var engine = new ReadRemovalEngine(r.Gateway, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), null, null, TimeSpan.Zero);
+        var engine = new ReadRemovalEngine(r.Gateway, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), null, TimeSpan.Zero);
         var result = engine.Handle("u", "m1");
         Assert.Equal(new[] { "m1" }, s.Items);
         Assert.Equal(1, result.Skipped);
@@ -451,19 +450,6 @@ public class ReadRemovalEngineDevTests
         Assert.Contains("2", held);
         Assert.False(r.Locks.IsHeldByCurrentThread("1") || r.Locks.IsHeldByCurrentThread("2"));
         Assert.False(WriteScope.Active);
-    }
-
-    [Fact]
-    public void Suspended_DoesNothing_NoGatewayCall()
-    {
-        var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
-        r.Suspended = true;
-        var result = r.Engine.Handle("u", "m1");
-        Assert.Equal(new RemovalResult(0, 0, 0, 0, 0), result);
-        Assert.Equal(new[] { "m1" }, s.Items);
-        Assert.Equal(0, r.Gateway.RemoveCalls);
-        Assert.Empty(r.Journal.Entries);
     }
 
     [Fact]

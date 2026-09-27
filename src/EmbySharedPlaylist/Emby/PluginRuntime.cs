@@ -35,19 +35,6 @@ public static class PluginRuntime
     public static ReadRemovalEngine? RemovalEngine { get; private set; }
     public static PlaybackEventProcessor? PlaybackProcessor { get; private set; }
 
-    /// <summary>
-    /// Vrai pendant l'essai technique de réentrance U11 (option <c>EnableReentrancyProbe</c>, temporaire) : le moteur n'écrit
-    /// alors rien (ni passe planifiée ni première détection), pour ne pas fausser la mesure ni toucher d'autres playlists.
-    /// Retiré avec la sonde (#15).
-    /// </summary>
-    public static bool EngineSuspended => IsSuspended(Plugin.Instance?.Configuration);
-
-    /// <summary>
-    /// Suspendu si l'option de la sonde est vraie OU si la configuration est inaccessible (fail-closed : sans configuration on
-    /// n'écrit pas). Relu à chaque appel, sans dépendre d'un état initialisé après le démarrage.
-    /// </summary>
-    public static bool IsSuspended(PluginConfiguration? configuration) => configuration == null || configuration.EnableReentrancyProbe;
-
     /// <summary>Idempotent : le premier appel construit les services, les suivants renvoient.</summary>
     public static void Initialize(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
         IPlaylistManager playlistManager, ILogManager logManager)
@@ -60,19 +47,20 @@ public static class PluginRuntime
             // Les Skipped bruyants (already-seen, reentrant…) ne vont qu'aux compteurs ; le reste est journalisé (mémoire + logs).
             var journal = new AggregatingJournal(new LoggingJournal(JournalStore, log), Skipped, log);
             var clock = new SystemClock();
-            var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager, () => EngineSuspended, journal);
+            var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager, journal: journal);
             var defaults = new DefaultsService(gateway, Seen, Locks, journal, HelpText.Message,
-                () => Plugin.Instance?.Configuration.EffectiveGracePasses ?? 2, clock, null, () => EngineSuspended);
+                () => Plugin.Instance?.Configuration.EffectiveGracePasses ?? 2, clock);
 
             Log = log;
             Journal = journal;
             Gateway = gateway;
             Defaults = defaults;
-            Reconciliation = new ReconciliationService(gateway, defaults, Seen, Locks, journal, clock, null, () => EngineSuspended);
-            FirstDetection = new FirstDetectionCoordinator(gateway, defaults, Seen, journal, clock, () => EngineSuspended);
-            RemovalEngine = new ReadRemovalEngine(gateway, defaults, Seen, Locks, journal, clock, null, () => EngineSuspended, ReadRemovalEngine.DefaultBudget);
+            Reconciliation = new ReconciliationService(gateway, defaults, Seen, Locks, journal, clock);
+            FirstDetection = new FirstDetectionCoordinator(gateway, defaults, Seen, journal, clock);
+            RemovalEngine = new ReadRemovalEngine(gateway, defaults, Seen, Locks, journal, clock, budget: ReadRemovalEngine.DefaultBudget);
             var engine = RemovalEngine;
-            PlaybackProcessor = new PlaybackEventProcessor(PlayedTransitions, (u, i) => engine!.Handle(u, i), Handler, () => EngineSuspended);
+            PlaybackProcessor = new PlaybackEventProcessor(PlayedTransitions, (u, i) => engine!.Handle(u, i), Handler);
+            log.Info(LogFormat.Startup());
             _initialized = true;
         }
     }

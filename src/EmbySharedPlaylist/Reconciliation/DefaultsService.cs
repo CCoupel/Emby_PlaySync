@@ -34,7 +34,6 @@ public sealed class DefaultsService
     private readonly Func<int> _gracePasses;
     private readonly IClock? _clock;
     private readonly TimeSpan _lockTimeout;
-    private readonly Func<bool> _isSuspended;
 
     public DefaultsService(IPlaylistGateway gateway, SeenPlaylists seen, PlaylistLocks locks, IJournal journal, string helpText, int gracePasses)
         : this(gateway, seen, locks, journal, helpText, () => gracePasses)
@@ -43,7 +42,7 @@ public sealed class DefaultsService
 
     /// <param name="gracePasses">Lu à chaque passe (la configuration peut changer ; borné à 1 minimum).</param>
     public DefaultsService(IPlaylistGateway gateway, SeenPlaylists seen, PlaylistLocks locks, IJournal journal, string helpText,
-        Func<int> gracePasses, IClock? clock = null, TimeSpan? lockTimeout = null, Func<bool>? isSuspended = null)
+        Func<int> gracePasses, IClock? clock = null, TimeSpan? lockTimeout = null)
     {
         _gateway = gateway;
         _seen = seen;
@@ -53,13 +52,10 @@ public sealed class DefaultsService
         _gracePasses = gracePasses;
         _clock = clock;
         _lockTimeout = lockTimeout ?? PlaylistLocks.DefaultTimeout;
-        _isSuspended = isSuspended ?? (() => false);
     }
 
     public DefaultsOutcome OnFirstDetection(PlaylistSnapshot p)
     {
-        // Suspendu (sonde U11 active) : aucune lecture ni écriture, la playlist n'est PAS marquée vue.
-        if (_isSuspended()) return DefaultsOutcome.SkippedOutcome;
         using var gate = _locks.TryAcquire(p.Id, _lockTimeout);
         if (gate == null) return Skip(p.Id, "lock-busy");
 
@@ -75,7 +71,6 @@ public sealed class DefaultsService
 
     public DefaultsOutcome OnPass(PlaylistSnapshot p)
     {
-        if (_isSuspended()) return DefaultsOutcome.SkippedOutcome;
         using var gate = _locks.TryAcquire(p.Id, _lockTimeout);
         if (gate == null) return Skip(p.Id, "lock-busy");
 

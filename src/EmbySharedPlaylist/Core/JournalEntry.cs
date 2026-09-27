@@ -1,6 +1,10 @@
 namespace EmbySharedPlaylist.Core;
 
-/// <summary>Événement capté par le spike (voir contracts/http-endpoints.md, Spike/Events).</summary>
+/// <summary>
+/// Événement du journal (<see cref="EventJournal"/>). Le moteur n'utilise que <see cref="Ts"/>, <see cref="Kind"/>,
+/// <see cref="UserId"/>, <see cref="ItemId"/>, <see cref="PlaylistId"/> et <see cref="Detail"/> (voir <c>Diagnostics/Journal</c>,
+/// contracts/http-endpoints.md) ; les autres champs restent disponibles pour la propagation du flag lu (#21).
+/// </summary>
 public sealed class JournalEntry
 {
     public string Ts { get; set; } = string.Empty;
@@ -18,6 +22,6 @@ public sealed class JournalEntry
     /// <summary><c>SaveReason</c> pour UserDataSaved ; <c>UpdateReason</c> pour ItemUpdated.</summary>
     public string? SaveReason { get; set; }
     public bool PluginWrite { get; set; }
-    /// <summary>Texte libre (ids et compteurs uniquement) : sonde de réentrance, kind Probe.</summary>
+    /// <summary>Texte libre (ids et compteurs uniquement), interprété selon <see cref="Kind"/> (voir contracts/http-endpoints.md).</summary>
     public string? Detail { get; set; }
 }
