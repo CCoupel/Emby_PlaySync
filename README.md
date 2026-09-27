@@ -11,7 +11,7 @@ Une playlist appartient à un utilisateur (le propriétaire), qui la partage ave
 | Étiquette | Effet quand elle vaut `OUI` | Version |
 |---|---|---|
 | `remove-si-lu` | Quand un membre passe un média de non lu à **lu**, il est **retiré de la liste pour tous**. | 0.2.0 |
-| `propager-lu` | L'**état de lecture** est copié chez les autres membres : le « lu » (0.3.0), puis la position de lecture, pour commencer avec un compte et poursuivre avec l'autre (0.3.1). | 0.3.0 / 0.3.1 |
+| `propager-lu` | L'**état de lecture** est copié chez les autres membres : le « lu » (0.3.0), puis l'**avancement de lecture** — pause et arrêt, ≥ 30 s de lecture — pour commencer avec un compte et poursuivre avec l'autre, la dernière lecture gagne (0.3.1). | 0.3.0 / 0.3.1 |
 
 - Dès qu'une playlist est partagée, le plugin pose `remove-si-lu=NON` et `propager-lu=NON` (et, si la description est vide, un message d'aide). Tant que ce sont des `NON`, **rien ne change** : Emby se comporte comme d'habitude (legacy).
 - Pour activer une option, le propriétaire **remplace `NON` par `OUI`** : ajouter `...=OUI` et retirer `...=NON` dans la même édition (Modifier les métadonnées > Mot-clé). Si `OUI` et `NON` sont présents ensemble, `NON` l'emporte. Le plugin ne supprime jamais une étiquette. Casse et espaces autour du `=` sont sans importance.

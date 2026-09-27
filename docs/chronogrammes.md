@@ -149,7 +149,7 @@ Le plugin ne mémorise rien : si le propriétaire vide ensuite la description, l
 | R7 | Si un membre a déjà le flag lu, le plugin n'y touche pas (compteur et date intacts) : `IsPlayed` renvoie vrai, aucun appel d'écriture (journal `Skipped already-played`). |
 | R8 | Un média auquel un membre n'a pas accès (droits de bibliothèque, contrôle parental) est ignoré silencieusement pour ce membre : le flag lu n'est pas posé chez lui. `IUserDataGateway.IsPlayed` renvoie `null` dans ce cas (pas d'exception, pas de champ séparé), traité comme R8 (journal `Skipped no-access`). |
 | R9 | Retirer un média (explicite ou parce que lu) ne modifie aucun flag ; les deux causes donnent le même état de liste. |
-| R10 | **Avancement (D9, `propager-lu`)** : à l'arrêt ou à la pause d'une lecture par un membre (origine utilisateur), pour chaque playlist partagée contenant le média, dont il est membre et dont `propager-lu=OUI` est actif, la position de lecture (`PlaybackPositionTicks`) est écrite chez les autres membres. La **dernière lecture gagne**, dans les deux sens. Pas de transitivité entre listes. Anti-écho identique au lu (R5). **Jamais de position propagée quand `played=true`** (Emby remet la position à 0 à la fin) ni de position 0 issue du démarrage ; à la transition vers lu, R4a/R4b prennent le relais. Sans `propager-lu=OUI` : aucune écriture. Les autres données utilisateur (favori, note) ne sont pas touchées. Livrée en **v0.3.1** (issues #44–#48). |
+| R10 | **Avancement (D9, `propager-lu`)** : à la **pause** (transition non en pause → en pause) ou à l'**arrêt réel** d'une lecture par un membre (origine utilisateur), pour chaque playlist partagée contenant le média, dont il est membre et dont `propager-lu=OUI` est actif, la position de lecture est écrite chez les autres membres. **Déclencheur : `ISessionManager.PlaybackProgress`/`PlaybackStopped`, PAS `UserDataSaved`** (qui reste réservé au lu, R4a/R4b/R5/R7/R8, inchangé) : deux flux d'événements totalement indépendants, sans garantie d'ordre entre eux. La **dernière lecture gagne**, dans les deux sens. Pas de transitivité entre listes. Anti-écho : aucune garde nouvelle côté session ; l'écriture de la position déclenche un `UserDataSaved` chez le destinataire, déjà couvert par l'anti-écho du lu (R5, #21). **Aucune anticipation par ratio position/durée** : à l'arrêt, seul l'état **lu connu à l'instant de l'événement** est consulté ; un arrêt à 95–99 % non encore marqué lu propage normalement sa position, quitte à être écrasée par le passage au lu dès qu'il survient (bloquer par anticipation priverait l'autre membre d'information). **Seuil minimal ~30 s** : un arrêt ou une pause plus courte est ignoré. Sans `propager-lu=OUI` : aucune écriture. Les autres données utilisateur (favori, note) ne sont pas touchées. Livrée en **v0.3.1** (issues #44–#48). |
 | R11 | **Aucun état persisté** : ni fichier, ni configuration. Le plugin garde en mémoire les playlists déjà vues et les compteurs de grâce ; après un redémarrage tout repart à zéro (première détection immédiate). « Le plugin replace ce qui manque » : étiquette absente reposée, message d'aide réécrit si la description est vide. |
 | R12 | **Exécution** : le traitement d'une transition est **immédiat**, dans le gestionnaire d'événement, sous un **verrou par playlist** (jamais deux verrous à la fois), **sans file**. La passe périodique et tous les gestionnaires prennent le même verrou. Le plugin n'utilise que les appels internes d'Emby (jamais de SQL). Une exception n'échappe jamais au gestionnaire. L'essai de ré-entrance (U11, #52) fixe le mode définitif : immédiat, sinon repli sur un autre fil (`Task.Run`) toujours sous le verrou. |
 
@@ -394,33 +394,57 @@ L'entrée est reconnue **avant** toute autre garde (elle passe après le drapeau
 
 ### S9 — Avancement : U1 commence, U2 poursuit (R10)
 
-U1 et U2 sont membres de la playlist `À voir` (`propager-lu=OUI` seule) qui contient F1.
+U1 et U2 sont membres de la playlist `À voir` (`propager-lu=OUI` seule) qui contient F1. Le déclencheur est `ISessionManager` (`PlaybackSessionListener`), pas `UserDataSaved` : un flux d'événements distinct de celui du lu.
 
 ```mermaid
 sequenceDiagram
     actor U1
     actor U2
-    participant P as Plugin
-    U1->>P: arrêt de F1 à 10 min (origine utilisateur)
-    P->>P: R10 : U1 membre, propager-lu=OUI
-    P->>U2: écrit la position 10 min (marqué plugin)
-    U2-->>P: événement retour ignoré (R5)
-    U2->>P: reprend à 10 min, arrêt à 25 min (origine utilisateur)
+    participant S as Emby (ISessionManager)
+    participant P as Plugin (PlaybackSessionListener)
+    U1->>S: arrête F1 à 10 min (≥ 30 s de lecture, origine utilisateur)
+    S->>P: PlaybackStopped(U1, F1, position=10 min)
+    P->>P: R10 : U1 membre, propager-lu=OUI, état lu connu = non lu
+    P->>U2: écrit la position 10 min (SaveUserData, marqué plugin)
+    U2-->>P: écho UserDataSaved(U2, F1) ignoré (anti-écho du lu, R5/#21)
+    U2->>S: reprend à 10 min, arrête à 25 min (origine utilisateur)
+    S->>P: PlaybackStopped(U2, F1, position=25 min)
     P->>U1: écrit la position 25 min (marqué plugin)
-    U1-->>P: événement retour ignoré (R5)
+    U1-->>P: écho ignoré
 ```
 
 | t | Événement | Playlist | Position U1 | Position U2 |
 |---|---|---|---|---|
 | 0 | état initial | ▣ | 0 | 0 |
-| 1 | U1 lit F1 et arrête à 10 min | ▣ | 10 min (u) | 0 |
+| 1 | U1 lit F1 et arrête à 10 min (`PlaybackStopped`, ≥ 30 s) | ▣ | 10 min (u) | 0 |
 | 2 | plugin : propagation de l'avancement | ▣ | 10 min | 10 min (p) |
-| 3 | retour d'événement | ▣ | 10 min | 10 min (ignoré) |
+| 3 | retour d'événement (`UserDataSaved` chez U2) | ▣ | 10 min | 10 min (ignoré) |
 | 4 | U2 reprend à 10 min, arrête à 25 min | ▣ | 10 min | 25 min (u) |
 | 5 | plugin : propagation (dernière lecture gagne) | ▣ | 25 min (p) | 25 min |
 | 6 | retour d'événement | ▣ | 25 min | 25 min (ignoré) |
-| 7 | U2 termine F1 (transition non lu → lu) | ▣ | 25 min | Lu (u) |
+| 7 | U2 termine F1 (transition non lu → lu, `UserDataSaved`) | ▣ | 25 min | Lu (u) |
 | 8 | plugin : règles du lu (R4a retrait si `remove-si-lu=OUI`, R4b propagation) | □ (p) | Lu (p) | Lu |
+
+### S9b — Pause réelle (pas seulement l'arrêt)
+
+`propager-lu=OUI`. U1 lit F1 et le **met en pause** (sans arrêter la lecture) à 8 min, plus de 30 s après le début.
+
+| t | Événement | Position U1 | U2 |
+|---|---|---|---|
+| 0 | état initial | 0 | 0 |
+| 1 | U1 met F1 en pause à 8 min (`ISessionManager.PlaybackProgress`, transition non-pause → pause) | 8 min (u) | 0 |
+| 2 | plugin : propagation (même règle qu'à l'arrêt) | 8 min | 8 min (p) |
+
+### S9c — Arrêt proche de la fin, non encore marqué lu
+
+`propager-lu=OUI`. F1 dure 100 min. U1 arrête à 97 min (97 %), sans que `played` ne soit passé à vrai à l'instant de l'événement.
+
+| t | Événement | Position U1 | U2 | Effet |
+|---|---|---|---|---|
+| 0 | état initial | 0 | 0 | — |
+| 1 | U1 arrête F1 à 97 min, état lu connu = non lu | 97 min (u) | 0 | R10 : propagation normale, **aucune anticipation** sur le ratio position/durée |
+| 2 | plugin : propagation de l'avancement | 97 min | 97 min (p) | — |
+| 3 | Emby marque F1 lu pour U1 peu après (`UserDataSaved`, transition) | Lu (u) | 97 min | Flux indépendant : R4a/R4b prennent le relais pour U1 ; la position propagée à U2 n'est pas écrasée rétroactivement |
 
 Sans `propager-lu=OUI` seule, seules les lignes des actions utilisateur ont lieu : aucune écriture du plugin. Propagation livrée en **v0.3.1** (#44–#48) ; comportement de `SaveReason`, écriture pour un autre utilisateur et « reprendre la lecture » à valider par le spike U10 (#44).
 
@@ -457,8 +481,12 @@ transition_vers_lu(user, item, saveReason, played):
     si saveReason ∈ {PlaybackProgress, PlaybackFinished}: mémoriser ; return vrai   # inconnue = transition, motifs de lecture seulement (retrait idempotent)
     mémoriser ; return faux                                 # Import, UpdateUserRating, UpdateHideFromResume, motif inconnu : mémorisé sans transition
 
-sur UserDataSaved (arrêt/pause, played = faux, position > 0), si propager-lu(L) = OUI:   # R10 (v0.3.1)
-    pour chaque m ∈ L.membres \ {user} avec accès: SaveUserData(m, item, PlaybackPositionTicks)
+sur ISessionManager.PlaybackStopped(user, item, position) ou PlaybackProgress(user, item, position, transition non-pause → pause):   # R10 (v0.3.1, flux indépendant de UserDataSaved)
+    si position < seuil_minimal (~30 s): return
+    pour chaque playlist L partagée où user ∈ L.membres et item ∈ L, si propager-lu(L) = OUI:
+        # aucune anticipation sur ratio position/durée ; l'état lu, si déjà connu, n'empêche pas la propagation
+        pour chaque m ∈ L.membres \ {user} avec accès:
+            enregistrer (m, item) dans écritures_plugin ; SaveUserData(m, item, PlaybackPositionTicks)   # écrit un UserDataSaved chez m, couvert par l'anti-écho du lu (#21)
 
 famille(L, f):
     tags = étiquettes de L (casse ignorée, espaces autour de « = » tolérés)
@@ -492,7 +520,7 @@ passe périodique (tâche planifiée Emby : démarrage + 5 min):
 | D6 | **Playlist « gérée » = partagée avec au moins un membre** autre que le propriétaire. Aucune liste d'identifiants dans la config du plugin. |
 | D7 | **Permission propriétaire** : `AllowSharingPersonalItems` requise pour le propriétaire uniquement (voir §0). |
 | D8 | **Permission posée automatiquement** : le plugin pose `AllowSharingPersonalItems=true` pour tous les utilisateurs (existants et nouveaux), avec un interrupteur de configuration (`AutoEnableSharing`, **actif par défaut**). Désactiver l'interrupteur **ne révoque rien**. Cette décision **élargit les droits** des utilisateurs : à auditer (issue #29). Livrée en v0.4.0. |
-| D9 | **Avancement de lecture** : la position de lecture est propagée aux autres membres quand `propager-lu=OUI` est actif (R10). Dernière lecture gagne, pas de transitivité, anti-écho identique au lu. Livrée en v0.3.1. |
+| D9 | **Avancement de lecture** : la position de lecture est propagée aux autres membres quand `propager-lu=OUI` est actif (R10), sur pause ou arrêt réel, **via `ISessionManager`** (point d'entrée `PlaybackSessionListener`), indépendamment du flux `UserDataSaved` du lu. Dernière lecture gagne, pas de transitivité, seuil minimal ~30 s, aucune anticipation sur l'état lu. Livrée en v0.3.1. |
 | D10 | **Retrait sur la transition non lu → lu** (R4c) : marquage manuel, ou `played` qui passe à vrai en cours/fin de lecture quel que soit le `SaveReason`. Un média déjà lu relu ne déclenche rien ; décocher puis recocher « lu » retire (`TogglePlayed` avec `played=true` est toujours une transition). **État inconnu** : « inconnue = transition » ne vaut que pour les motifs de lecture ; `Import`, `UpdateUserRating`, `UpdateHideFromResume` et tout motif inconnu sont mémorisés sans transition (favori, import ou masquage d'un film déjà vu ne le retire pas ; limite acceptée : un import légitime qui marque lu ne retire plus le média). Un membre en lecture seule (`Read`) déclenche le retrait pour tous. Les playlists publiques sans partage explicite sont ignorées. |
 | D11 | **Aucun état persisté** (R11) : mémoire seulement (playlists vues, compteurs de grâce). « Le plugin replace ce qui manque » : une description vidée ou des étiquettes supprimées sont reposées après la grâce (accepté). |
 | D12 | **Exécution immédiate sous verrou par playlist, sans file** (R12), appels internes d'Emby uniquement ; passe périodique pour ce qu'aucun événement ne signale (partage créé sans action, repose après grâce). Mode définitif fixé par l'essai de ré-entrance U11 (#52). |
@@ -508,7 +536,7 @@ passe périodique (tâche planifiée Emby : démarrage + 5 min):
 2. **Clients** : TV/mobile (U8), édition des étiquettes (`=`, casse, remplacement NON → OUI en une sauvegarde) dans l'éditeur web réel et sur TV/mobile, page de configuration du plugin (404 observé), retrait pendant la lecture d'une file.
 3. **Anti-écho** (v0.3.0, #21) : une entrée d'écriture plugin dont l'événement n'est jamais émis reste 5 min et peut marquer à tort l'écriture utilisateur suivante.
 4. **D8 (v0.4.0)** : comptes désactivés et profils enfants inclus ? Appliquer une seule fois par utilisateur pour respecter un décochage volontaire ? Événement de création d'utilisateur non établi.
-5. **Avancement (D9, v0.3.1)** : seuil minimal de position, lectures simultanées, comportement près de la fin.
+5. **Avancement (D9, v0.3.1)** : lectures simultanées (deux membres qui arrêtent presque en même temps) ; ordre relatif entre l'écriture de position et la transition vers lu de l'autre flux (`ISessionManager` vs `UserDataSaved`, sans garantie).
 6. **Langue du message d'aide** : français seul jusqu'à la localisation FR/EN.
 
 ### Risques documentés (v0.2.0)
