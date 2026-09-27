@@ -4,7 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>EmbySharedPlaylist</AssemblyName>
     <RootNamespace>EmbySharedPlaylist</RootNamespace>
-    <Version>0.3.0.1</Version>
+    <Version>0.3.0.2</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
