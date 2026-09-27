@@ -88,7 +88,7 @@ i27() {
   sid=$(play_start "$U1" "$T1" "$item")
   play_progress "$U1" "$T1" "$item" "$sid" "$((p1t/2))" false >/dev/null
   apiok '2*' POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --arg s "$sid" --argjson p "$p1t" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$T1"
-  nap 3
+  wait_position "$U2" "$T2" "$item" "$p1t" 10 || true   # attente active (#47) : évite de lire avant la fin de la propagation sous charge
   pu2=$(position_of "$U2" "$T2" "$item")
   ck I27.propagated "U2 reprend à la position de l'arrêt de U1 (P1=$p1t)" "{\"u2\":\"$pu2\",\"expected\":$p1t}" test "$pu2" = "$p1t"
   ck I27.notplayed "le média n'est PAS marqué lu (avancement seul)" "null" test "$(played_of "$U1" "$T1" "$item")/$(played_of "$U2" "$T2" "$item")" = "false/false"
@@ -99,10 +99,11 @@ i27() {
   sid=$(play_start "$U2" "$T2" "$item")
   play_progress "$U2" "$T2" "$item" "$sid" "$p1t" false >/dev/null
   apiok '2*' POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --arg s "$sid" --argjson p "$p2t" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$T2"
-  nap 3
+  wait_position "$U1" "$T1" "$item" "$p2t" 10 || true
   pu1=$(position_of "$U1" "$T1" "$item")
   ck I28.propagated "U1 reprend à la position de l'arrêt de U2 (P2=$p2t, dernier écrit gagne)" "{\"u1\":\"$pu1\",\"expected\":$p2t}" test "$pu1" = "$p2t"
-  j=$(journal "PositionPropagation")   # journal vidé (jclear) juste avant l'action de I28 : ne contient que SA propre entrée
+  wait_journal "$pl" PositionPropagation '' 1 10 || true   # journal vidé (jclear) juste avant l'action de I28 : ne contient que SA propre entrée
+  j=$(journal "PositionPropagation")
   ck I28.journal "au moins une entrée PositionPropagation (I28)" "$j" test "$(jcount "$j" "$pl" PositionPropagation)" -ge 1
 }
 
@@ -119,11 +120,13 @@ i29() {
     jclear
     apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s","PlayMethod":"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
     apiok '2*' POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --argjson p "$p" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s",PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$T2"
-    nap 2
-    pos=$(position_of "$U1" "$T1" "$item")
     if [[ $expect == true ]]; then
+      wait_position "$U1" "$T1" "$item" "$p" 10 || true   # attente active (#47) : positif, doit se produire
+      pos=$(position_of "$U1" "$T1" "$item")
       ck "I29.$id" "propager-lu=$state : propagation active => u1 reçoit la position ($p)" "{\"u1\":\"$pos\"}" test "$pos" = "$p"
     else
+      nap 2   # négatif (rien ne doit se produire) : fenêtre fixe volontaire, pas d'attente active (cf. stays())
+      pos=$(position_of "$U1" "$T1" "$item")
       ck "I29.$id" "propager-lu=$state : inactif => aucune écriture (u1 reste à 0)" "{\"u1\":\"$pos\"}" test "$pos" = 0
     fi
   done
@@ -155,7 +158,7 @@ i31() {
   jclear
   apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s31a",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
   apiok '2*' POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --argjson p "$p" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s31a",PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$T2"
-  nap 2
+  wait_position "$U1" "$T1" "$item" "$p" 10 || true
   ck I31.first "première écriture : u1 à la position $p" "null" test "$(position_of "$U1" "$T1" "$item")" = "$p"
   jclear
   apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s31b",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
@@ -175,8 +178,7 @@ i32() {
   set_marker_state "$pl" remove-si-lu oui; set_marker_state "$pl" propager-lu oui
   jclear
   finish "$U2" "$T2" "$item"   # transition non lu -> lu (TogglePlayed), comme #12/#20
-  nap 3
-  ck I32.removed "retrait toujours actif (#12, régression)" "null" wait_count "$pl" "$item" 0 10
+  ck I32.removed "retrait toujours actif (#12, régression)" "null" wait_count "$pl" "$item" 0 10   # attente active : retrait et propagation du lu partagent la même passe synchrone
   ck I32.propagatedplayed "flag lu toujours propagé (#20, régression)" "null" test "$(played_of "$U1" "$T1" "$item")" = true
   ck I32.noposition "AUCUNE position propagée (u1 reste à 0)" "null" test "$(position_of "$U1" "$T1" "$item")" = 0
   j=$(journal "PositionPropagation")
@@ -196,7 +198,7 @@ i33() {
   jclear
   apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s33",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
   apiok '2*' POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --argjson p "$p" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s33",PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$T2"
-  nap 3
+  wait_position "$U1" "$T1" "$item" "$p" 10 || true
   ck I33.propagated "L1 : u1 (membre des deux) reçoit la position (via L1 seule)" "null" test "$(position_of "$U1" "$T1" "$item")" = "$p"
   ck I33.notransitivity "L2 : u3 (membre de L2 seule) jamais touché" "null" test "$(position_of "$U3" "$T3" "$item")" = 0
   nap 3   # laisse le temps à un éventuel écho (origine plugin, u1) de se propager à tort avant de revérifier L2
@@ -214,7 +216,7 @@ i37() {
   jclear
   apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s37",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
   apiok '2*' POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --argjson p "$p" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s37",PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$T2"
-  nap 3
+  wait_position "$U1" "$T1" "$item" "$p" 10 || true
   u2played=$(played_of "$U2" "$T2" "$item")
   pu1=$(position_of "$U1" "$T1" "$item")
   if [[ $pu1 == "$p" ]]; then
@@ -248,7 +250,7 @@ i34() {
     skip I34 "l'API Sessions/Playing/Progress avec IsPaused a répondu HTTP $st1/$st2 (attendu 2xx) : voir tests/integration/MANUAL.md (avancement) pour la vérification manuelle"
     return
   fi
-  nap 3
+  wait_position "$U1" "$T1" "$item" "$p" 10 || true
   pu1=$(position_of "$U1" "$T1" "$item")
   if [[ $pu1 == "$p" ]]; then
     rec I34 OK "pause réelle propagée : u1 reçoit la position ($p) sans aucun arrêt" "{\"u1\":\"$pu1\"}"
@@ -291,7 +293,7 @@ i36() {
   jclear
   apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s36",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
   apiok '2*' POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --argjson p "$p" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s36",PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$T2"
-  nap 2
+  wait_position "$U1" "$T1" "$item" "$p" 10 || true   # même passe synchrone que les entrées de journal ci-dessous : pas d'attente séparée pour elles
   ck I36.others "u1 (avec accès) reçoit la position malgré le membre restreint" "null" test "$(position_of "$U1" "$T1" "$item")" = "$p"
   j=$(journal "PositionPropagation,Skipped,Error")
   n1=$(jcount "$j" "$pl" PositionPropagation '(^|[^A-Za-z])noAccess=[1-9]'); n2=$(jcount "$j" "$pl" Skipped 'no-access')

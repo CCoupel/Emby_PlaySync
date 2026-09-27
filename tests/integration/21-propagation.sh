@@ -96,7 +96,15 @@ next_media() {   # bassin recyclé (round-robin) : remet à « non lu » AVANT d
   local n idx id
   n=$(cat "$SCRATCH/next_m"); idx=$((n % ${#POOL[@]})); id=${POOL[$idx]}
   echo $((n+1)) > "$SCRATCH/next_m"
-  if [[ $n -ge ${#POOL[@]} ]]; then reset_played "$id"; fi
+  if [[ $n -ge ${#POOL[@]} ]]; then
+    reset_played "$id"
+    # attente active (#47, qa-integration-v031 : I18.E — un précédent « lu » pas encore retombé au moment où le média
+    # recyclé était rendu à un scénario suivant) : confirme que le reset est bien retombé côté serveur avant de rendre
+    # la main, au lieu de faire confiance à la réponse HTTP synchrone de TogglePlayed seule.
+    wait_played "$U1" "$T1" "$id" false 10 || true
+    wait_played "$U2" "$T2" "$id" false 10 || true
+    wait_played "$U3" "$T3" "$id" false 10 || true
+  fi
   echo "$id"
 }
 
@@ -126,11 +134,14 @@ i18() {
     else
       ck "I18.$id.removed" "RM=$rm/PR=$pr : retrait inactif => média reste" "null" stays "$pl" "$item" 1 4
     fi
-    nap 2
-    p1=$(played_of "$U1" "$T1" "$item"); p3=$(played_of "$U3" "$T3" "$item")
     if [[ $propagated == true ]]; then
+      wait_played "$U1" "$T1" "$item" true 10 || true   # attente active (#47) : positif, doit se produire
+      wait_played "$U3" "$T3" "$item" true 10 || true
+      p1=$(played_of "$U1" "$T1" "$item"); p3=$(played_of "$U3" "$T3" "$item")
       ck "I18.$id.propagated" "RM=$rm/PR=$pr : propagation active => u1 et u3 passent lu" "{\"u1\":\"$p1\",\"u3\":\"$p3\"}" test "$p1/$p3" = "true/true"
     else
+      nap 2   # négatif (rien ne doit se produire) : fenêtre fixe volontaire, pas d'attente active
+      p1=$(played_of "$U1" "$T1" "$item"); p3=$(played_of "$U3" "$T3" "$item")
       ck "I18.$id.propagated" "RM=$rm/PR=$pr : propagation inactive => u1 et u3 restent non lus" "{\"u1\":\"$p1\",\"u3\":\"$p3\"}" test "$p1/$p3" = "false/false"
     fi
     j=$(journal Propagation)
@@ -151,11 +162,12 @@ i19() {
   prime "$pl" || true
   set_marker_state "$pl" remove-si-lu non   # propagation seule : le média reste, pas d'interférence du retrait
   set_marker_state "$pl" propager-lu oui
-  finish "$U3" "$T3" "$item"; nap 2         # u3 marque lu LUI-MÊME (action native, pas le plugin) : état « avant »
+  finish "$U3" "$T3" "$item"                # u3 marque lu LUI-MÊME (action native, pas le plugin) : état « avant »
+  wait_played "$U3" "$T3" "$item" true 10 || true
   before=$(api GET "/Users/$U3/Items/$item" "" "$T3" >/dev/null; jq -c '.UserData|{Played,LastPlayedDate,PlayCount}' "$RESP")
   jclear
   finish "$U2" "$T2" "$item"                # u2 déclenche : propagation visée sur u1 (neuf) ET u3 (déjà lu)
-  nap 2
+  wait_played "$U1" "$T1" "$item" true 10 || true   # attente active (#47) : positif (u1, neuf), même passe que u3 (déjà lu, inchangé)
   after=$(api GET "/Users/$U3/Items/$item" "" "$T3" >/dev/null; jq -c '.UserData|{Played,LastPlayedDate,PlayCount}' "$RESP")
   ck I19.unchanged "compteur/date/flag de u3 (déjà lu) inchangés après une transition qui le concerne" "{\"before\":$before,\"after\":$after}" test "$before" = "$after"
   p1=$(played_of "$U1" "$T1" "$item")
@@ -177,7 +189,7 @@ i20() {
   set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
   jclear
   finish "$U2" "$T2" "$item"
-  nap 2
+  wait_played "$U1" "$T1" "$item" true 10 || true
   # Pas de contrôle par GET /Users/{id}/Items/{item} générique (confirmé par qa : cette route REST renvoie 200 pour
   # test_u4 malgré EnableAllFolders=false — sémantique différente de BaseItem.IsVisibleStandalone(user), utilisé en
   # interne par le plugin, qui détecte correctement l'absence d'accès). La preuve retenue est ci-dessous : Propagation
@@ -199,7 +211,8 @@ i21() {
   pl=$(shared_pl "SPIKE-I21" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
   set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
-  finish "$U2" "$T2" "$item"; nap 2   # transition lu -> propagation normale attendue (u1 ET u3, tous deux membres)
+  finish "$U2" "$T2" "$item"   # transition lu -> propagation normale attendue (u1 ET u3, tous deux membres)
+  wait_played "$U1" "$T1" "$item" true 10 || true; wait_played "$U3" "$T3" "$item" true 10 || true
   p1=$(played_of "$U1" "$T1" "$item"); p3before=$(played_of "$U3" "$T3" "$item")
   ck I21.setup "propagation initiale bien effective (u1 ET u3 lus)" "{\"u1\":\"$p1\",\"u3\":\"$p3before\"}" test "$p1/$p3before" = "true/true"
   jclear
@@ -220,7 +233,7 @@ i22() {
   set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
   jclear
   finish "$U3" "$T3" "$item"   # u3 = Read
-  nap 2
+  wait_played "$U1" "$T1" "$item" true 10 || true; wait_played "$U2" "$T2" "$item" true 10 || true
   p1=$(played_of "$U1" "$T1" "$item"); p2=$(played_of "$U2" "$T2" "$item")
   ck I22.read "membre Read (u3) déclenche la propagation vers propriétaire et Write" "{\"u1\":\"$p1\",\"u2\":\"$p2\"}" test "$p1/$p2" = "true/true"
   drop_item "$pl" "$item"   # média recyclé
@@ -238,8 +251,7 @@ i23() {
   set_marker_state "$L2" remove-si-lu oui; set_marker_state "$L2" propager-lu oui
   jclear
   finish "$U2" "$T2" "$item"
-  nap 3
-  ck I23.S6a.L1removed "L1 : F1 retiré" "null" wait_count "$L1" "$item" 0 10
+  ck I23.S6a.L1removed "L1 : F1 retiré" "null" wait_count "$L1" "$item" 0 10   # attente active : retrait et propagation (même playlist) partagent la passe
   ck I23.S6a.L2untouched "L2 : F1 TOUJOURS présent (aucune transitivité)" "null" test "$(count_item "$L2" "$item")" = 1
   p1=$(played_of "$U1" "$T1" "$item"); p3=$(played_of "$U3" "$T3" "$item")
   ck I23.S6a.propagation "propriétaire (membre des deux) propagé ; U3 (L2 seule) jamais touché" "{\"u1\":\"$p1\",\"u3\":\"$p3\"}" test "$p1/$p3" = "true/false"
@@ -257,7 +269,7 @@ i23() {
   set_marker_state "$L2b" remove-si-lu oui; set_marker_state "$L2b" propager-lu oui
   jclear
   finish "$U1" "$T1" "$F2"
-  nap 3
+  wait_count "$L1b" "$F2" 0 10 || true; wait_count "$L2b" "$F2" 0 10 || true
   ck I23.S6b.bothremoved "les DEUX listes perdent F2" "null" test "$(count_item "$L1b" "$F2")/$(count_item "$L2b" "$F2")" = "0/0"
   p2=$(played_of "$U2" "$T2" "$F2"); p3b=$(played_of "$U3" "$T3" "$F2")
   ck I23.S6b.bothpropagated "les DEUX cotés propagés (membre de L1 et membre de L2)" "{\"u2\":\"$p2\",\"u3\":\"$p3b\"}" test "$p2/$p3b" = "true/true"
@@ -271,7 +283,6 @@ i23() {
   set_marker_state "$L2c" remove-si-lu oui; set_marker_state "$L2c" propager-lu oui
   jclear
   finish "$U3" "$T3" "$F3"
-  nap 3
   ck I23.S6c.L2removed "L2 : F3 retiré" "null" wait_count "$L2c" "$F3" 0 10
   ck I23.S6c.L1untouched "L1 : F3 TOUJOURS présent" "null" test "$(count_item "$L1c" "$F3")" = 1
   p2c=$(played_of "$U2" "$T2" "$F3")
@@ -287,7 +298,7 @@ i24() {
   nap 2
   ec_before=$(state | jq -r '.skippedCounts["echo-consumed"] // 0')
   finish "$U2" "$T2" "$item"
-  nap 4
+  wait_played "$U1" "$T1" "$item" true 10 || true; wait_played "$U3" "$T3" "$item" true 10 || true
   ec_after=$(state | jq -r '.skippedCounts["echo-consumed"] // 0')
   ck I24.propagated "propagation effective (u1, u3)" "null" test "$(played_of "$U1" "$T1" "$item")/$(played_of "$U3" "$T3" "$item")" = "true/true"
   # 2 écritures plugin (MarkPlayed u1, MarkPlayed u3) : AU PLUS un écho consommé par écriture (non garanti selon

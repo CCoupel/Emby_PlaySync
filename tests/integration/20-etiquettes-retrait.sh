@@ -235,11 +235,14 @@ i8() {
   t=$(tags_of "$pl")
   ck I8a.noimmediate "après « retirer NON » seul : pas de repose immédiate (playlist déjà vue)" "$t" test "$(tag_count "$t" remove-si-lu)" = 0
   if [[ $GRACE -gt 1 ]]; then
-    run_pass || true; gs=$(state | jq -r --arg p "$pl" "$DEFS"'.graceCounters|to_entries|map(select((.key|n)==($p|n)))|.[0].value["remove-si-lu"] // 0')
+    run_pass || true
+    wait_grace_counter "$pl" remove-si-lu 1 10 || true   # attente active (#47) : la passe a démarré, pas garanti que CETTE playlist soit déjà traitée
+    gs=$(state | jq -r --arg p "$pl" "$DEFS"'.graceCounters|to_entries|map(select((.key|n)==($p|n)))|.[0].value["remove-si-lu"] // 0')
     ck I8a.grace1 "1re passe sans étiquette : compteur de grâce = 1, pas de pose" "{\"counter\":$gs}" test "$gs" = 1
   fi
   owner_edit "$pl" "[\"$OUI_RM\"]" '[]'
   run_pass || true
+  wait_grace_counter "$pl" remove-si-lu 0 10 || true
   t=$(tags_of "$pl"); gs=$(state | jq -r --arg p "$pl" "$DEFS"'.graceCounters|to_entries|map(select((.key|n)==($p|n)))|.[0].value["remove-si-lu"] // 0')
   ck I8a.final "OUI ajoutée avant la fin de la grâce : état {OUI}, aucun NON reposé, compteur remis à 0" "$t" \
     bash -c 'jq -e --arg a "$1" --arg b "$2" "index(\$a)!=null and index(\$b)==null" <<<"$0" >/dev/null && [[ $3 == 0 ]]' "$t" "$OUI_RM" "$NON_RM" "$gs"

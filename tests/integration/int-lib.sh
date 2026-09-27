@@ -125,6 +125,60 @@ wait_empty() { # PLAYLIST TIMEOUT_S : attend que la playlist n'ait plus aucune e
     [[ $(entries "$1" | jq length) == 0 ]] && return 0; nap 1
   done; return 1
 }
+
+# --- attente active (#47, qa-integration-v031 : des `nap N` fixes lisaient l'état avant que la propagation/pose
+# n'ait eu le temps de s'exécuter, sous charge — rafales de créations de playlists qui ralentissent le TRAITEMENT
+# DE LA FILE, pas le traitement lui-même : Handler.MaxMs reste << budget). Interrogent l'état toutes les 1 s (mise
+# à l'échelle par WAIT_SCALE, comme nap) jusqu'à un TIMEOUT_S raisonnable, au lieu d'un délai fixe potentiellement
+# trop court. Un appel réussi rend la main dès que la condition est vraie (pas d'attente supplémentaire).
+# _wait_trace LABEL ATTEMPT T0_MS : trace le délai observé dans OUT_DIR/wait-delays.log si OUT_DIR est défini
+# (suggestion qa : objectiver un futur diagnostic de latence sous charge) ; silencieux si le fichier n'est pas
+# accessible ou si OUT_DIR n'est pas défini (ex. exécuté hors d'un des 3 scripts qui le posent).
+_wait_trace() {
+  [[ -n ${OUT_DIR:-} ]] || return 0
+  printf '%s %s attempt=%s delayMs=%s\n' "$(date -Iseconds)" "$1" "$2" "$(( $(now_ms) - $3 ))" >> "$OUT_DIR/wait-delays.log" 2>/dev/null || true
+}
+wait_position() { # UID TOKEN ITEM ATTENDU [TIMEOUT_S=10]
+  local i t0=$(now_ms); for ((i=0; i<${5:-10}; i++)); do
+    [[ $(position_of "$1" "$2" "$3") == "$4" ]] && { _wait_trace "position item=$3 attendu=$4" "$((i+1))" "$t0"; return 0; }
+    nap 1
+  done; return 1
+}
+wait_played() { # UID TOKEN ITEM ATTENDU(true|false) [TIMEOUT_S=10]
+  local i t0=$(now_ms); for ((i=0; i<${5:-10}; i++)); do
+    [[ $(played_of "$1" "$2" "$3") == "$4" ]] && { _wait_trace "played item=$3 attendu=$4" "$((i+1))" "$t0"; return 0; }
+    nap 1
+  done; return 1
+}
+# wait_grace_counter PLAYLIST FAMILLE ATTENDU [TIMEOUT_S=10] : attend que graceCounters[PLAYLIST][FAMILLE] atteigne
+# ATTENDU (une passe déclenchée par run_pass a démarré/terminé sans garantir que CETTE playlist, parmi d'autres en
+# file, a déjà eu son compteur mis à jour — qa-integration-v031, I8a).
+wait_grace_counter() {
+  local pl=$1 fam=$2 want=$3 timeout=${4:-10} i gs t0=$(now_ms)
+  for ((i=0; i<timeout; i++)); do
+    gs=$(state | jq -r --arg p "$pl" --arg f "$fam" "$DEFS"'.graceCounters|to_entries|map(select((.key|n)==($p|n)))|.[0].value[$f] // 0')
+    [[ $gs == "$want" ]] && { _wait_trace "grace playlist=$pl famille=$fam attendu=$want" "$((i+1))" "$t0"; return 0; }
+    nap 1
+  done
+  return 1
+}
+# wait_journal PLAYLIST KIND [DETAIL_REGEX] [MIN=1] [TIMEOUT_S=10] : attend au moins MIN entrées KIND (Detail~=REGEX)
+# journalisées pour PLAYLIST (lecture seule, clear=false : ne consomme rien, les journal()/jcount() qui suivent
+# dans le scénario restent valables).
+wait_journal() {
+  local pl=$1 kind=$2 re=${3:-.*} min=${4:-1} timeout=${5:-10} i j n t0=$(now_ms)
+  for ((i=0; i<timeout; i++)); do
+    j=$(journal "$kind")
+    n=$(jcount "$j" "$pl" "$kind" "$re")
+    if [[ $n -ge $min ]]; then
+      _wait_trace "journal playlist=$pl kind=$kind min=$min" "$((i+1))" "$t0"
+      return 0
+    fi
+    nap 1
+  done
+  return 1
+}
+
 stays() { # PLAYLIST ITEM ATTENDU [SECONDES] : le nombre d'entrées reste ATTENDU pendant la fenêtre
   nap "${4:-4}"; [[ $(count_item "$1" "$2") == "$3" ]]
 }
