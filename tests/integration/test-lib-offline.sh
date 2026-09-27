@@ -41,11 +41,18 @@ tok=$(login "u" 'p"w\d')
 last() { tail -n1 "$CAP"; }
 [[ $tok == fake-token ]] && ok "login() renvoie le token du corps" || ko "token"
 auth=$(last | jq -r '.headers["X-Emby-Authorization"] // ""')
-want='MediaBrowser Client="spike", Device="spike", DeviceId="spike-1", Version="1"'
+want='MediaBrowser Client="spike", Device="spike", DeviceId="spike-u", Version="1"'
 [[ $auth == "$want" ]] && ok "X-Emby-Authorization intact (guillemets et DeviceId présents)" || ko "X-Emby-Authorization altéré : $auth"
-[[ $auth == *'DeviceId="spike-1"'* ]] && ok "DeviceId présent" || ko "DeviceId absent"
+[[ $auth == *'DeviceId="spike-u"'* ]] && ok "DeviceId dérivé du nom d'utilisateur (spike-u)" || ko "DeviceId absent ou non dérivé"
 [[ $(last | jq -r '.headers["X-Emby-Token"] // "absent"') == absent ]] && ok "login : pas d'en-tête X-Emby-Token" || ko "X-Emby-Token présent au login"
 [[ $(last | jq -r '.body|fromjson|.Pw') == 'p"w\d' ]] && ok "corps JSON transmis intact (guillemet et antislash)" || ko "corps altéré"
+
+# I28/I33 (#47) : DeviceId partagé entre comptes de test, piste plausible d'une collision de session Emby —
+# un DeviceId distinct par utilisateur doit être vérifiable, pas seulement supposé.
+login "autre_utilisateur" "pw" >/dev/null
+auth2=$(last | jq -r '.headers["X-Emby-Authorization"] // ""')
+[[ $auth2 == *'DeviceId="spike-autre_utilisateur"'* ]] && ok "DeviceId distinct pour un autre utilisateur (spike-autre_utilisateur)" || ko "DeviceId non distinct entre utilisateurs : $auth2"
+[[ $auth != "$auth2" ]] && ok "les deux DeviceId observés diffèrent réellement" || ko "même DeviceId pour deux utilisateurs différents (régression I28/I33)"
 
 st=$(api GET "/System/Info?q=1")
 [[ $st == 200 ]] && ok "GET simple : 200" || ko "GET : $st"

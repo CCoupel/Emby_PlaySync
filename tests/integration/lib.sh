@@ -152,9 +152,12 @@ compare_protected() {
 }
 
 # login NOM MOT_DE_PASSE -> affiche le token de session (jamais journalisé)
+# DeviceId dérivé du NOM (unique et stable par compte, ex. "spike-test_u1") : un DeviceId partagé entre
+# test_u1/u2/u3 était une piste plausible (I28/I33, dev-plugin #47) pour un comportement de session Emby
+# confondant (éviction/collision par appareil), sans lien avec le code du plugin.
 login() {
   local st
-  st=$(EXTRA_HDR='X-Emby-Authorization: MediaBrowser Client="spike", Device="spike", DeviceId="spike-1", Version="1"' \
+  st=$(EXTRA_HDR="X-Emby-Authorization: MediaBrowser Client=\"spike\", Device=\"spike\", DeviceId=\"spike-$1\", Version=\"1\"" \
        api POST /Users/AuthenticateByName "$(jq -nc --arg u "$1" --arg p "$2" '{Username:$u,Pw:$p}')" "-")
   [[ $st == 200 ]] || die "authentification de $1 refusée (HTTP $st)"
   jq -r '.AccessToken' "$RESP"
