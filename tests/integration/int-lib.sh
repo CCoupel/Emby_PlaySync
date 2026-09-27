@@ -103,6 +103,18 @@ entries() { # PLAYLIST -> [{itemId, playlistItemId}] vu par u1
 }
 count_item() { entries "$1" | jq -r --arg i "$2" "$DEFS"'[.[]|select((.itemId|n)==($i|n))]|length'; }
 add_item() { api POST "/Playlists/$1/Items?Ids=$2&UserId=$U1" "" "$T1" >/dev/null; }
+# drop_item PLAYLIST ITEM : retire TOUTES les entrées de ITEM de PLAYLIST, par le propriétaire, indépendamment de
+# remove-si-lu (nettoyage explicite) — sert à rendre un média réutilisable par un scénario ultérieur sans qu'il ne
+# reste candidat (ListSharedPlaylistsOfUserContaining) dans une playlist plus ancienne encore partagée avec les mêmes membres.
+drop_item() {
+  local eids
+  mapfile -t eids < <(entries "$1" | jq -r --arg i "$2" "$DEFS"'.[]|select((.itemId|n)==($i|n))|.playlistItemId')
+  [[ ${#eids[@]} -gt 0 ]] || return 0
+  local csv; csv=$(IFS=,; echo "${eids[*]}")
+  api POST "/Playlists/$1/Items/Delete?EntryIds=$csv&UserId=$U1" "" "$T1" >/dev/null
+}
+# reset_played ITEM : remet u1/u2/u3 à « non lu » sur ITEM (baseline connue avant réutilisation d'un média).
+reset_played() { unmark "$U1" "$T1" "$1"; unmark "$U2" "$T2" "$1"; unmark "$U3" "$T3" "$1"; }
 wait_count() { # PLAYLIST ITEM ATTENDU TIMEOUT_S : attend que le nombre d'entrées du média soit ATTENDU
   local i; for ((i=0; i<${4:-10}; i++)); do
     [[ $(count_item "$1" "$2") == "$3" ]] && return 0; nap 1

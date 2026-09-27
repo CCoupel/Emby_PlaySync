@@ -238,6 +238,11 @@ class H(http.server.BaseHTTPRequestHandler):
             for pid in body["ItemIds"]:
                 for u in body["UserIds"]: PL[pid]["shares"][u] = body["ItemAccess"]
             return self.out(204)
+        r = re.fullmatch(r"/Playlists/(\d+)/Items/Delete", p)
+        if r and m == "POST":
+            x = PL[r.group(1)]; eids = set(q.get("EntryIds", [""])[0].split(","))
+            x["entries"] = [e for e in x["entries"] if e["pid"] not in eids]
+            on_event(r.group(1)); return self.out(204)
         r = re.fullmatch(r"/Playlists/(\d+)/Items", p)
         if r:
             x = PL[r.group(1)]

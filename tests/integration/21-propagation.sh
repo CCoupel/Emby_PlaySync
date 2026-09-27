@@ -9,8 +9,10 @@
 # Les deux familles sont indépendantes (matrice 2×2, docs/chronogrammes.md §2).
 #
 # Prérequis : tests/integration/00-setup-users.sh exécuté (test_u1 propriétaire, test_u2 Write, test_u3 Read) ;
-# >= 18 médias. I20 (R8) crée puis nettoie LUI-MÊME test_u4 (aucune bibliothèque accessible) dans ce même run :
-# aucun prérequis supplémentaire, aucun état laissé après un run complet.
+# >= 13 médias (seuil abaissé le 2026-09-27, décision utilisateur : la bibliothèque de QUALIF n'en a que 13 ;
+# 3 sont réservés en exclusivité à I23/S6a-c, les 10 restants sont recyclés pour le reste — voir le commentaire
+# sur le bassin de médias plus bas). I20 (R8) crée puis nettoie LUI-MÊME test_u4 (aucune bibliothèque accessible)
+# dans ce même run : aucun prérequis supplémentaire, aucun état laissé après un run complet.
 # Usage : tests/integration/21-propagation.sh [I18 I23 …]   (sans liste : tous les scénarios)
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/int-lib.sh"
@@ -60,19 +62,44 @@ T3=$(login test_u3 "$(envget "$USERS_ENV" TEST_U3_PW)")
 st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=RunTimeTicks&SortBy=SortName&Limit=200")
 [[ $st == 200 ]] || die "GET /Items -> $st"
 mapfile -t M < <(jq -r '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|.Id][0:24][]' "$RESP")
-[[ ${#M[@]} -ge 18 ]] || die "moins de 18 médias (>= 10 min) : I18 (7) + I19-I25 (11) en exigent au moins autant (demander à l'utilisateur)"
+# Seuil abaissé (décision utilisateur, 2026-09-27) : la bibliothèque de QUALIF n'a que 13 médias de >= 10 min.
+# Réduction de couverture documentée : au lieu d'un média jamais réutilisé par sous-cas, un petit bassin est
+# recyclé (round-robin) pour I18/I19/I20/I21/I22/I24/I25, chaque réutilisation étant précédée d'une remise à
+# « non lu » (reset_played) ET chaque scénario retirant explicitement son média de sa propre playlist en fin de
+# course (drop_item) — sans quoi une playlist plus ancienne encore partagée avec les mêmes membres resterait
+# candidate (ListSharedPlaylistsOfUserContaining) et fausserait un scénario ultérieur réutilisant ce média (même
+# classe de bug que la sonde U11, cf. tests/spike, où un média partagé masquait plusieurs scénarios).
+# I23 (S6a-c) reste sur des médias JAMAIS réutilisés : ces playlists (L1/L2/L1b/L2b/L1c/L2c) ne sont ni nettoyées
+# ni supprimées pendant le run, et un média recyclé y resterait candidat indéfiniment (le point le plus sensible).
+[[ ${#M[@]} -ge 13 ]] || die "moins de 13 médias (>= 10 min) dans la bibliothèque (demander à l'utilisateur)"
+S6_MEDIA=("${M[0]}" "${M[1]}" "${M[2]}")
+POOL=("${M[@]:3}")   # le reste (>= 10 si 13 médias) : recyclé
+[[ ${#POOL[@]} -ge 1 ]] || die "aucun média disponible pour le bassin recyclé (après réservation de 3 pour S6a-c)"
+echo "  [OK] ${#M[@]} médias : 3 réservés à I23 (S6a-c, jamais recyclés), ${#POOL[@]} recyclés pour le reste"
+
+# Compteur sur FICHIER, comme next_media() : s6_media() est appelée en $(...) (sous-shell), un simple
+# NEXT_S6++ y serait perdu (déjà rencontré et corrigé une fois pour next_media() dans ce même script).
+echo 0 > "$SCRATCH/next_s6"
+s6_media() {   # UN SEUL appel par sous-cas de I23, JAMAIS recyclé
+  local n; n=$(cat "$SCRATCH/next_s6")
+  [[ $n -lt ${#S6_MEDIA[@]} ]] || die "s6_media : plus de médias réservés à I23 (S6a-c) que prévu (${#S6_MEDIA[@]})"
+  echo "${S6_MEDIA[$n]}"; echo $((n+1)) > "$SCRATCH/next_s6"
+}
+
 # Compteur sur FICHIER (pas une variable shell) : next_media() est presque toujours appelée en $(...), donc dans un
-# sous-shell — un simple NEXT_M++ y serait perdu (invisible au shell appelant). Le fichier, lui, persiste réellement.
+# sous-shell — un simple compteur bash y serait perdu (invisible au shell appelant). Le fichier, lui, persiste réellement.
 echo 0 > "$SCRATCH/next_m"
-next_media() {   # un média frais par sous-cas : aucune interférence entre cas
-  local n; n=$(cat "$SCRATCH/next_m")
-  [[ $n -lt ${#M[@]} ]] || die "next_media : plus de médias disponibles (>${#M[@]} demandés)"
-  echo "${M[$n]}"; echo $((n+1)) > "$SCRATCH/next_m"
+next_media() {   # bassin recyclé (round-robin) : remet à « non lu » AVANT de rendre un média déjà utilisé
+  local n idx id
+  n=$(cat "$SCRATCH/next_m"); idx=$((n % ${#POOL[@]})); id=${POOL[$idx]}
+  echo $((n+1)) > "$SCRATCH/next_m"
+  if [[ $n -ge ${#POOL[@]} ]]; then reset_played "$id"; fi
+  echo "$id"
 }
 
 st=$(api GET "$DIAG/State"); [[ $st == 200 ]] || die "Diagnostics/State -> HTTP $st : plugin v0.3.0 non déployé ou EnableDiagnostics=false"
 GRACE=$(jq -r '.gracePasses // 2' "$RESP")
-echo "  [OK] ${#M[@]} médias ; GracePasses=$GRACE"
+echo "  [OK] GracePasses=$GRACE"
 
 # ---------------------------------------------------------------- scénarios
 i18() {
@@ -110,6 +137,7 @@ i18() {
     else
       ck "I18.$id.journal" "aucune entrée Propagation (famille inactive)" "$j" test "$n" = 0
     fi
+    drop_item "$pl" "$item"   # média recyclé (bassin réduit) : ne doit rester candidat dans AUCUNE playlist
   done
 }
 
@@ -133,6 +161,7 @@ i19() {
   n1=$(jcount "$j" "$pl" Propagation '(^|[^A-Za-z])alreadyPlayed=[1-9]'); n2=$(jcount "$j" "$pl" Skipped 'already-played')
   ck I19.aggregate "l'entrée Propagation agrégée compte alreadyPlayed >= 1" "$j" test "$n1" -ge 1
   ck I19.permember "Skipped already-played journalisé pour u3" "$j" test "$n2" -ge 1
+  drop_item "$pl" "$item"   # média recyclé
 }
 
 i20() {
@@ -155,6 +184,7 @@ i20() {
   ck I20.aggregate "l'entrée Propagation agrégée compte noAccess >= 1" "$j" test "$n1" -ge 1
   ck I20.permember "Skipped no-access journalisé pour test_u4" "$j" test "$n2" -ge 1
   ck I20.noerror "aucune entrée Error causée par le membre restreint" "$j" test "$(jcount "$j" "$pl" Error)" = 0
+  drop_item "$pl" "$item"   # média recyclé
   cleanup_restricted_user
 }
 
@@ -174,6 +204,7 @@ i21() {
   ck I21.nopropagation "aucune entrée Propagation causée par le retour à non lu" "$j" test "$(jcount "$j" "$pl" Propagation)" = 0
   p3after=$(played_of "$U3" "$T3" "$item")
   ck I21.untouched "u3 (déjà propagé) n'est pas retouché par ce retour arrière (toujours lu, sans nouvelle écriture)" "{\"before\":\"$p3before\",\"after\":\"$p3after\"}" test "$p3before" = "$p3after"
+  drop_item "$pl" "$item"   # média recyclé
 }
 
 i22() {
@@ -187,13 +218,14 @@ i22() {
   nap 2
   p1=$(played_of "$U1" "$T1" "$item"); p2=$(played_of "$U2" "$T2" "$item")
   ck I22.read "membre Read (u3) déclenche la propagation vers propriétaire et Write" "{\"u1\":\"$p1\",\"u2\":\"$p2\"}" test "$p1/$p2" = "true/true"
+  drop_item "$pl" "$item"   # média recyclé
 }
 
 i23() {
   echo "== I23 — S6a-c : deux playlists partagées, même média, absence de transitivité"
   local item L1 L2 j n m p1 p3 p2 p3b p2c
   # --- S6a : U12 (test_u2, MEMBRE DE L1 SEULEMENT) lit F1 -> seule L1 est traitée
-  item=$(next_media)
+  item=$(s6_media)
   L1=$(new_pl "SPIKE-I23-L1" "$item"); share_pl_one "$L1" "$U2" Write   # L1 = {U1, U12=test_u2}
   L2=$(new_pl "SPIKE-I23-L2" "$item"); share_pl_one "$L2" "$U3" Write   # L2 = {U1, U21=test_u3}
   prime "$L1" || true; prime "$L2" || true
@@ -213,7 +245,7 @@ i23() {
 
   # --- S6b : le propriétaire (test_u1, membre des deux) lit un NOUVEL F2 -> les deux listes traitées
   local F2 L1b L2b
-  F2=$(next_media)
+  F2=$(s6_media)
   L1b=$(new_pl "SPIKE-I23-L1b" "$F2"); share_pl_one "$L1b" "$U2" Write; prime "$L1b" || true
   set_marker_state "$L1b" remove-si-lu oui; set_marker_state "$L1b" propager-lu oui
   L2b=$(new_pl "SPIKE-I23-L2b" "$F2"); share_pl_one "$L2b" "$U3" Write; prime "$L2b" || true
@@ -227,7 +259,7 @@ i23() {
 
   # --- S6c : U21 (test_u3, MEMBRE DE L2 SEULEMENT) lit un NOUVEL F3 -> symétrique de S6a
   local F3 L1c L2c
-  F3=$(next_media)
+  F3=$(s6_media)
   L1c=$(new_pl "SPIKE-I23-L1c" "$F3"); share_pl_one "$L1c" "$U2" Write; prime "$L1c" || true
   set_marker_state "$L1c" remove-si-lu oui; set_marker_state "$L1c" propager-lu oui
   L2c=$(new_pl "SPIKE-I23-L2c" "$F3"); share_pl_one "$L2c" "$U3" Write; prime "$L2c" || true
@@ -260,6 +292,7 @@ i24() {
   nap 6
   j2=$(journal "Propagation"); n=$(jcount "$j2" "$pl" Propagation)
   ck I24.once "une seule vague de propagation (pas de repropagation après coup)" "$j2" test "$n" -le 1
+  drop_item "$pl" "$item"   # média recyclé
 }
 
 i25() {
