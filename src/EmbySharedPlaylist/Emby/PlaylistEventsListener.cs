@@ -18,11 +18,11 @@ public sealed class PlaylistEventsListener : IServerEntryPoint
     private readonly IPlaylistManager _playlistManager;
 
     public PlaylistEventsListener(ILibraryManager libraryManager, IPlaylistManager playlistManager, IUserManager userManager,
-        IItemRepository itemRepository, ILogManager logManager)
+        IItemRepository itemRepository, IUserDataManager userDataManager, ILogManager logManager)
     {
         _libraryManager = libraryManager;
         _playlistManager = playlistManager;
-        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, logManager);
+        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, userDataManager, logManager);
     }
 
     public void Run()

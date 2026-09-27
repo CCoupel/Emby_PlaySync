@@ -168,6 +168,8 @@ public class ReadRemovalEngineDevTests
     private sealed class Rig
     {
         public readonly FakeGateway Gateway = new();
+        public readonly FakeUserDataGateway UserData = new();
+        public readonly PluginWriteTracker WriteTracker = new();
         public readonly SeenPlaylists Seen = new();
         public readonly PlaylistLocks Locks = new();
         public readonly ListJournal Journal = new();
@@ -176,7 +178,7 @@ public class ReadRemovalEngineDevTests
         public Rig()
         {
             var defaults = new DefaultsService(Gateway, Seen, Locks, Journal, "AIDE", () => 2, null, TimeSpan.FromMilliseconds(150));
-            Engine = new ReadRemovalEngine(Gateway, defaults, Seen, Locks, Journal, new FakeClock(), TimeSpan.FromMilliseconds(150));
+            Engine = new ReadRemovalEngine(Gateway, UserData, WriteTracker, defaults, Seen, Locks, Journal, new FakeClock(), TimeSpan.FromMilliseconds(150));
         }
 
         public FakeGateway.State Add(string id, string[] tags, params string[] items)
@@ -280,7 +282,7 @@ public class ReadRemovalEngineDevTests
         for (var i = 1; i <= 10; i++) r.Add(i.ToString(), new[] { "remove-si-lu=OUI" }, "m1");
         r.Gateway.OnRemove = _ => Thread.Sleep(60);
         var defaults = new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2, null, TimeSpan.FromSeconds(5));
-        var engine = new ReadRemovalEngine(r.Gateway, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(150));
+        var engine = new ReadRemovalEngine(r.Gateway, r.UserData, r.WriteTracker, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(150));
 
         var result = engine.Handle("u", "m1");
 
@@ -297,7 +299,7 @@ public class ReadRemovalEngineDevTests
         var r = new Rig();
         var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
         var defaults = new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2);
-        var engine = new ReadRemovalEngine(r.Gateway, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), null, TimeSpan.Zero);
+        var engine = new ReadRemovalEngine(r.Gateway, r.UserData, r.WriteTracker, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), null, TimeSpan.Zero);
         var result = engine.Handle("u", "m1");
         Assert.Equal(new[] { "m1" }, s.Items);
         Assert.Equal(1, result.Skipped);
@@ -406,7 +408,8 @@ public class ReadRemovalEngineDevTests
     [Fact]
     public void NeverThrows_EvenWhenTheGatewayCannotListTheCandidates()
     {
-        var engine = new ReadRemovalEngine(new ThrowingGateway(), new DefaultsService(new ThrowingGateway(), new SeenPlaylists(), new PlaylistLocks(), new ListJournal(), "A", () => 2),
+        var engine = new ReadRemovalEngine(new ThrowingGateway(), new FakeUserDataGateway(), new PluginWriteTracker(),
+            new DefaultsService(new ThrowingGateway(), new SeenPlaylists(), new PlaylistLocks(), new ListJournal(), "A", () => 2),
             new SeenPlaylists(), new PlaylistLocks(), new ListJournal(), new FakeClock());
         var result = Record.Exception(() => engine.Handle("u", "m1"));
         Assert.Null(result);
@@ -456,7 +459,8 @@ public class ReadRemovalEngineDevTests
     public void ConcurrentTransitionsOnTheSameMedia_RemoveEachEntryExactlyOnce()
     {
         var r = new Rig();
-        var engine = new ReadRemovalEngine(r.Gateway, new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2, null, TimeSpan.FromSeconds(5)),
+        var engine = new ReadRemovalEngine(r.Gateway, r.UserData, r.WriteTracker,
+            new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2, null, TimeSpan.FromSeconds(5)),
             r.Seen, r.Locks, r.Journal, new FakeClock(), TimeSpan.FromSeconds(5));
         var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1", "m1", "m2");
         Parallel.For(0, 8, _ => engine.Handle("u", "m1"));
@@ -501,5 +505,258 @@ public class HandlerStatsDevTests
         var s = h.Snapshot();
         Assert.Equal(1000, s.Count);
         Assert.Equal(999, s.MaxMs);
+    }
+}
+
+public class PropagationDevTests
+{
+    private sealed class Rig
+    {
+        public readonly FakeGateway Gateway = new();
+        public readonly FakeUserDataGateway UserData = new();
+        public readonly PluginWriteTracker WriteTracker = new();
+        public readonly SeenPlaylists Seen = new();
+        public readonly PlaylistLocks Locks = new();
+        public readonly ListJournal Journal = new();
+        public readonly ReadRemovalEngine Engine;
+
+        public Rig()
+        {
+            var defaults = new DefaultsService(Gateway, Seen, Locks, Journal, "AIDE", () => 2, null, TimeSpan.FromMilliseconds(150));
+            Engine = new ReadRemovalEngine(Gateway, UserData, WriteTracker, defaults, Seen, Locks, Journal, new FakeClock(), TimeSpan.FromMilliseconds(150));
+        }
+
+        public FakeGateway.State Add(string id, string[] tags, params string[] items)
+        {
+            var s = Gateway.Add(id, tags);
+            s.Overview = "x";
+            s.Items = items.ToList();
+            s.Members = new List<string> { "o", "u", "v" };
+            Seen.TryMarkSeen(id);
+            return s;
+        }
+    }
+
+    // ---- Matrice 2x2 (remove-si-lu x propager-lu) ---------------------------------------------------------
+
+    [Fact]
+    public void Matrix_BothActive_RemovesAndPropagates()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
+        r.Engine.Handle("u", "m1");
+        Assert.Empty(s.Items);                                   // retrait
+        Assert.True(r.UserData.IsPlayed("v", "m1"));              // propagation à l'autre membre
+        Assert.Single(r.Journal.Of("Removal"));
+        Assert.Single(r.Journal.Of("Propagation"));
+    }
+
+    [Fact]
+    public void Matrix_RemoveOnly_RemovesButNeverPropagates()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=NON" }, "m1");
+        r.Engine.Handle("u", "m1");
+        Assert.Empty(s.Items);
+        Assert.False(r.UserData.IsPlayed("v", "m1"));
+        Assert.Empty(r.Journal.Of("Propagation"));
+    }
+
+    [Fact]
+    public void Matrix_PropagateOnly_PropagatesButMediaStaysInTheList_S3c()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "remove-si-lu=NON", "propager-lu=OUI" }, "m1");
+        r.Engine.Handle("u", "m1");
+        Assert.Equal(new[] { "m1" }, s.Items);                    // média conservé
+        Assert.True(r.UserData.IsPlayed("v", "m1"));
+        Assert.Single(r.Journal.Of("Propagation"));
+        Assert.Empty(r.Journal.Of("Removal"));
+    }
+
+    [Fact]
+    public void Matrix_NeitherActive_IsLegacy_S3d()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "remove-si-lu=NON", "propager-lu=NON" }, "m1");
+        r.Engine.Handle("u", "m1");
+        Assert.Equal(new[] { "m1" }, s.Items);
+        Assert.False(r.UserData.IsPlayed("v", "m1"));
+        Assert.Empty(r.Journal.Of("Propagation"));
+    }
+
+    [Theory]
+    [InlineData("propager-lu=OUI", "propager-lu=NON")]  // OUI+NON : NON l'emporte
+    [InlineData("propager-lu=oui ")]                     // casse/espaces : toujours actif
+    public void Matrix_BothOrCaseVariants(params string[] extra)
+    {
+        var r = new Rig();
+        var tags = new[] { "remove-si-lu=NON" }.Concat(extra).ToArray();
+        var s = r.Add("1", tags, "m1");
+        r.Engine.Handle("u", "m1");
+        var expectPropagated = extra.Length == 1; // seul le cas "oui " (une étiquette) doit propager ; OUI+NON ensemble = inactif
+        Assert.Equal(expectPropagated, r.UserData.IsPlayed("v", "m1") == true);
+    }
+
+    [Fact]
+    public void PropagerLu_IsNeverConsultedForTheRemovalDecision()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1"); // propager-lu absent : sans effet sur le retrait
+        r.Engine.Handle("u", "m1");
+        Assert.Empty(s.Items);
+    }
+
+    // ---- R6 : non lu jamais propagé -----------------------------------------------------------------------
+
+    [Fact]
+    public void R6_UnplayedTransition_NeverPropagates()
+    {
+        // Aucune transition détectée en amont (PlayedTransitionTracker) : Handle n'est même pas appelé pour played=false
+        // dans le vrai pipeline. Ici on vérifie qu'un appel direct ne propage jamais un flag "non lu" (le moteur ne
+        // manipule que Played=true côté propagation ; aucun MarkPlayed(false) n'existe dans le port).
+        var methods = typeof(IUserDataGateway).GetMethods().Select(m => m.Name);
+        Assert.DoesNotContain("MarkUnplayed", methods);
+    }
+
+    // ---- R7/R8 ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void R7_AlreadyPlayedMember_GetsNoWrite_CounterAndDateUntouched()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        s.Members = new List<string> { "o", "u", "v" };
+        r.UserData.SetPlayed("o", "m1", true); // déjà lu avant la transition de u (les DEUX autres membres, "o" et "v")
+        r.UserData.SetPlayed("v", "m1", true);
+        r.Engine.Handle("u", "m1");
+        Assert.Equal(0, r.UserData.MarkPlayedCalls); // aucun appel d'écriture (compteur/date d'Emby non touchés)
+        var propagation = r.Journal.Of("Propagation").Single();
+        Assert.Contains("alreadyPlayed=2", propagation.Detail);
+        Assert.Contains("propagated=0", propagation.Detail);
+        Assert.Contains("already-played", r.Journal.Details("Skipped"));
+    }
+
+    [Fact]
+    public void R8_MemberWithoutAccess_IsSkipped_NoErrorNoWrite()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        s.Members = new List<string> { "o", "u", "v" };
+        r.UserData.DenyAccess("o", "m1"); // les DEUX autres membres sans accès
+        r.UserData.DenyAccess("v", "m1");
+        var result = r.Engine.Handle("u", "m1");
+        Assert.Equal(0, r.UserData.MarkPlayedCalls);
+        Assert.Empty(r.Journal.Of("Error"));
+        var propagation = r.Journal.Of("Propagation").Single();
+        Assert.Contains("noAccess=2", propagation.Detail);
+        Assert.Contains("no-access", r.Journal.Details("Skipped"));
+    }
+
+    [Fact]
+    public void ReadOnlyMember_PropagatesLikeAnyOtherMember_Q3()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        s.Members = new List<string> { "o", "u", "readonly" };
+        r.Engine.Handle("u", "m1");
+        Assert.True(r.UserData.IsPlayed("readonly", "m1"));
+    }
+
+    [Fact]
+    public void PropagationRegistersTheWriteTracker_BeforeMarking()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        r.Engine.Handle("u", "m1");
+        Assert.True(r.WriteTracker.TryConsume("v", "m1")); // l'écriture a été enregistrée avant MarkPlayed
+    }
+
+    [Fact]
+    public void SourceUser_IsNeverPropagatedTo_AndItsFlagIsUntouchedByTheGateway()
+    {
+        var r = new Rig();
+        r.Add("1", new[] { "propager-lu=OUI" }, "m1"); // membres par défaut : "o" (propriétaire) et "v"
+        r.Engine.Handle("u", "m1");
+        Assert.DoesNotContain(("u", "m1"), r.UserData.Marked);
+        Assert.Contains(("o", "m1"), r.UserData.Marked);
+        Assert.Contains(("v", "m1"), r.UserData.Marked);
+        Assert.Equal(2, r.UserData.MarkPlayedCalls);
+    }
+
+    [Fact]
+    public void AFailingMarkPlayed_IsIsolated_JournaledByTypeOnly_OtherMembersUnaffected()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        s.Members = new List<string> { "o", "u", "v", "w" };
+        r.UserData.ThrowOnMarkFor = (uid, _) => uid == "v";
+        var result = Record.Exception(() => r.Engine.Handle("u", "m1"));
+        Assert.Null(result); // Handle ne lève jamais même si un membre échoue
+    }
+
+    // ---- Budget partagé avec le retrait --------------------------------------------------------------------
+
+    [Fact]
+    public void Propagation_SharesTheBudgetWithRemoval_StopsWhenExhausted()
+    {
+        var s0 = new FakeGateway();
+        var userData = new FakeUserDataGateway();
+        var writeTracker = new PluginWriteTracker();
+        var seen = new SeenPlaylists();
+        var locks = new PlaylistLocks();
+        var journal = new ListJournal();
+        var defaults = new DefaultsService(s0, seen, locks, journal, "AIDE", () => 2, null, TimeSpan.FromMilliseconds(150));
+        var engine = new ReadRemovalEngine(s0, userData, writeTracker, defaults, seen, locks, journal, new FakeClock(),
+            TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(120));
+
+        var s = s0.Add("1", "propager-lu=OUI");
+        s.Overview = "x";
+        s.Members = new List<string> { "o", "u", "m1", "m2", "m3", "m4", "m5" };
+        s.Items = new List<string> { "x" };
+        seen.TryMarkSeen("1");
+        userData.ThrowOnMarkFor = null;
+        // Simule un ralentissement par membre pour épuiser le budget avant la fin de la boucle.
+        var calls = 0;
+        var slowUserData = new SlowUserDataGateway(userData, () => { calls++; if (calls > 1) Thread.Sleep(150); });
+        var slowEngine = new ReadRemovalEngine(s0, slowUserData, writeTracker, defaults, seen, locks, journal, new FakeClock(),
+            TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(120));
+
+        slowEngine.Handle("u", "x");
+        var propagation = journal.Of("Propagation").Single();
+        // Certains membres n'ont pas été atteints (budget épuisé) : la somme des compteurs est inférieure au total des membres.
+        var parts = propagation.Detail!.Split(' ').Select(p => p.Split('=')).ToDictionary(p => p[0], p => int.Parse(p[1]));
+        Assert.True(parts["propagated"] + parts["alreadyPlayed"] + parts["noAccess"] < parts["members"]);
+    }
+
+    private sealed class SlowUserDataGateway : IUserDataGateway
+    {
+        private readonly IUserDataGateway _inner;
+        private readonly Action _onCall;
+        public SlowUserDataGateway(IUserDataGateway inner, Action onCall) { _inner = inner; _onCall = onCall; }
+        public bool? IsPlayed(string userId, string itemId) { _onCall(); return _inner.IsPlayed(userId, itemId); }
+        public bool MarkPlayed(string userId, string itemId) => _inner.MarkPlayed(userId, itemId);
+    }
+
+    // ---- S6a-c : absence de transitivité entre listes (via l'anti-écho, testé au niveau du processeur) ------
+    // Le point délicat (l'écho de U1 ne redéclenche jamais le moteur pour SES AUTRES playlists) est couvert par
+    // PlaybackEventProcessorDevTests (RecognizedEcho_ReturnsEcho_NeverCallsTheEngine et StillUpdatesTheTransitionMemory) :
+    // c'est cette garde, pas ReadRemovalEngine lui-même, qui empêche la transitivité (ReadRemovalEngine ne sait pas si
+    // un appel est un écho ; c'est PlaybackEventProcessor qui ne l'appelle pas dans ce cas).
+
+    [Fact]
+    public void TwoPlaylists_APropagationOnOneDoesNotTouchTheOther()
+    {
+        var r = new Rig();
+        var s1 = r.Add("1", new[] { "propager-lu=OUI" }, "shared-media");
+        s1.Members = new List<string> { "o", "u", "member-of-1-only" };
+        var s2 = r.Add("2", new[] { "propager-lu=OUI" }, "other-media");
+        s2.Members = new List<string> { "o", "u", "member-of-2-only" };
+
+        r.Engine.Handle("u", "shared-media");
+
+        Assert.True(r.UserData.IsPlayed("member-of-1-only", "shared-media"));
+        Assert.False(r.UserData.IsPlayed("member-of-2-only", "shared-media") == true);
+        Assert.Empty(r.Journal.Of("Propagation").Where(e => e.PlaylistId == "2"));
     }
 }

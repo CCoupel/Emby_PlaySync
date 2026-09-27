@@ -19,6 +19,36 @@ internal sealed class ListJournal : IJournal
     public IEnumerable<string?> Details(string kind) => Of(kind).Select(e => e.Detail);
 }
 
+/// <summary>Passerelle simulée du flag lu (#20) : accès/état par couple (utilisateur, média), sans SDK.</summary>
+internal sealed class FakeUserDataGateway : IUserDataGateway
+{
+    private readonly Dictionary<(string UserId, string ItemId), bool> _played = new();
+    private readonly HashSet<(string UserId, string ItemId)> _noAccess = new();
+    public int MarkPlayedCalls;
+    public readonly List<(string UserId, string ItemId)> Marked = new();
+    public Func<string, string, bool>? ThrowOnMarkFor;
+
+    /// <summary>Par défaut : accès et non lu. <see cref="DenyAccess"/> et <see cref="SetPlayed"/> changent l'état avant l'appel testé.</summary>
+    public void DenyAccess(string userId, string itemId) => _noAccess.Add((userId, itemId));
+
+    public void SetPlayed(string userId, string itemId, bool played) => _played[(userId, itemId)] = played;
+
+    public bool? IsPlayed(string userId, string itemId)
+    {
+        if (_noAccess.Contains((userId, itemId))) return null;
+        return _played.TryGetValue((userId, itemId), out var played) && played;
+    }
+
+    public bool MarkPlayed(string userId, string itemId)
+    {
+        Interlocked.Increment(ref MarkPlayedCalls);
+        if (ThrowOnMarkFor?.Invoke(userId, itemId) == true) throw new InvalidOperationException("écriture en échec avec un message secret");
+        lock (Marked) Marked.Add((userId, itemId));
+        _played[(userId, itemId)] = true;
+        return true;
+    }
+}
+
 /// <summary>Passerelle simulée : mêmes garanties que la vraie (ajout seul, re-vérification à l'écriture).</summary>
 internal sealed class FakeGateway : IPlaylistGateway
 {

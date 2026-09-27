@@ -34,10 +34,11 @@ public static class PluginRuntime
     public static FirstDetectionCoordinator? FirstDetection { get; private set; }
     public static ReadRemovalEngine? RemovalEngine { get; private set; }
     public static PlaybackEventProcessor? PlaybackProcessor { get; private set; }
+    public static IUserDataGateway? UserData { get; private set; }
 
     /// <summary>Idempotent : le premier appel construit les services, les suivants renvoient.</summary>
     public static void Initialize(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
-        IPlaylistManager playlistManager, ILogManager logManager)
+        IPlaylistManager playlistManager, IUserDataManager userDataManager, ILogManager logManager)
     {
         lock (InitLock)
         {
@@ -48,16 +49,18 @@ public static class PluginRuntime
             var journal = new AggregatingJournal(new LoggingJournal(JournalStore, log), Skipped, log);
             var clock = new SystemClock();
             var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager, journal: journal);
+            var userData = new EmbyUserDataGateway(userManager, libraryManager, userDataManager);
             var defaults = new DefaultsService(gateway, Seen, Locks, journal, HelpText.Message,
                 () => Plugin.Instance?.Configuration.EffectiveGracePasses ?? 2, clock);
 
             Log = log;
             Journal = journal;
             Gateway = gateway;
+            UserData = userData;
             Defaults = defaults;
             Reconciliation = new ReconciliationService(gateway, defaults, Seen, Locks, journal, clock);
             FirstDetection = new FirstDetectionCoordinator(gateway, defaults, Seen, journal, clock);
-            RemovalEngine = new ReadRemovalEngine(gateway, defaults, Seen, Locks, journal, clock, budget: ReadRemovalEngine.DefaultBudget);
+            RemovalEngine = new ReadRemovalEngine(gateway, userData, Tracker, defaults, Seen, Locks, journal, clock, budget: ReadRemovalEngine.DefaultBudget);
             var engine = RemovalEngine;
             PlaybackProcessor = new PlaybackEventProcessor(PlayedTransitions, Tracker, (u, i) => engine!.Handle(u, i), Handler);
             log.Info(LogFormat.Startup());

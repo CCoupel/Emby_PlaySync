@@ -22,6 +22,8 @@ public class ReadRemovalEngineSpecTests
         public readonly ListJournal Journal = new();
         public readonly FakeClock Clock = new();
         public readonly PlayedTransitionTracker Tracker = new();
+        public readonly FakeUserDataGateway UserDataGateway = new();
+        public readonly PluginWriteTracker WriteTracker = new();
         public readonly DefaultsService Defaults;
         public readonly ReadRemovalEngine Engine;
 
@@ -29,7 +31,7 @@ public class ReadRemovalEngineSpecTests
         {
             var timeout = lockTimeout ?? TimeSpan.FromMilliseconds(500);
             Defaults = new DefaultsService(Gateway, Seen, Locks, Journal, "AIDE", () => 2, Clock, timeout);
-            Engine = new ReadRemovalEngine(Gateway, Defaults, Seen, Locks, Journal, Clock, timeout);
+            Engine = new ReadRemovalEngine(Gateway, UserDataGateway, WriteTracker, Defaults, Seen, Locks, Journal, Clock, timeout);
         }
 
         /// <summary>Playlist partagée : propriétaire « o », membres « m » (écriture) et « r » (lecture seule) ; description non vide par défaut.</summary>

@@ -15,6 +15,8 @@ public class ReadRemovalEngineBudgetSpecTests
     private sealed class Rig
     {
         public readonly FakeGateway Gateway = new();
+        public readonly FakeUserDataGateway UserData = new();
+        public readonly PluginWriteTracker WriteTracker = new();
         public readonly SeenPlaylists Seen = new();
         public readonly PlaylistLocks Locks = new();
         public readonly ListJournal Journal = new();
@@ -24,7 +26,7 @@ public class ReadRemovalEngineBudgetSpecTests
         public Rig() => Defaults = new DefaultsService(Gateway, Seen, Locks, Journal, "AIDE", 2);
 
         public ReadRemovalEngine Engine(TimeSpan? budget) =>
-            new(Gateway, Defaults, Seen, Locks, Journal, Clock, TimeSpan.FromMilliseconds(500), budget);
+            new(Gateway, UserData, WriteTracker, Defaults, Seen, Locks, Journal, Clock, TimeSpan.FromMilliseconds(500), budget);
 
         public FakeGateway.State Playlist(string id, params string[] items)
         {

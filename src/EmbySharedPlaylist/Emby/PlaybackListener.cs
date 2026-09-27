@@ -1,4 +1,5 @@
 using EmbySharedPlaylist.Core;
+using EmbySharedPlaylist.Engine;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
@@ -21,7 +22,7 @@ public sealed class PlaybackListener : IServerEntryPoint
         IItemRepository itemRepository, IPlaylistManager playlistManager, ILogManager logManager)
     {
         _userDataManager = userDataManager;
-        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, logManager);
+        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, userDataManager, logManager);
     }
 
     public void Run() => _userDataManager.UserDataSaved += OnUserDataSaved;
@@ -32,9 +33,18 @@ public sealed class PlaybackListener : IServerEntryPoint
     {
         try
         {
-            // Garde suspension/WriteScope → tracker (mémoire) → moteur : logique pure testée dans PlaybackEventProcessor.
-            PluginRuntime.PlaybackProcessor?.Process(e.User.Id.ToString("N"), e.Item.InternalId.ToString(),
-                e.SaveReason.ToString(), e.UserData?.Played ?? false);
+            var userId = e.User.Id.ToString("N");
+            var itemId = e.Item.InternalId.ToString();
+            // Garde WriteScope/PluginWriteTracker → tracker de transition (mémoire) → moteur : logique pure testée dans PlaybackEventProcessor.
+            var outcome = PluginRuntime.PlaybackProcessor?.Process(userId, itemId, e.SaveReason.ToString(), e.UserData?.Played ?? false);
+            if (outcome == PlaybackEventOutcome.Echo)
+            {
+                // Au niveau de l'événement (PlaylistId=null), pas de la playlist : l'écriture du plugin est reconnue et consommée.
+                var entry = JournalEntries.SkippedEntry(null, null, "echo-consumed");
+                entry.UserId = userId;
+                entry.ItemId = itemId;
+                PluginRuntime.Journal?.Add(entry);
+            }
         }
         catch (Exception ex)
         {

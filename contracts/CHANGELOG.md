@@ -1,5 +1,11 @@
 # Changelog des contrats
 
+## [20260927] — v0.3.0 : propagation du flag lu, anti-écho branché (#20 #21 #51)
+
+- **[NEW]** kind `Propagation` (Diagnostics/Journal) : propagation du flag lu vers les autres membres, journalisee une fois par playlist (members/propagated/alreadyPlayed/noAccess).
+- **[NEW]** raisons `Skipped` : `no-access` (R8, membre sans acces bibliotheque), `already-played` (R7, aucune ecriture), `echo-consumed` (au niveau de l'evenement, anti-echo #21).
+- **[FIXED]** `PluginWriteTracker` : cle `(long, long)` -> `(string UserId, string ItemId)` (les ids d'utilisateur Emby sont des GUID, pas des entiers) ; branche dans `PlaybackEventProcessor` (garde principale contre la transitivite entre listes, S6a-c).
+- **[NEW]** Port `Core/IUserDataGateway` (lecture/ecriture du flag lu d'un AUTRE utilisateur) + adaptateur `Emby/EmbyUserDataGateway` (`IUserDataManager`, verification d'acces via `BaseItem.IsVisibleStandalone`).
 ## [20260927] — v0.2.0 : retrait de Spike/* et de la sonde de réentrance (#15)
 
 - **[REMOVED]** `/SharedPlaylist/Spike/*` (Setup, Playlists, RemoveItem, MarkPlayed, Events, SetPosition, Shares, Tags, Policy) et la sonde de réentrance U11 (scénarios P1–P6, pilotés par le nom de playlist `SPIKE-Pn`) : plus aucun code, endpoint ni test. Historique complet (routes, formats, garde-fous, casse JSON, divergences SDK) dans les entrées précédentes de ce fichier et dans git.

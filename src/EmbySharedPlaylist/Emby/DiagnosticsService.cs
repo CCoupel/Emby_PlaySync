@@ -17,9 +17,9 @@ namespace EmbySharedPlaylist.Emby;
 public class DiagnosticsService : IService
 {
     public DiagnosticsService(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
-        IPlaylistManager playlistManager, ILogManager logManager)
+        IPlaylistManager playlistManager, IUserDataManager userDataManager, ILogManager logManager)
     {
-        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, logManager);
+        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, userDataManager, logManager);
     }
 
     public object Get(DiagnosticsJournal request) => Run(() =>

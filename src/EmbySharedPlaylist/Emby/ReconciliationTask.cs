@@ -18,10 +18,10 @@ public sealed class ReconciliationTask : IScheduledTask, IConfigurableScheduledT
     private readonly ILogManager _logManager;
 
     public ReconciliationTask(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
-        IPlaylistManager playlistManager, ILogManager logManager)
+        IPlaylistManager playlistManager, IUserDataManager userDataManager, ILogManager logManager)
     {
         _logManager = logManager;
-        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, logManager);
+        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, userDataManager, logManager);
     }
 
     public string Name => "Emby Shared Playlist — réconciliation";

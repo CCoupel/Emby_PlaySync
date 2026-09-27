@@ -9,13 +9,20 @@ namespace EmbySharedPlaylist.Engine;
 public sealed record RemovalResult(int Candidates, int PlaylistsChanged, int EntriesRemoved, int Skipped, long DurationMs);
 
 /// <summary>
-/// Retrait du média lu (#12) : quand un utilisateur fait passer un média à lu, il est retiré de chaque playlist gérée dont
-/// il est membre (propriétaire, <c>Write</c> ou <c>Read</c> : Q3) qui porte <c>remove-si-lu=OUI</c> SEULE (NON l'emporte ;
-/// <c>propager-lu</c> n'est jamais consulté). Traitement IMMÉDIAT, synchrone, dans le gestionnaire, sous le verrou de
-/// CHAQUE playlist, un seul à la fois (jamais deux). Par playlist : première détection si non vue (marquée « vue » avant
-/// d'écrire), relecture fraîche, état lu dans le journal (<c>MarkerSeen</c>), puis retrait une entrée à la fois (résolue
-/// par ItemId à l'instant, plafond 50, doublons compris). Le flag lu n'est jamais modifié (R9). Une playlist en erreur
-/// n'arrête pas les suivantes ; <see cref="Handle"/> ne lève jamais.
+/// Retrait du média lu (#12) et propagation du flag lu (#20) : quand un utilisateur fait passer un média à lu, dans la
+/// MÊME section critique par playlist gérée dont il est membre (propriétaire, <c>Write</c> ou <c>Read</c> : Q3) :
+/// <list type="bullet">
+/// <item><b>Retrait</b> si <c>remove-si-lu=OUI</c> SEULE (NON l'emporte) : retiré une entrée à la fois (résolue par ItemId
+/// à l'instant, plafond 50, doublons compris).</item>
+/// <item><b>Propagation</b> si <c>propager-lu=OUI</c> SEULE, indépendamment du retrait : pour chaque AUTRE membre sans le
+/// flag lu et avec accès au média, pose <c>Played=true</c> (marque plugin, anti-écho #21). Membre déjà lu (R7) ou sans
+/// accès (R8) : ignoré. « Non lu » n'est jamais propagé (R6, aucune transition détectée dans ce cas).</item>
+/// </list>
+/// Traitement IMMÉDIAT, synchrone, dans le gestionnaire, sous le verrou de CHAQUE playlist, un seul à la fois (jamais deux) ;
+/// une seule lecture fraîche des étiquettes pour les deux familles ; même budget global pour les deux. Première détection
+/// si non vue (marquée « vue » avant d'écrire), état de <c>remove-si-lu</c> dans le journal (<c>MarkerSeen</c>). Le flag lu
+/// du déclencheur n'est jamais modifié (R9) ; une playlist en erreur n'arrête pas les suivantes ; <see cref="Handle"/> ne
+/// lève jamais.
 /// </summary>
 public sealed class ReadRemovalEngine
 {
@@ -25,6 +32,8 @@ public sealed class ReadRemovalEngine
     public static readonly TimeSpan DefaultBudget = TimeSpan.FromSeconds(10);
 
     private readonly IPlaylistGateway _gateway;
+    private readonly IUserDataGateway _userData;
+    private readonly PluginWriteTracker _writeTracker;
     private readonly DefaultsService _defaults;
     private readonly SeenPlaylists _seen;
     private readonly PlaylistLocks _locks;
@@ -33,10 +42,13 @@ public sealed class ReadRemovalEngine
     private readonly TimeSpan _lockTimeout;
     private readonly TimeSpan _budget;
 
-    public ReadRemovalEngine(IPlaylistGateway gateway, DefaultsService defaults, SeenPlaylists seen, PlaylistLocks locks,
-        IJournal journal, IClock clock, TimeSpan? lockTimeout = null, TimeSpan? budget = null)
+    public ReadRemovalEngine(IPlaylistGateway gateway, IUserDataGateway userData, PluginWriteTracker writeTracker,
+        DefaultsService defaults, SeenPlaylists seen, PlaylistLocks locks, IJournal journal, IClock clock,
+        TimeSpan? lockTimeout = null, TimeSpan? budget = null)
     {
         _gateway = gateway;
+        _userData = userData;
+        _writeTracker = writeTracker;
         _defaults = defaults;
         _seen = seen;
         _locks = locks;
@@ -114,35 +126,93 @@ public sealed class ReadRemovalEngine
         // Première détection AVANT l'évaluation (pose des NON, message d'aide) ; verrou réentrant : même fil.
         if (!_seen.IsSeen(snapshot.Id)) _defaults.OnFirstDetection(snapshot);
 
-        // Relecture fraîche : les étiquettes sont lues à l'événement, jamais mises en cache.
+        // Relecture fraîche : les étiquettes sont lues à l'événement, jamais mises en cache. Sert aux deux familles.
         var fresh = _gateway.Get(snapshot.Id) ?? snapshot;
-        var state = MarkerEvaluator.Evaluate(fresh.Tags, MarkerFamily.RemoveSiLu);
-        Journal(JournalEntries.Of(_clock, "MarkerSeen", snapshot.Id, $"family={MarkerEvaluator.FamilyName(MarkerFamily.RemoveSiLu)} state={state}"));
+        var removeState = MarkerEvaluator.Evaluate(fresh.Tags, MarkerFamily.RemoveSiLu);
+        Journal(JournalEntries.Of(_clock, "MarkerSeen", snapshot.Id, $"family={MarkerEvaluator.FamilyName(MarkerFamily.RemoveSiLu)} state={removeState}"));
 
-        if (state != MarkerState.Oui)
+        int result;
+        if (removeState != MarkerState.Oui)
         {
             Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "inactive"));
-            return 0;
+            result = 0;
         }
-
-        var count = 0;
-        using (WriteScope.Enter())
+        else
         {
-            // Une entrée à la fois, résolue par ItemId à l'instant (les identifiants d'entrée ne sont pas stables).
-            while (count < MaxEntriesPerPlaylist && total.Elapsed < _budget && _gateway.RemoveOneEntry(snapshot.Id, itemId)) count++;
+            var count = 0;
+            using (WriteScope.Enter())
+            {
+                // Une entrée à la fois, résolue par ItemId à l'instant (les identifiants d'entrée ne sont pas stables).
+                while (count < MaxEntriesPerPlaylist && total.Elapsed < _budget && _gateway.RemoveOneEntry(snapshot.Id, itemId)) count++;
+            }
+
+            if (count == 0)
+            {
+                Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "already-removed"));
+                result = 0;
+            }
+            else
+            {
+                var entry = JournalEntries.Of(_clock, "Removal", snapshot.Id, $"entries={count} durationMs={sw.ElapsedMilliseconds}");
+                entry.UserId = userId;
+                entry.ItemId = itemId;
+                Journal(entry);
+                result = count;
+            }
         }
 
-        if (count == 0)
+        // Propagation (#20) : famille indépendante, même snapshot/verrou, mêmes membres relus. Ne modifie jamais le
+        // flag du déclencheur (déjà posé par Emby, hors plugin) ; aucune entrée si propager-lu n'est pas actif (D-d).
+        if (MarkerEvaluator.Evaluate(fresh.Tags, MarkerFamily.PropagerLu) == MarkerState.Oui)
+            Propagate(fresh, userId, itemId, total);
+
+        return result;
+    }
+
+    private void Propagate(PlaylistSnapshot snapshot, string userId, string itemId, Stopwatch total)
+    {
+        var members = snapshot.MemberIds;
+        var propagated = 0;
+        var alreadyPlayed = 0;
+        var noAccess = 0;
+
+        foreach (var memberId in members)
         {
-            Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "already-removed"));
-            return 0;
+            if (string.Equals(memberId, userId, StringComparison.Ordinal)) continue;
+            if (total.Elapsed >= _budget) break; // budget global partagé avec le retrait : reprise à la transition suivante
+
+            var isPlayed = _userData.IsPlayed(memberId, itemId);
+            if (isPlayed == null)
+            {
+                noAccess++;
+                Journal(SkippedForMember(memberId, snapshot.Id, itemId, "no-access")); // R8
+                continue;
+            }
+            if (isPlayed == true)
+            {
+                alreadyPlayed++;
+                Journal(SkippedForMember(memberId, snapshot.Id, itemId, "already-played")); // R7 : ni compteur ni date touchés
+                continue;
+            }
+
+            _writeTracker.Register(memberId, itemId); // anti-écho (#21) AVANT l'écriture
+            if (_userData.MarkPlayed(memberId, itemId)) propagated++;
         }
 
-        var entry = JournalEntries.Of(_clock, "Removal", snapshot.Id, $"entries={count} durationMs={sw.ElapsedMilliseconds}");
+        var detail = $"members={members.Count(m => !string.Equals(m, userId, StringComparison.Ordinal))} " +
+                     $"propagated={propagated} alreadyPlayed={alreadyPlayed} noAccess={noAccess}";
+        var entry = JournalEntries.Of(_clock, "Propagation", snapshot.Id, detail);
         entry.UserId = userId;
         entry.ItemId = itemId;
         Journal(entry);
-        return count;
+    }
+
+    private JournalEntry SkippedForMember(string memberId, string playlistId, string itemId, string reason)
+    {
+        var entry = JournalEntries.SkippedEntry(_clock, playlistId, reason);
+        entry.UserId = memberId;
+        entry.ItemId = itemId;
+        return entry;
     }
 
     private void Journal(JournalEntry entry)

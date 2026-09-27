@@ -24,7 +24,8 @@
 - `DescriptionWritten` : message d'aide écrit, description vide (`Detail` = `cause=first-detection|grace-elapsed`).
 - `MarkerSeen` : état d'une famille lu à l'événement de retrait (`Detail` = `family=remove-si-lu state=Oui|Non|Both|None`).
 - `Removal` : `PlaylistId`, `ItemId`, `UserId` (déclencheur), `Detail` = `entries=<n> durationMs=<n>` (durée du traitement dans le gestionnaire, verrou compris).
-- `Skipped` : pas d'action (`Detail` = `inactive|not-shared|already-seen|already-removed|marker-present|unknown-owner|reentrant|lock-busy|budget-exceeded|no-effect`).
+- `Propagation` : `PlaylistId`, `ItemId`, `UserId` (declencheur de la transition), `Detail` = `members=<n> propagated=<n> alreadyPlayed=<n> noAccess=<n>` (une seule entree par playlist, meme si `propagated=0`). Journalisee uniquement si `propager-lu=OUI` seule (independant de `remove-si-lu`).
+- `Skipped` : pas d'action (`Detail` = `inactive|not-shared|already-seen|already-removed|marker-present|unknown-owner|reentrant|lock-busy|budget-exceeded|no-effect|no-access|already-played|echo-consumed`). `no-access`/`already-played` sont journalises avec `UserId`=membre concerne (propagation, #20). `echo-consumed` est au niveau de l'evenement (pas de la playlist : `PlaylistId=null`), pose par `PlaybackListener` quand `PluginWriteTracker` reconnait l'ecriture (#21).
 - `Error` : exception isolée (`Detail` = type d'exception, sans message brut si celui-ci peut contenir des noms).
 
 ### GET /SharedPlaylist/Diagnostics/State
