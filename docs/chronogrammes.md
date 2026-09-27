@@ -145,9 +145,9 @@ Le plugin ne mémorise rien : si le propriétaire vide ensuite la description, l
 | R4b | **Propagation du lu (`propager-lu`)** : sur la même transition, si `propager-lu=OUI` est actif, le flag lu est posé chez les autres membres. **Indépendante** de R4a (voir la matrice ci-dessous). Livrée en **v0.3.0**. |
 | R4c | **Transition et relecture** : seule la **transition** non lu → lu déclenche R4a et R4b. Un média **déjà lu** que l'on relit jusqu'au bout ne déclenche **rien**. Décocher puis recocher « lu » est une transition : le média est retiré. Un arrêt en cours de lecture (`played=false`) ne déclenche rien. **État inconnu** (mémoire vide après un redémarrage d'Emby ou une éviction) : « inconnue = transition » ne vaut que pour les motifs de **lecture** (`PlaybackProgress`, `PlaybackFinished`) ; pour `Import`, `UpdateUserRating`, `UpdateHideFromResume` et tout motif inconnu, `played=true` avec mémoire inconnue est **mémorisé sans transition**, donc sans retrait (mettre en favori, importer ou masquer un film déjà vu ne le retire pas). Limite acceptée : un import légitime qui marque lu ne retire plus le média. **`TogglePlayed` avec `played=true` reste une transition certaine**, même si la mémoire dit déjà « lu » (marquer lu explicitement est un geste volontaire). Sortie manuelle d'un média lu qui est resté dans la liste : décocher/recocher « lu », ou le retirer directement. |
 | R5 | Un changement d'origine **plugin** ne déclenche rien (ni retrait, ni propagation). C'est ce qui garantit l'absence de transitivité entre listes. En v0.2.0 le plugin n'écrit aucune donnée utilisateur ; l'anti-écho du flag lu est livré avec la propagation (v0.3.0). |
-| R6 | Seul le passage à **lu** se propage. Le retour à « non lu » ne se propage pas. |
-| R7 | Si un membre a déjà le flag lu, le plugin n'y touche pas (compteur et date intacts). |
-| R8 | Un média auquel un membre n'a pas accès (droits de bibliothèque) est ignoré silencieusement pour ce membre : le flag lu n'est pas posé chez lui. |
+| R6 | Seul le passage à **lu** se propage. Le retour à « non lu » ne se propage pas — **structurellement impossible** : le port de propagation (`IUserDataGateway`) n'expose que la lecture du flag (`IsPlayed`) et la pose de « lu » (`MarkPlayed`), aucune méthode pour marquer « non lu ». |
+| R7 | Si un membre a déjà le flag lu, le plugin n'y touche pas (compteur et date intacts) : `IsPlayed` renvoie vrai, aucun appel d'écriture (journal `Skipped already-played`). |
+| R8 | Un média auquel un membre n'a pas accès (droits de bibliothèque, contrôle parental) est ignoré silencieusement pour ce membre : le flag lu n'est pas posé chez lui. `IUserDataGateway.IsPlayed` renvoie `null` dans ce cas (pas d'exception, pas de champ séparé), traité comme R8 (journal `Skipped no-access`). |
 | R9 | Retirer un média (explicite ou parce que lu) ne modifie aucun flag ; les deux causes donnent le même état de liste. |
 | R10 | **Avancement (D9, `propager-lu`)** : à l'arrêt ou à la pause d'une lecture par un membre (origine utilisateur), pour chaque playlist partagée contenant le média, dont il est membre et dont `propager-lu=OUI` est actif, la position de lecture (`PlaybackPositionTicks`) est écrite chez les autres membres. La **dernière lecture gagne**, dans les deux sens. Pas de transitivité entre listes. Anti-écho identique au lu (R5). **Jamais de position propagée quand `played=true`** (Emby remet la position à 0 à la fin) ni de position 0 issue du démarrage ; à la transition vers lu, R4a/R4b prennent le relais. Sans `propager-lu=OUI` : aucune écriture. Les autres données utilisateur (favori, note) ne sont pas touchées. Livrée en **v0.3.1** (issues #44–#48). |
 | R11 | **Aucun état persisté** : ni fichier, ni configuration. Le plugin garde en mémoire les playlists déjà vues et les compteurs de grâce ; après un redémarrage tout repart à zéro (première détection immédiate). « Le plugin replace ce qui manque » : étiquette absente reposée, message d'aide réécrit si la description est vide. |
@@ -358,11 +358,13 @@ L1 n'est pas modifiée.
 sequenceDiagram
     participant P as Plugin
     participant U as Emby (UserDataSaved)
-    P->>P: enregistre (U3, F1) dans l'ensemble « écritures plugin »
+    P->>P: enregistre (U3, F1) dans les écritures plugin (avant l'appel)
     P->>U: SaveUserData(U3, F1, Lu)
     U-->>P: événement UserDataSaved(U3, F1)
-    P->>P: (U3, F1) trouvé dans l'ensemble : ignoré, entrée retirée
+    P->>P: (U3, F1) reconnu : entrée consommée, mémoire de transition mise à jour, moteur JAMAIS appelé (Skipped echo-consumed, au niveau de l'événement, pas par playlist)
 ```
+
+L'entrée est reconnue **avant** toute autre garde (elle passe après le drapeau de ré-entrance `WriteScope`, mais avant le tracker de transition) : même reconnu comme écho, l'événement met à jour la mémoire de transition (pour ne pas fausser une future vraie transition), mais le moteur de retrait/propagation n'est **jamais** invoqué pour un écho — condition nécessaire à l'absence de transitivité entre listes (S6a-c).
 
 ### S8 — Cas limites
 
@@ -426,19 +428,23 @@ Sans `propager-lu=OUI` seule, seules les lignes des actions utilisateur ont lieu
 
 ```
 sur UserDataSaved(user, item, saveReason, played):
-    si (user, item) ∈ écritures_plugin:                    # v0.3.0
-        retirer de l'ensemble ; return                     # R5
-    si non transition_vers_lu(user, item, saveReason, played): return   # chemin rapide en mémoire
+    si WriteScope actif (écriture du plugin en cours sur ce fil): return   # ignoré, rien mémorisé
+    si (user, item) ∈ écritures_plugin (anti-écho #21, v0.3.0):
+        consommer l'entrée ; mémoriser played du couple (mémoire de transition) ; return   # R5 : moteur JAMAIS appelé (Skipped echo-consumed)
+    si non transition_vers_lu(user, item, saveReason, played): return   # chemin rapide en mémoire, aucun accès base
     pour chaque playlist L partagée où user ∈ L.membres et item ∈ L:
         prendre le verrou de L ; relire L (étiquettes, contenu)
         si L non vue: première_détection(L)                 # pose des défauts, L marquée vue avant d'écrire
         si famille(L, remove-si-lu) = OUI:                  # R4a
             tant qu'une entrée de item existe (plafond 50):
                 relire ; retirer une entrée résolue par ItemId
-        si famille(L, propager-lu) = OUI:                   # R4b (v0.3.0)
+        si famille(L, propager-lu) = OUI:                   # R4b (v0.3.0), même verrou/relecture, indépendant du retrait
             pour chaque m ∈ L.membres \ {user}:
-                si non Played(m, item) et accès(m, item):
-                    marquer (m, item) ; SaveUserData(m, item, Played)   # R7, R8
+                état = IsPlayed(m, item)                     # null = pas d'accès (bibliothèque, contrôle parental)
+                si état = null: Skipped no-access ; continuer            # R8
+                si état = vrai: Skipped already-played ; continuer       # R7 : ni compteur ni date touchés
+                enregistrer (m, item) dans écritures_plugin ; SaveUserData(m, item, Played)   # anti-écho AVANT l'écriture
+            une entrée Journal « Propagation » par playlist (même si aucun membre propagé)
         libérer le verrou
 
 transition_vers_lu(user, item, saveReason, played):
