@@ -1,5 +1,18 @@
 # Changelog des contrats
 
+## [20260927] — v1.0.0 : clôture — récapitulatif du périmètre livré depuis v0.1.0 (#35 #36 #37 #38 #49)
+
+Livraison finale de la v1.0.0 (build/publish/deploy QUALIF, recette complète, icône du plugin). **Aucun changement de contrat HTTP dans ce lot** : cette entrée récapitule, elle ne documente aucune nouveauté technique.
+
+- **Partage** : partage natif Emby (menu « Gérer la collaboration ») ; permission `Policy.AllowSharingPersonalItems` posée **automatiquement** pour tous les utilisateurs (`AutoEnableSharing`, v0.4.0), avec la limite documentée (un décochage manuel est réactivé à la passe suivante ; seul l'interrupteur global l'empêche, sans jamais révoquer un accès déjà accordé).
+- **Retrait du média lu** (v0.2.0) : étiquette `remove-si-lu`, transition non lu → lu, exécution immédiate sous verrou par playlist, sans file, sans état persisté (première détection et grâce à chaque redémarrage).
+- **Propagation** (v0.3.0/v0.3.1) : étiquette `propager-lu` indépendante — flag lu (`UserDataSaved`, anti-écho `PluginWriteTracker`) et avancement de lecture (`ISessionManager.PlaybackProgress`/`PlaybackStopped`, dernier écrit gagne, seuil 30 s), deux flux d'événements indépendants sans transitivité entre listes.
+- **Diagnostics** : `GET /SharedPlaylist/Diagnostics/Journal` et `/State` (admin, journal borné, compteurs `Skipped` agrégés, `Handler {Count, LastMs, MaxMs}`), config `EnableDiagnostics`/`GracePasses`/`LogToConsole`/`LogLevel`.
+- **Robustesse et passage à l'échelle** (v0.5.0, #30/#31/#33/#34) : comportements confirmés en conditions réelles à grande échelle (script `24-robustesse.sh`) ; décision documentée et assumée (D18) : `PlaylistLocks` n'est jamais borné (contrairement à `SeenPlaylists`), croissance jugée négligeable sur un serveur personnel.
+- **Sécurité** : audit livré en v0.4.0 (`security-20260927-221434.md`) ; point de vigilance porté explicitement au GATE PROD : revue d'`AutoEnableSharing` (élargissement de droits) avant toute bascule en production.
+- **Nettoyage** (#38) : confirmation qu'aucun résidu de `Spike/*` ni de la sonde de ré-entrance ne subsiste (retirés depuis v0.2.0/#15).
+- Couverture de tests : 97,3 %, très au-dessus du seuil (#37). Icône du plugin ajoutée (#49).
+
 ## [20260927] — v0.4.0 : encart d'aide, permission automatique, guide, audit sécurité (#25 #26 #27 #28 #29, planifié)
 
 - **[NEW]** Config plugin : `AutoEnableSharing` (bool, défaut `true`) — pose `Policy.AllowSharingPersonalItems=true` pour tous les utilisateurs (existants et nouveaux) ; désactivé = aucune écriture, **ne révoque jamais** un accès déjà accordé (comportement décidé, sans exception par utilisateur ni mémoire d'un décochage manuel — cohérent avec R11, aucun état persisté : un opt-out manuel serait réappliqué à la passe suivante ; seule l'issue globale est de désactiver `AutoEnableSharing`).

@@ -2,7 +2,7 @@
 
 Plugin Emby Media Server pour partager une playlist « À voir » entre plusieurs utilisateurs.
 
-> **État : en développement (v0.4.0).** Le partage natif, le retrait automatique du média lu, la propagation du flag lu et de l'avancement de lecture sont livrés. La permission automatique de partage, l'encart d'aide de la page de config et l'audit de sécurité sont en cours.
+> **État : v1.0.0, déployé sur QUALIF — pas encore en production.** Le partage natif, le retrait automatique du média lu, la propagation du flag lu et de l'avancement de lecture, la permission automatique de partage, l'encart d'aide de la page de config et l'audit de sécurité sont livrés. La bascule en production se fait par `/deploy prod`, sur décision explicite.
 
 ## Principe
 
@@ -63,9 +63,9 @@ Les deux options sont indépendantes (l'une sans l'autre est un usage valide) et
 
 ### 5. Limites connues
 
-- **Clients TV et mobile** : la visibilité de la playlist partagée et le retrait fonctionnent (partage natif Emby), mais **poser ou modifier une étiquette depuis un client TV ou mobile n'est pas garanti** ; à vérifier au cas par cas (issue #28, en cours).
+- **Clients TV et mobile** : la visibilité de la playlist partagée et le retrait fonctionnent (partage natif Emby), mais **poser ou modifier une étiquette depuis un client TV ou mobile n'est pas garanti**. Vérification manuelle au cas par cas (issue #28) : reste ouverte, **non bloquante** pour la livraison.
 - Le message écrit dans la description d'une playlist gérée décrit le retrait, la propagation du flag lu et celle de l'avancement de lecture.
-- Un encart d'aide sur la page de configuration du plugin est en cours (issue #25).
+- La page de configuration du plugin comporte un encart d'aide (partage natif, les deux étiquettes, permission automatique) et la case `AutoEnableSharing`.
 
 Ce n'est pas une wishlist de demandes de médias (comme Ombi ou Seerr) : la liste ne contient que des médias déjà présents dans la bibliothèque.
 
