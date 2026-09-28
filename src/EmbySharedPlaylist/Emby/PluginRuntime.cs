@@ -1,6 +1,7 @@
 using EmbySharedPlaylist.Core;
 using EmbySharedPlaylist.Engine;
 using EmbySharedPlaylist.Reconciliation;
+using EmbySharedPlaylist.UserPage;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
@@ -39,6 +40,11 @@ public static class PluginRuntime
     public static IUserDataGateway? UserData { get; private set; }
     public static IUserPolicyGateway? PolicyGateway { get; private set; }
     public static AutoSharingService? AutoSharing { get; private set; }
+    /// <summary>v1.1.0 (#39, D20) : page utilisateur — ports Emby dédiés (propriété/partages, annuaire).</summary>
+    public static IShareGateway? ShareGateway { get; private set; }
+    public static IUserDirectory? UserDirectory { get; private set; }
+    /// <summary>v1.1.0 (#39, D20) : service applicatif composé pour les endpoints <c>User/*</c> (<c>Emby/UserPageService</c>).</summary>
+    public static UserPlaylistService? UserPlaylist { get; private set; }
 
     /// <summary>Idempotent : le premier appel construit les services, les suivants renvoient.</summary>
     public static void Initialize(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
@@ -78,6 +84,16 @@ public static class PluginRuntime
             // Repli à faux (v1.0.0, GATE PROD, M1) : cohérent avec le nouveau défaut de PluginConfiguration si
             // Plugin.Instance est null (cas théorique, jamais observé en pratique).
             AutoSharing = new AutoSharingService(policyGateway, journal, clock, () => Plugin.Instance?.Configuration.AutoEnableSharing ?? false);
+
+            // v1.1.0 (#39, D20) : page utilisateur — ports dédiés + service applicatif composé (indépendant d'Emby,
+            // voir UserPage/UserPlaylistService.cs). Même verrou (Locks) et même DefaultsService que le moteur : le
+            // premier partage depuis la page réutilise OnFirstDetection sous le même verrou réentrant (S10).
+            var shareGateway = new EmbyShareGateway(libraryManager, userManager, itemRepository);
+            ShareGateway = shareGateway;
+            var userDirectory = new EmbyUserDirectory(userManager, policyGateway);
+            UserDirectory = userDirectory;
+            UserPlaylist = new UserPlaylistService(shareGateway, userDirectory, gateway, Locks, defaults, journal, clock);
+
             log.Info(LogFormat.Startup());
             _initialized = true;
         }
