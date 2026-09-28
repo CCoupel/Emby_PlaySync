@@ -288,12 +288,50 @@ p22() {
     st_err 404 not-found DELETE "$UP/Playlists/$PL/Members/$U3" "" "$T1"
 }
 
+p23() {
+  echo "== P23 (critical, sécurité) — retirer un membre ne fait JAMAIS perdre la ligne ManageDelete du propriétaire"
+  # _work/reports/security-audit-20260928-154256.md point 7 (MOYENNE) + _work/reports/code-review-20260928-154519.md
+  # ("retour bool jamais vérifié") : EmbyShareGateway.DeleteShare purge TOUTES les lignes de partage PUIS reconstruit
+  # explicitement (propriétaire compris), sans transaction SDK. Test dédié demandé par le teamleader : vérifier
+  # IMMÉDIATEMENT après le retrait que le propriétaire garde sa ligne ManageDelete — sur les DEUX formes de
+  # reconstruction (toKeep = [propriétaire, autre membre] ET toKeep = [propriétaire] seul, cas le plus à risque).
+  local pl3
+  pl3=$(new_pl "SPIKE PS-OwnerIntegrity" "$ITEM1")
+  ck P23.share1 "POST Members {u2,Write} -> 200 (premier partage)" "null" st_ok 200 POST "$UP/Playlists/$pl3/Members" "$(body_member "$U2" Write)" "$T1"
+  ck P23.share2 "POST Members {u3,Read} -> 200 (deuxième membre)" "null" st_ok 200 POST "$UP/Playlists/$pl3/Members" "$(body_member "$U3" Read)" "$T1"
+
+  local st
+  st=$(api GET "/Users/ItemAccess?ItemId=$pl3" "" "$T1")
+  ck P23.owner_before_http "GET /Users/ItemAccess -> 2xx (avant tout retrait)" "null" is2xx "$st"
+  ck P23.owner_before "propriétaire (u1) a ManageDelete AVANT tout retrait" "$(cat "$RESP")" \
+    bash -c "jq -e --arg u \"\$0\" '.[]|select(.UserId==\$u and .ItemAccess==\"ManageDelete\")' '$RESP' >/dev/null" "$U1"
+
+  # Retrait d'un membre NON dernier (u2) : reconstruction = [propriétaire, u3].
+  ck P23.remove_not_last "DELETE Members/{u2} (u3 reste) -> 200" "null" st_ok 200 DELETE "$UP/Playlists/$pl3/Members/$U2" "" "$T1"
+  st=$(api GET "/Users/ItemAccess?ItemId=$pl3" "" "$T1")
+  ck P23.owner_after_notlast_http "GET /Users/ItemAccess -> 2xx (après retrait non-dernier)" "null" is2xx "$st"
+  ck P23.owner_after_notlast "propriétaire garde ManageDelete APRÈS le retrait d'un membre non-dernier" "$(cat "$RESP")" \
+    bash -c "jq -e --arg u \"\$0\" '.[]|select(.UserId==\$u and .ItemAccess==\"ManageDelete\")' '$RESP' >/dev/null" "$U1"
+
+  # Retrait du DERNIER membre (u3) : reconstruction = [propriétaire] SEUL — cas le plus à risque (security-audit point 7).
+  ck P23.remove_last "DELETE Members/{u3} (dernier membre) -> 200" "null" st_ok 200 DELETE "$UP/Playlists/$pl3/Members/$U3" "" "$T1"
+  st=$(api GET "/Users/ItemAccess?ItemId=$pl3" "" "$T1")
+  ck P23.owner_after_last_http "GET /Users/ItemAccess -> 2xx (après retrait du dernier membre)" "null" is2xx "$st"
+  ck P23.owner_after_last "propriétaire garde ManageDelete APRÈS le retrait du DERNIER membre (cas le plus à risque)" "$(cat "$RESP")" \
+    bash -c "jq -e --arg u \"\$0\" '.[]|select(.UserId==\$u and .ItemAccess==\"ManageDelete\")' '$RESP' >/dev/null" "$U1"
+
+  # Preuve applicative complémentaire : le plugin lui-même retrouve encore le propriétaire ensuite (GetOwned),
+  # pas seulement le natif /Users/ItemAccess.
+  ck P23.still_manageable "POST Members (repartage) -> 200 : GetOwned résout encore le propriétaire après les retraits" "null" \
+    st_ok 200 POST "$UP/Playlists/$pl3/Members" "$(body_member "$U2" Write)" "$T1"
+}
+
 p_busy() {
   echo "== P-busy — 409 busy : SKIP (aucun moyen déterministe de forcer la contention du verrou par REST)"
   skip P-busy "couvert par UserPlaylistServiceSpecTests.Locked_ByAnotherThread_ReturnsBusy_WithinFiveSecondBudget (unitaire)"
 }
 
-ALL=(P1 P2 P3 P4 P6 P7 P8 P9 P10 P11 P12 P13 P14 P15 P16 P17 P18 P19 P20 P21 P22 P-busy)
+ALL=(P1 P2 P3 P4 P6 P7 P8 P9 P10 P11 P12 P13 P14 P15 P16 P17 P18 P19 P20 P21 P22 P23 P-busy)
 if [[ ${#WANT[@]} -eq 0 ]]; then WANT=("${ALL[@]}"); fi
 for s in "${WANT[@]}"; do
   fn=$(tr 'A-Z-' 'a-z_' <<<"$s")

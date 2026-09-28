@@ -75,4 +75,25 @@ public class UserPageDiagnosticsSpecTests
         // (ids/énumérations), jamais un nom de compte ou de playlist (cf. contrat Diagnostics : "aucun nom").
         Assert.All(DiagnosticsMapper.EngineKinds, k => Assert.DoesNotContain(" ", k));
     }
+
+    // ------------------------------------------------------------------ security-audit-20260928-154256.md point 7
+    // (MOYENNE) : kind d'alarme dédié pour un retrait de membre qui aurait perdu la ligne ManageDelete du
+    // propriétaire (purge+reconstruction non transactionnelle d'EmbyShareGateway.DeleteShare). ROUGE tant que
+    // dev-plugin n'a pas ajouté "OwnerLost" à EngineKinds (voir aussi UserPlaylistServiceSpecTests.cs,
+    // RemoveMember_WhenTheOwnersManageDeleteRowIsLostDuringThePurgeAndRebuild_JournalsADedicatedAlarm) — doit
+    // rester visible SANS filtre kind (décisions du moteur), comme ShareChanged/MarkerSet.
+
+    [Fact]
+    public void EngineKinds_IncludesOwnerLost()
+    {
+        Assert.Contains("OwnerLost", DiagnosticsMapper.EngineKinds);
+    }
+
+    [Fact]
+    public void Journal_WithoutFilter_ReturnsOwnerLost_AmongEngineDecisions()
+    {
+        var entries = new[] { E("ScanPass"), E("OwnerLost", "p1", "u1", "context=RemoveMember") };
+        var kinds = DiagnosticsMapper.Journal(entries, null).Select(e => e.Kind).ToList();
+        Assert.Contains("OwnerLost", kinds);
+    }
 }
