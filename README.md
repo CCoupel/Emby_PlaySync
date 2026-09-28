@@ -2,8 +2,6 @@
 
 Plugin Emby Media Server pour partager une playlist « À voir » entre plusieurs utilisateurs.
 
-> **État : v1.1.0 (dev 1.1.0.3 sur QUALIF), non encore en production.** Livraison v1.1.0 : page utilisateur PlaySync dans le menu Emby (gestion simplifiée des membres et des options), endpoints non-admin, audit sécurité complet. Versions précédentes (v0.1.0–v1.0.0) : partage natif, retrait automatique du média lu, propagation du flag lu et de l'avancement, permission automatique de partage, encart d'aide. La bascule en production se fait par `/deploy prod`, sur décision explicite.
-
 ## Principe
 
 Une playlist appartient à un utilisateur (le propriétaire), qui la partage avec d'autres utilisateurs grâce au partage natif de playlists d'Emby. Le plugin ajoute la gestion de l'état « vu », réglée par **deux étiquettes indépendantes** posées sur la playlist :
