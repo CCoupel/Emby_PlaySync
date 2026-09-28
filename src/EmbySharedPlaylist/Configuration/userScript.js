@@ -144,12 +144,17 @@ define([], function () {
         while (node.firstChild) node.removeChild(node.firstChild);
     }
 
-    /// Ligne flex (remplace un <table> sans classe Emby connue — chrome blanc par défaut du navigateur). Styles
-    /// posés en ligne (display/gap/padding uniquement) : indépendants des classes CSS de l'hôte, la couleur/police
-    /// du texte reste héritée normalement du thème de la page.
-    function flexRow() {
+    /// Ligne de la table des membres — grille CSS à 3 colonnes STABLES (remplace un <table> sans classe Emby
+    /// connue — chrome blanc par défaut du navigateur — et l'ancien patron flex, où le toggle débordait à droite
+    /// de la carte et le bouton de retrait disparaissait selon la longueur du nom de compte, ex. "cyril"). Avec
+    /// une grille, les colonnes 2 et 3 ont une largeur FIXE garantie, quelle que soit la largeur de la colonne 1
+    /// (compte) — impossible qu'elles débordent ou soient poussées hors de la carte. Utilisée pour l'en-tête,
+    /// chaque ligne de membre ET la ligne d'ajout (demande utilisateur : même structure partout, colonnes
+    /// alignées verticalement d'une ligne à l'autre car le même gabarit est réutilisé partout).
+    function memberGridRow() {
         var row = document.createElement('div');
-        row.style.display = 'flex';
+        row.style.display = 'grid';
+        row.style.gridTemplateColumns = '1fr 90px auto'; // compte (flexible) | toggle (fixe) | action (auto)
         row.style.alignItems = 'center';
         row.style.gap = '8px';
         row.style.padding = '10px 0'; // aéré (maquette : td/th padding 8px 6px) — demande utilisateur, moins tassé
@@ -262,22 +267,14 @@ define([], function () {
         /// Correction d'un malentendu du teamleader : PAS de libellé texte à côté de chaque toggle individuel —
         /// "Lecture / Écriture" est l'EN-TÊTE DE COLONNE (une seule fois, voir renderMembers), jamais répété à
         /// chaque ligne. Retourne donc directement l'<input> cloné (nu, sans <label>/<span> autour) — coché=Write,
-        /// décoché=Read (sens inchangé). Chaque appelant l'aligne dans sa propre colonne (voir levelColumn()).
+        /// décoché=Read (sens inchangé). Chaque appelant le place tel quel dans la 2e colonne de memberGridRow()
+        /// (grille CSS : plus besoin d'un conteneur d'alignement dédié, `justify-self` suffit sur l'élément
+        /// directement — voir renderMembers()/renderAddRow()).
         function levelToggle(selectedValue) {
             var input = cloneToggle();
             input.checked = selectedValue === 'Write';
+            input.style.justifySelf = 'center'; // centré dans sa colonne fixe (90px, memberGridRow) — jamais collé à un bord
             return input;
-        }
-
-        /// Colonne d'alignement du toggle de niveau, IDENTIQUE en largeur dans les lignes de membre ET la ligne
-        /// d'ajout (demande utilisateur : même colonne verticale) — toggle aligné à droite de cette colonne.
-        function levelColumn() {
-            var holder = document.createElement('div');
-            holder.style.minWidth = '150px';
-            holder.style.display = 'flex';
-            holder.style.justifyContent = 'flex-end';
-            holder.style.flexShrink = '0';
-            return holder;
         }
 
         function renderOptions(playlist) {
@@ -350,8 +347,10 @@ define([], function () {
         }
 
         function renderAddRow(playlist) {
-            var row = flexRow();
-            row.style.flexWrap = 'wrap';
+            // Même gabarit que renderMembers() (memberGridRow : compte | toggle | action) — demande utilisateur :
+            // structure identique pour que la colonne du toggle reste alignée d'une ligne à l'autre, y compris
+            // sur la ligne d'ajout.
+            var row = memberGridRow();
             row.style.marginTop = '12px';
 
             var userSelect = cloneSelect();
@@ -362,8 +361,7 @@ define([], function () {
             // ligne (important) pour ne dépendre d'aucune classe non vérifiée.
             userSelect.style.setProperty('display', 'inline-flex', 'important');
             userSelect.style.setProperty('width', 'auto', 'important');
-            userSelect.style.flex = '1'; // prend l'espace disponible, comme le nom dans les lignes de membre —
-            userSelect.style.minWidth = '160px'; // même 1re colonne que renderMembers, pour aligner la colonne du toggle
+            userSelect.style.minWidth = '0'; // la grille (1re colonne, 1fr) contrôle déjà la largeur disponible
             var placeholder = document.createElement('option');
             placeholder.value = '';
             placeholder.textContent = t('addPlaceholder');
@@ -376,22 +374,20 @@ define([], function () {
             });
             row.appendChild(userSelect);
 
-            // Même colonne verticale que le toggle des membres existants (demande utilisateur) : levelColumn()
-            // pose la même largeur/alignement à droite dans les deux lignes.
-            var levelHolder = levelColumn();
             var levelInput = levelToggle('Write');
-            levelHolder.appendChild(levelInput);
-            row.appendChild(levelHolder);
+            row.appendChild(levelInput);
 
             var addBtn = cloneSubmitButton();
             // Demande utilisateur : le bouton doit rester sur la MÊME ligne que les deux menus, pas passer en
             // pleine largeur en dessous. Le prototype porte la classe "block" (pleine largeur, pertinente pour le
             // bouton "Enregistrer" de configPage.html, seul sur sa ligne) — retirée ici, avec un repli en style
-            // posé en ligne (important) pour ne dépendre d'aucune classe non vérifiée.
+            // posé en ligne (important) pour ne dépendre d'aucune classe non vérifiée. 3e colonne de la grille en
+            // largeur "auto" (contrairement au bouton icône '✕' des lignes de membre) : ce bouton porte un texte
+            // ("Ajouter"/"Partager"), une largeur fixe étroite le tronquerait.
             addBtn.classList.remove('block');
             addBtn.style.setProperty('width', 'auto', 'important');
             addBtn.style.setProperty('display', 'inline-flex', 'important');
-            addBtn.style.flexShrink = '0';
+            addBtn.style.justifySelf = 'center';
             setText(addBtn, playlist.IsShared ? 'add' : 'share');
             addBtn.addEventListener('click', function () {
                 if (!userSelect.value) return;
@@ -417,32 +413,36 @@ define([], function () {
             } else {
                 // Pas de <table> : un <table>/<tr>/<td> sans classe Emby connue se rend avec le chrome BLANC par
                 // défaut du navigateur (cause probable du "fond blanc" constaté en QUALIF v1.1.0.4, en plus des
-                // composants non améliorés ci-dessous) — des lignes <div> en flex héritent normalement du thème.
-                var head = flexRow();
+                // composants non améliorés ci-dessous) — une grille CSS (memberGridRow) hérite normalement du
+                // thème et garantit 3 colonnes stables (compte | toggle | action), le toggle ne pouvant plus
+                // déborder de la carte ni le bouton de retrait disparaître, quelle que soit la longueur du nom.
+                var head = memberGridRow();
                 head.style.opacity = '.7';
                 var headAccount = document.createElement('div');
-                headAccount.style.flex = '1';
                 setText(headAccount, 'accountHeader');
                 // Correction d'un malentendu : "Lecture / Écriture" est l'en-tête de CETTE colonne (une seule
                 // fois), jamais répété à côté de chaque toggle individuel ci-dessous.
                 var headAccess = document.createElement('div');
-                headAccess.style.minWidth = '150px';
-                headAccess.style.textAlign = 'right';
+                headAccess.style.textAlign = 'center';
                 setText(headAccess, 'levelToggleLabel');
                 head.appendChild(headAccount);
                 head.appendChild(headAccess);
-                head.appendChild(document.createElement('div'));
+                head.appendChild(document.createElement('div')); // 3e colonne (action) vide dans l'en-tête
                 section.appendChild(head);
 
                 playlist.Members.forEach(function (member) {
-                    var row = flexRow();
+                    var row = memberGridRow();
 
                     var name = document.createElement('div');
-                    name.style.flex = '1';
+                    // Un nom de compte très long ne peut plus repousser les colonnes suivantes hors de la carte
+                    // (largeurs fixes du gabarit de grille) : il est tronqué proprement dans sa propre colonne.
+                    name.style.overflow = 'hidden';
+                    name.style.textOverflow = 'ellipsis';
+                    name.style.whiteSpace = 'nowrap';
+                    name.title = member.Name;
                     name.textContent = member.Name; // donnée serveur : textContent uniquement
                     row.appendChild(name);
 
-                    var levelHolder = levelColumn(); // même colonne verticale que la ligne d'ajout
                     var levelInput = levelToggle(member.Level);
                     levelInput.addEventListener('change', function () {
                         var path = 'SharedPlaylist/User/Playlists/' + encodeURIComponent(playlist.PlaylistId) + '/Members';
@@ -451,10 +451,10 @@ define([], function () {
                             function (err) { showError(err); reload(); }
                         );
                     });
-                    levelHolder.appendChild(levelInput);
-                    row.appendChild(levelHolder);
+                    row.appendChild(levelInput);
 
                     var removeBtn = cloneIconButton(); // '✕' déjà présent (prototype)
+                    removeBtn.style.justifySelf = 'center'; // 3e colonne (auto) : bouton icône toujours visible/centré
                     removeBtn.title = t('remove');
                     removeBtn.addEventListener('click', function () {
                         // Confirmation via le dialogue natif Emby (module "confirm"), jamais une boîte bloquante du navigateur.
