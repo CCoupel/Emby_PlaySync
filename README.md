@@ -2,8 +2,6 @@
 
 Plugin Emby Media Server pour partager une playlist « À voir » entre plusieurs utilisateurs.
 
-> **État : v1.0.0, déployé sur QUALIF — pas encore en production.** Le partage natif, le retrait automatique du média lu, la propagation du flag lu et de l'avancement de lecture, la permission automatique de partage, l'encart d'aide de la page de config et l'audit de sécurité sont livrés. La bascule en production se fait par `/deploy prod`, sur décision explicite.
-
 ## Principe
 
 Une playlist appartient à un utilisateur (le propriétaire), qui la partage avec d'autres utilisateurs grâce au partage natif de playlists d'Emby. Le plugin ajoute la gestion de l'état « vu », réglée par **deux étiquettes indépendantes** posées sur la playlist :
