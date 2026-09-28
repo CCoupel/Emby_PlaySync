@@ -65,7 +65,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbIm
                 Name                 = ConfigPageName,
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
                 EnableInMainMenu     = true,
-                DisplayName          = "PlaySync",
+                DisplayName          = "Paramètres PlaySync", // différencié de la page utilisateur ("PlaySync" seul, #39) sur demande utilisateur
                 MenuSection          = "server",
                 MenuIcon             = "playlist_play"
             },
