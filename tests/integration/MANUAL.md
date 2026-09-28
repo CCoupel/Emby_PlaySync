@@ -68,10 +68,21 @@ Couvert automatiquement par `tests/integration/23-permission.sh` (I36-I41) : dé
 | Décocher `AutoEnableSharing` dans la page de config | aucun compte n'est plus retouché à la passe suivante ; un compte déjà coché **le reste** (aucune révocation) | |
 
 ## 5quinquies. Page utilisateur « PlaySync » (v1.1.0, #39, D19/D20/S10)
-Couvert automatiquement par `tests/integration/25-page-utilisateur.sh` (P1-P22 : autorisation, IDOR/404, niveaux
+
+**Status QUALIF** : VALIDATED WITH RESERVATIONS (qa-20260928-162052.md) — tous les tests automatisés passent (62/62 P1-P23 OK, P-busy 1 SKIP attendu), mais contrôle visuel n'a pas pu être exécuté en raison d'une session navigateur persistante sur le profil Chrome partagé. Fortement corroboré par vérification API brute et revue du code ; comportement serveur confirmé sans ambiguïté. À couvrir visuellement avant GATE PROD.
+
+Couvert automatiquement par `tests/integration/25-page-utilisateur.sh` (P1-P23 : autorisation, IDOR/404, niveaux
 interdits, premier partage, bascule d'option D19, retrait du dernier membre, chaîne moteur complète). Vérification
 manuelle complémentaire (client web ; TV/mobile notés non bloquants comme U8) — noter le **client utilisé** (web,
 TV, mobile, version) sur chaque ligne.
+
+**RÉSERVE — À vérifier avant la transition en production** :
+- Entrée de menu PlaySync visible pour un compte avec permission, absente ou en 403 pour un compte sans.
+- Rendu effectif de la page (formulaires, interrupteurs, dialogue de confirmation natif).
+- Dialogue de confirmation natif Emby (jamais `window.confirm()` du navigateur) au retrait d'un membre.
+- Toasts d'erreur natifs traduits (jamais de code brut d'erreur, jamais d'`alert()`).
+- Rendu FR/EN complet (libellés et messages d'erreur).
+- TV/mobile (non bloquant, comme U8, à noter si accessible).
 
 ### Entrée de menu (visible/masquée selon la permission)
 

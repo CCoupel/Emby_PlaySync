@@ -17,23 +17,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0] — 2026-09-28
 
+**Status**: VALIDATED WITH RESERVATIONS (QA: 62/62 tests pass, visual reserve documented)
+
 ### Added
 
 - **Page utilisateur PlaySync** : nouvelle interface dans le menu utilisateur d'Emby (Avatar → PlaySync) permettant au propriétaire d'une playlist de gérer simplement les membres (ajout, changement de niveau Lecture/Écriture, retrait) et les deux options de partage (retrait automatique du média lu, propagation de l'état de lecture) via des interrupteurs, sans éditer manuellement les étiquettes. Page bilingue FR/EN selon la langue du client Emby. Masquée pour les comptes sans permission de partage.
-- **Endpoints non-admin** pour le plugin (`/SharedPlaylist/User/*`) : gestion des playlists possédées, sélection des membres, modification des options.
-- **Journal de diagnostic** : nouveaux kinds `ShareChanged` (ajout/retrait de membres) et `MarkerSet` (bascule des options) pour un suivi détaillé des opérations via la page.
+- **Endpoints non-admin** pour le plugin (`/SharedPlaylist/User/*`) : gestion des playlists possédées, sélection des membres, modification des options. Autorisation basée sur la session HTTP, propriété vérifiée côté serveur.
+- **Journal de diagnostic** : nouveaux kinds `ShareChanged` (ajout/retrait de membres) et `MarkerSet` (bascule des options) pour un suivi détaillé des opérations via la page. Nouveau kind `OwnerLost` pour signaler incidents d'intégrité rares lors du retrait du dernier membre.
 - **Bascule atomique des options** (D19) : remplace toutes les étiquettes d'une famille en une seule opération verrouilée, résout les conflits OUI+NON en un clic.
 
 ### Changed
 
 - **Mention de la page PlaySync dans la configuration du plugin** : l'encart d'aide indique désormais que le propriétaire peut aussi utiliser la page PlaySync pour gérer les partages, plus simplement qu'en passant par « Modifier les métadonnées ».
-- **Sécurité des endpoints** : identité vérifiée via la session HTTP, propriété de la playlist vérifiée côté serveur, codes d'erreur stables sans fuite de message serveur.
 
 ### Fixed
 
+- **Sérialisation de `Options` dans les réponses de l'API** : JSON objet conforme au contrat (ex. `{"remove-si-lu": "Oui", "propager-lu": "Non"}`).
+- **Gestion des `UserId` malformés** : HTTP 400 + code d'erreur stable `invalid-user` (pas de message serveur brut).
+- **Intégrité de `ManageDelete` du propriétaire** : confirmée stable lors du retrait du dernier membre (vérification complète en conditions réelles).
+
 ### Security
 
-- **Audit sécurité obligatoire avant livraison** (issue #39) : endpoints d'écriture de droits (`SaveUserItemShares`/`DeleteUserItemShares`) audités pour l'élévation, IDOR, énumération d'utilisateurs, XSS côté page, fuite d'erreurs. Les seules données exposées au propriétaire sont les identifiants et noms de ses propres playlists, ses comptes et leurs niveaux de partage.
+- **Audit sécurité complet** (issue #39, `_work/reports/code-review-20260928-161829.md`) : endpoints d'écriture de droits (`SaveUserItemShares`/`DeleteUserItemShares`) audités pour l'élévation, IDOR, énumération d'utilisateurs, XSS côté page, fuite d'erreurs. Les seules données exposées au propriétaire sont les identifiants et noms de ses propres playlists, ses comptes et leurs niveaux de partage.
+
+### Notes
+
+- **Réserve QA unique** : contrôle visuel `MANUAL.md §5quinquies` (menu, dialogue natif, toasts, FR/EN) non réalisé en raison d'une contrainte de profil navigateur partagé ; fortement corroboré par preuve API et code (`25-page-utilisateur.sh` : P1-P23 all pass, y compris sécurité P23). À couvrir avant GATE PROD (utilisateur ou `qa` depuis profil isolé).
+- Couverture de tests : 97.3% (inchangée depuis v1.0.0) — tests unitaires non mesurables dans l'environnement QA (`dotnet` absent), intégration 62/62 OK, NR gated 22/22 OK.
 
 ## [1.0.0] — 2026-09-27
 
