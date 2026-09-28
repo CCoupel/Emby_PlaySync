@@ -237,11 +237,21 @@ define([], function () {
             uidCounter += 1;
             return 'PlaySync-' + prefix + '-' + uidCounter;
         }
+        /// Bug structurel trouvé (id dupliqué de retour) : le PROTOTYPE partagé (caché, #PlaySyncPrototypes)
+        /// gardait pour toujours l'id qu'on venait de lui poser — donc, à tout instant après un clonage, le
+        /// prototype ET son clone le plus récent portaient LITTÉRALEMENT le même id, jusqu'au clonage suivant
+        /// (qui déplaçait le doublon sur le NOUVEAU clone). Fix : l'id est retiré du prototype juste APRÈS avoir
+        /// cloné — jamais avant (l'id doit encore être présent PENDANT cloneNode(), seul moment qui compte pour
+        /// l'upgrade du composant, cf. commentaire ci-dessus) — pour que le prototype ne porte plus jamais d'id
+        /// "réel" au repos, et ne puisse donc plus jamais entrer en collision avec aucun de ses clones.
         function stampAndClone(prototypeEl, prefix) {
             var id = uniqueId(prefix);
             prototypeEl.id = id;
             if ('name' in prototypeEl) prototypeEl.name = id;
-            return prototypeEl.cloneNode(true);
+            var clone = prototypeEl.cloneNode(true);
+            prototypeEl.removeAttribute('id');
+            if (prototypeEl.hasAttribute && prototypeEl.hasAttribute('name')) prototypeEl.removeAttribute('name');
+            return clone;
         }
 
         function cloneSelect() { return stampAndClone(prototypes().querySelector('select'), 'select'); }
