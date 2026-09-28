@@ -151,11 +151,24 @@ define([], function () {
     /// (compte) — impossible qu'elles débordent ou soient poussées hors de la carte. Utilisée pour l'en-tête,
     /// chaque ligne de membre ET la ligne d'ajout (demande utilisateur : même structure partout, colonnes
     /// alignées verticalement d'une ligne à l'autre car le même gabarit est réutilisé partout).
+    ///
+    /// QUALIF v1.1.0.18 (constaté par l'utilisateur) : `display:grid` posé en style inline ne suffisait pas —
+    /// nom et toggle s'empilaient (toggle en dessous, aligné à gauche), comme si la grille ne s'appliquait pas
+    /// du tout. Même famille de problème déjà rencontrée pour le titre de carte (h2, GATE 4) : une règle du
+    /// thème Emby avec `!important` bat un style inline SANS `!important` — fix identique ici, `setProperty`
+    /// avec priorité 'important' sur `display`/`grid-template-columns`/`align-items`. `position:relative` ajouté
+    /// par prudence (sans effet sur la mise en page normale — change seulement le conteneur des descendants
+    /// positionnés en absolu) : hypothèse retenue pour expliquer que le bouton ✕ apparaissait aligné à droite
+    /// mais sur la ligne d'EN-TÊTE plutôt que sur celle de son propre membre — cohérent avec un bouton icône
+    /// (`paper-icon-button-light`) positionné en absolu par le thème Emby et remontant, faute de conteneur
+    /// positionné sur SA PROPRE ligne, jusqu'à l'ancêtre positionné le plus proche (la section). Non confirmé
+    /// avec certitude faute d'accès DevTools direct — signalé comme hypothèse, pas une certitude.
     function memberGridRow() {
         var row = document.createElement('div');
-        row.style.display = 'grid';
-        row.style.gridTemplateColumns = '1fr 90px auto'; // compte (flexible) | toggle (fixe) | action (auto)
-        row.style.alignItems = 'center';
+        row.style.setProperty('display', 'grid', 'important');
+        row.style.setProperty('grid-template-columns', '1fr 90px auto', 'important'); // compte (flexible) | toggle (fixe) | action (auto)
+        row.style.setProperty('align-items', 'center', 'important');
+        row.style.position = 'relative'; // contient un éventuel descendant en position absolue (ex. bouton ✕) à CETTE ligne
         row.style.gap = '8px';
         row.style.padding = '10px 0'; // aéré (maquette : td/th padding 8px 6px) — demande utilisateur, moins tassé
         return row;
