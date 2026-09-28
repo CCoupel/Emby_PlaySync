@@ -199,7 +199,22 @@ public sealed class UserPlaylistService
 
             _journal.Add(JournalEntries.ShareChangedEntry(_clock, playlistId, targetUserId, "action=remove level=-"));
 
-            return Success(playlistId, requesterId);
+            // Détection « propriétaire perdu » (security-audit-20260928-154256.md point 7) : le port a bien retiré
+            // le membre ciblé (wrote=true ci-dessus), mais la séquence purge-totale + reconstruction de
+            // EmbyShareGateway.DeleteShare n'est pas transactionnelle côté SDK — un échec partiel entre les deux
+            // appels perd aussi la ligne ManageDelete du propriétaire. Détecté ICI (UserPlaylistService), pas dans
+            // l'adaptateur : c'est le journal partagé de l'orchestrateur (celui qui reçoit ShareChanged/MarkerSet,
+            // observable par les tests ET par Diagnostics/Journal en pratique) qui doit recevoir l'alarme — jamais
+            // un journal séparé propre à un adaptateur (architecture hexagonale : les ports/adaptateurs ne portent
+            // aucune logique de journalisation métier). La relecture réutilisée ici est celle que Success()
+            // effectuerait de toute façon pour construire la réponse : aucun appel supplémentaire au port.
+            var afterDelete = _shares.GetOwned(requesterId, playlistId);
+            if (afterDelete == null)
+            {
+                _journal.Add(JournalEntries.OwnerLostEntry(_clock, playlistId, requesterId));
+                return Fail(UserPageErrors.NotFound);
+            }
+            return UserPageResult<UserPagePlaylistDto>.Success(ToDto(afterDelete));
         });
     }
 

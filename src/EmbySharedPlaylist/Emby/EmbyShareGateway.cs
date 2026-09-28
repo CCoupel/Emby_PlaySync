@@ -33,7 +33,6 @@ public sealed class EmbyShareGateway : IShareGateway
     private readonly IUserManager _userManager;
     private readonly IItemRepository _itemRepository;
     private readonly PlaylistEntryReader _entries;
-    private readonly IJournal? _journal;
 
     /// <summary>Verrou d'écriture propre à ce gateway (purge+ré-écriture de <see cref="DeleteShare"/>) : distinct de
     /// celui d'<see cref="EmbyPlaylistGateway"/> (étiquettes) et de <see cref="PlaylistLocks"/> (déjà pris par
@@ -41,12 +40,11 @@ public sealed class EmbyShareGateway : IShareGateway
     /// GATEWAY sur le même item (défense en profondeur, la lecture-purge-écriture n'est jamais atomique côté Emby).</summary>
     private readonly object _writeGate = new();
 
-    public EmbyShareGateway(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository, IJournal? journal = null)
+    public EmbyShareGateway(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository)
     {
         _libraryManager = libraryManager;
         _userManager = userManager;
         _itemRepository = itemRepository;
-        _journal = journal;
         _entries = new PlaylistEntryReader(libraryManager, userManager, itemRepository);
     }
 
@@ -106,16 +104,12 @@ public sealed class EmbyShareGateway : IShareGateway
         lock (_writeGate)
         {
             // Lecture fraîche AU MOMENT DE L'ÉCRITURE (comme EmbyPlaylistGateway.ApplyDefaults) : on ne retire que ce
-            // qui est encore présent à cet instant. On note aussi le propriétaire ATTENDU (ligne ManageDelete) avant
-            // toute écriture, pour la relecture de vérification post-écriture ci-dessous.
+            // qui est encore présent à cet instant.
             var rows = _itemRepository.GetUserItemShares(new UserItemShareQuery { ItemIds = new[] { playlist.InternalId } }, CancellationToken.None);
             var found = false;
-            long? expectedOwnerId = null;
             var toKeep = new List<UserItemShare>(rows.Length);
             foreach (var row in rows)
             {
-                if ((row.ShareLevel ?? UserItemShareLevel.None) == UserItemShareLevel.ManageDelete)
-                    expectedOwnerId = row.UserId;
                 if (row.UserId == target.InternalId) { found = true; continue; }
                 toKeep.Add(row);
             }
@@ -129,29 +123,17 @@ public sealed class EmbyShareGateway : IShareGateway
                 // U13) : purge TOTALE (efface aussi la ligne ManageDelete du propriétaire, qui ne se repose jamais
                 // automatiquement), puis ré-écriture explicite de tout ce qui doit être conservé — propriétaire
                 // compris, reconstitué ici depuis la lecture fraîche ci-dessus, pas depuis un état mis en cache.
+                //
+                // Cette séquence n'est PAS transactionnelle côté SDK (security-audit-20260928-154256.md point 7) :
+                // un échec entre les deux appels perdrait aussi la ligne ManageDelete du propriétaire. La DÉTECTION
+                // de cet incident (relecture de vérification + journal dédié « OwnerLost ») vit délibérément dans
+                // UserPlaylistService.RemoveMember, pas ici : ce gateway est un pur adaptateur (aucune logique de
+                // journalisation métier dans un port/adaptateur — architecture hexagonale, cf. code-review) ; c'est
+                // l'orchestrateur qui écrit déjà dans le journal partagé (ShareChanged/MarkerSet) et qui réutilise
+                // de toute façon un GetOwned juste après cet appel pour construire sa réponse.
                 _itemRepository.DeleteUserItemShares(playlist.InternalId, null);
                 if (toKeep.Count > 0) _itemRepository.SaveUserItemShares(toKeep.ToArray());
             }
-
-            // Relecture de vérification (security-audit-20260928-154256.md point 7) : les deux appels SDK
-            // ci-dessus ne sont pas transactionnels. Si la ligne ManageDelete du propriétaire attendue n'est plus
-            // là après reconstruction, c'est une PERTE DE PROPRIÉTAIRE (playlist devenue ingérable via le plugin,
-            // GetOwned renvoie null pour tout le monde) — journalisée dans un kind DÉDIÉ (jamais noyée dans un
-            // Error générique), pour qu'un administrateur puisse intervenir rapidement. Ne change pas la valeur
-            // de retour : le retrait du membre ciblé, lui, a réussi (c'est un incident DISTINCT, détecté en plus).
-            if (expectedOwnerId.HasValue)
-            {
-                var after = _itemRepository.GetUserItemShares(new UserItemShareQuery { ItemIds = new[] { playlist.InternalId } }, CancellationToken.None);
-                var ownerStillPresent = after.Any(r => r.UserId == expectedOwnerId.Value &&
-                    (r.ShareLevel ?? UserItemShareLevel.None) == UserItemShareLevel.ManageDelete);
-                if (!ownerStillPresent)
-                {
-                    string? ownerExternalId = null;
-                    try { ownerExternalId = _userManager.GetUserById(expectedOwnerId.Value)?.Id.ToString("N"); } catch { /* compte du propriétaire lui-même disparu entre-temps : ids seuls, jamais d'exception ici */ }
-                    try { _journal?.Add(JournalEntries.OwnerLostEntry(null, playlistId, ownerExternalId)); } catch { /* un log ne doit jamais casser l'appelant */ }
-                }
-            }
-
             return true;
         }
     }
