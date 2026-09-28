@@ -12,14 +12,16 @@ public class PluginConfigurationTests
     }
 
     [Fact]
-    public void AutoEnableSharing_IsEnabledByDefault()
+    public void AutoEnableSharing_IsDisabledByDefault_SinceV1_0_0_GateProd_M1()
     {
-        Assert.True(new PluginConfiguration().AutoEnableSharing);
+        // v0.4.0-v0.5.0 : défaut vrai. v1.0.0 (GATE PROD, security-20260927-221434.md M1) : défaut faux — un serveur
+        // PROD peut être exposé publiquement, un élargissement de droits automatique n'est plus acceptable par défaut.
+        Assert.False(new PluginConfiguration().AutoEnableSharing);
     }
 
     [Fact]
-    public void AutoEnableSharing_CanBeDisabled()
+    public void AutoEnableSharing_CanBeEnabled()
     {
-        Assert.False(new PluginConfiguration { AutoEnableSharing = false }.AutoEnableSharing);
+        Assert.True(new PluginConfiguration { AutoEnableSharing = true }.AutoEnableSharing);
     }
 }

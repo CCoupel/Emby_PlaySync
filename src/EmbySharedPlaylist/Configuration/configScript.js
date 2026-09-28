@@ -9,7 +9,9 @@ define([], function () {
         function load() {
             ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
                 view.querySelector('#GracePasses').value = cfg.GracePasses != null ? cfg.GracePasses : 2;
-                view.querySelector('#AutoEnableSharing').checked = cfg.AutoEnableSharing !== false;
+                // Défaut FAUX depuis v1.0.0 (GATE PROD, M1) : coché seulement si explicitement vrai dans la config
+                // sauvegardée (une config vierge, ou lue avant toute sauvegarde, n'est pas cochée).
+                view.querySelector('#AutoEnableSharing').checked = cfg.AutoEnableSharing === true;
                 view.querySelector('#EnableDiagnostics').checked = cfg.EnableDiagnostics !== false;
                 view.querySelector('#LogToConsole').checked = cfg.LogToConsole !== false;
                 view.querySelector('#LogLevel').value = cfg.LogLevel || 'Info';

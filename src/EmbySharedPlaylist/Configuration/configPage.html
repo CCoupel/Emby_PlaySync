@@ -24,11 +24,13 @@
               autres membres.</li>
           </ul>
           <p>
-            <strong>La permission de partage est déjà accordée automatiquement</strong> par le plugin pour tous les
-            comptes (case « Activer le partage automatiquement » ci-dessous) : ce n'est pas une étape à effectuer
-            vous-même. Limite connue : si un administrateur retire cette permission manuellement pour un compte
-            précis, elle est <strong>réappliquée à la passe suivante</strong> (le plugin ne mémorise pas ce retrait) —
-            seule la case ci-dessous, décochée globalement, empêche cette repose.
+            La permission de partage (« Permettre le partage de contenus personnels ») peut être accordée
+            <strong>automatiquement</strong> par le plugin pour tous les comptes, via la case « Activer le partage
+            automatiquement » ci-dessous — <strong>désactivée par défaut</strong> (un élargissement de droits pour
+            tous les comptes n'est pas activé sans décision explicite, en particulier sur un serveur exposé). Si vous
+            l'activez : limite connue — un administrateur qui retire cette permission manuellement pour un compte
+            précis la voit <strong>réappliquée à la passe suivante</strong> (le plugin ne mémorise pas ce retrait) —
+            seul le décochage de la case ci-dessous empêche cette repose pour tous les comptes.
           </p>
           <p>
             Limites connues : le comportement dépend du client utilisé pour la lecture (confirmé sur le client web ;
@@ -51,8 +53,9 @@
           </label>
           <div class="fieldDescription checkboxFieldDescription">
             Pose <code>Policy.AllowSharingPersonalItems=true</code> pour tous les comptes (existants et nouveaux), au
-            démarrage, à la réconciliation périodique et à la création d'un compte. Désactivé : aucune écriture, mais
-            ne révoque jamais un accès déjà accordé. Défaut : activé.
+            démarrage, à la réconciliation périodique et à la création d'un compte. Désactivé (défaut) : aucune
+            écriture. Dans tous les cas, une fois activé : ne révoque jamais un accès déjà accordé, même si vous
+            décochez ensuite cette case.
           </div>
         </div>
         <div class="checkboxContainer checkboxContainer-withDescription">

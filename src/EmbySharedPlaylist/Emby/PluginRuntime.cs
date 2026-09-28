@@ -75,7 +75,9 @@ public static class PluginRuntime
             // #26 : port/service indépendants des playlists (aucun verrou/budget partagé, voir AutoSharingService).
             var policyGateway = new EmbyUserPolicyGateway(userManager);
             PolicyGateway = policyGateway;
-            AutoSharing = new AutoSharingService(policyGateway, journal, clock, () => Plugin.Instance?.Configuration.AutoEnableSharing ?? true);
+            // Repli à faux (v1.0.0, GATE PROD, M1) : cohérent avec le nouveau défaut de PluginConfiguration si
+            // Plugin.Instance est null (cas théorique, jamais observé en pratique).
+            AutoSharing = new AutoSharingService(policyGateway, journal, clock, () => Plugin.Instance?.Configuration.AutoEnableSharing ?? false);
             log.Info(LogFormat.Startup());
             _initialized = true;
         }

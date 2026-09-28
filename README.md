@@ -21,12 +21,12 @@ Par défaut, les deux étiquettes sont à `NON` : le plugin ne change rien au co
 
 Le partage d'une playlist nécessite, côté **propriétaire**, la permission Emby « Permettre le partage de contenus personnels tels que des listes de lecture avec d'autres utilisateurs sur ce serveur » (Tableau de bord → Utilisateurs → l'utilisateur → onglet Profil).
 
-Depuis la v0.4.0, le plugin la pose **automatiquement pour tous les comptes** (interrupteur `AutoEnableSharing` dans la configuration du plugin, **actif par défaut**). Limite à connaître :
-- si un administrateur la **décoche manuellement**, elle est **réactivée à la passe de réconciliation suivante** (5 min au plus) tant que l'interrupteur global reste actif ;
+Depuis la v0.4.0, le plugin peut la poser **automatiquement pour tous les comptes** (interrupteur `AutoEnableSharing` dans la configuration du plugin). **Désactivé par défaut depuis v1.0.0** (décision GATE PROD : un élargissement de droits pour tous les comptes n'est pas activé sans revue explicite de l'administrateur, en particulier sur un serveur exposé — voir `security-20260927-221434.md`, finding M1 ; défaut actif de v0.4.0 à v0.5.0, QUALIF non exposé). Si vous l'activez :
+- si un administrateur la **décoche manuellement** pour un compte, elle est **réactivée à la passe de réconciliation suivante** (5 min au plus) tant que l'interrupteur global reste actif ;
 - seul le **décochage de l'interrupteur global** `AutoEnableSharing` empêche de futures activations ;
 - désactiver l'interrupteur **ne révoque jamais** un accès déjà accordé.
 
-Les destinataires n'ont rien à activer : leurs droits viennent uniquement du niveau de partage (Écriture/Lecture).
+Sans activer l'interrupteur, chaque propriétaire doit accorder cette permission lui-même (Tableau de bord → Utilisateurs → son compte → onglet Profil) avant de pouvoir partager une playlist. Les destinataires n'ont rien à activer : leurs droits viennent uniquement du niveau de partage (Écriture/Lecture).
 
 ### 2. Partager une liste
 

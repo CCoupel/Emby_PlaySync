@@ -22,7 +22,15 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Pose automatiquement <c>Policy.AllowSharingPersonalItems=true</c> pour tous les utilisateurs, existants et
-    /// nouveaux (#26). Désactivé : aucune écriture, mais ne révoque JAMAIS un accès déjà accordé. Défaut vrai.
+    /// nouveaux (#26). Désactivé : aucune écriture, mais ne révoque JAMAIS un accès déjà accordé.
+    /// <para>
+    /// Défaut FAUX depuis v1.0.0 (GATE PROD, décision utilisateur explicite, réf.
+    /// <c>security-20260927-221434.md</c> M1) : un serveur PROD peut être exposé publiquement sur Internet, un
+    /// élargissement de droits automatique pour tous les comptes n'y est plus acceptable par défaut — à activer
+    /// consciemment par l'administrateur. Défaut vrai en v0.4.0/v0.5.0 (QUALIF non exposé) ; ce changement ne
+    /// modifie qu'une configuration VIERGE (aucun impact sur une instance où la valeur a déjà été sauvegardée,
+    /// explicitement ou via tout enregistrement de la page de configuration — sérialisation XML standard d'Emby).
+    /// </para>
     /// </summary>
-    public bool AutoEnableSharing { get; set; } = true;
+    public bool AutoEnableSharing { get; set; } = false;
 }

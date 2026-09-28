@@ -70,13 +70,17 @@ public class ConfigPageTests
     }
 
     [Fact]
-    public void HelpPanel_PresentsThePermissionAsAlreadyGranted_NotAManualStep()
+    public void HelpPanel_PresentsThePermissionAsOptIn_DisabledByDefault_GateProdM1()
     {
+        // v1.0.0 (GATE PROD, security-20260927-221434.md M1) : AutoEnableSharing est désactivé par défaut, l'encart
+        // ne doit plus présenter la permission comme déjà acquise sans action de l'administrateur (contrairement au
+        // texte v0.4.0-v0.5.0, où le défaut était actif).
         var html = ReadResource("EmbySharedPlaylist.Configuration.configPage.html");
         Assert.Contains("remove-si-lu", html);
         Assert.Contains("propager-lu", html);
         Assert.Contains("Gérer la collaboration", html);
-        Assert.Contains("déjà accordée automatiquement", html);
+        Assert.Contains("désactivée par défaut", html);
+        Assert.DoesNotContain("déjà accordée automatiquement", html);
     }
 
     [Fact]
