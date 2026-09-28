@@ -166,7 +166,9 @@ define([], function () {
     function memberGridRow() {
         var row = document.createElement('div');
         row.style.setProperty('display', 'grid', 'important');
-        row.style.setProperty('grid-template-columns', '1fr 90px auto', 'important'); // compte (flexible) | toggle (fixe) | action (auto)
+        // Proportions exactes demandées par l'utilisateur : compte 50% | toggle 10% | action 40%. La largeur
+        // globale à 80% de la carte est posée par l'appelant (voir renderMembers() : conteneur .PlaySyncGrid).
+        row.style.setProperty('grid-template-columns', '50% 10% 40%', 'important');
         row.style.setProperty('align-items', 'center', 'important');
         row.style.position = 'relative'; // contient un éventuel descendant en position absolue (ex. bouton ✕) à CETTE ligne
         row.style.gap = '8px';
@@ -286,7 +288,7 @@ define([], function () {
         function levelToggle(selectedValue) {
             var input = cloneToggle();
             input.checked = selectedValue === 'Write';
-            input.style.justifySelf = 'center'; // centré dans sa colonne fixe (90px, memberGridRow) — jamais collé à un bord
+            input.style.justifySelf = 'center'; // centré dans sa colonne (10%, memberGridRow) — jamais collé à un bord
             return input;
         }
 
@@ -374,7 +376,7 @@ define([], function () {
             // ligne (important) pour ne dépendre d'aucune classe non vérifiée.
             userSelect.style.setProperty('display', 'inline-flex', 'important');
             userSelect.style.setProperty('width', 'auto', 'important');
-            userSelect.style.minWidth = '0'; // la grille (1re colonne, 1fr) contrôle déjà la largeur disponible
+            userSelect.style.minWidth = '0'; // la grille (1re colonne, 50%) contrôle déjà la largeur disponible
             var placeholder = document.createElement('option');
             placeholder.value = '';
             placeholder.textContent = t('addPlaceholder');
@@ -394,9 +396,9 @@ define([], function () {
             // Demande utilisateur : le bouton doit rester sur la MÊME ligne que les deux menus, pas passer en
             // pleine largeur en dessous. Le prototype porte la classe "block" (pleine largeur, pertinente pour le
             // bouton "Enregistrer" de configPage.html, seul sur sa ligne) — retirée ici, avec un repli en style
-            // posé en ligne (important) pour ne dépendre d'aucune classe non vérifiée. 3e colonne de la grille en
-            // largeur "auto" (contrairement au bouton icône '✕' des lignes de membre) : ce bouton porte un texte
-            // ("Ajouter"/"Partager"), une largeur fixe étroite le tronquerait.
+            // posé en ligne (important) pour ne dépendre d'aucune classe non vérifiée. Même 3e colonne (40%,
+            // memberGridRow) que le bouton icône '✕' des lignes de membre — largeur généreuse car ce bouton porte
+            // un texte ("Ajouter"/"Partager").
             addBtn.classList.remove('block');
             addBtn.style.setProperty('width', 'auto', 'important');
             addBtn.style.setProperty('display', 'inline-flex', 'important');
@@ -418,6 +420,15 @@ define([], function () {
         function renderMembers(playlist) {
             var section = cardSection(true); // toujours la dernière section de la carte
             section.appendChild(sectionHeading('membersHeader'));
+
+            // Demande utilisateur : l'ensemble de la grille (en-tête + lignes de membre + ligne d'ajout) occupe
+            // 80% de la largeur de la carte, jamais 100%. Alignée à GAUCHE plutôt que centrée (seul point laissé
+            // à mon jugement) : le reste de la page (titres, descriptions des options) est entièrement aligné à
+            // gauche, un bloc centré à 80% ferait un îlot visuellement incohérent au milieu d'une page qui ne
+            // centre rien ailleurs — une largeur fixe sans marge automatique reste alignée sur le bord gauche de
+            // la section, comme tout le reste du contenu.
+            var gridWrap = document.createElement('div');
+            gridWrap.style.width = '80%';
 
             if (!playlist.Members || playlist.Members.length === 0) {
                 var hint = el('p', 'fieldDescription');
@@ -441,7 +452,7 @@ define([], function () {
                 head.appendChild(headAccount);
                 head.appendChild(headAccess);
                 head.appendChild(document.createElement('div')); // 3e colonne (action) vide dans l'en-tête
-                section.appendChild(head);
+                gridWrap.appendChild(head);
 
                 playlist.Members.forEach(function (member) {
                     var row = memberGridRow();
@@ -467,7 +478,7 @@ define([], function () {
                     row.appendChild(levelInput);
 
                     var removeBtn = cloneIconButton(); // '✕' déjà présent (prototype)
-                    removeBtn.style.justifySelf = 'center'; // 3e colonne (auto) : bouton icône toujours visible/centré
+                    removeBtn.style.justifySelf = 'center'; // 3e colonne (40%) : bouton icône toujours visible/centré
                     removeBtn.title = t('remove');
                     removeBtn.addEventListener('click', function () {
                         // Confirmation via le dialogue natif Emby (module "confirm"), jamais une boîte bloquante du navigateur.
@@ -489,11 +500,12 @@ define([], function () {
                     });
                     row.appendChild(removeBtn);
 
-                    section.appendChild(row);
+                    gridWrap.appendChild(row);
                 });
             }
 
-            section.appendChild(renderAddRow(playlist));
+            gridWrap.appendChild(renderAddRow(playlist));
+            section.appendChild(gridWrap);
             return section;
         }
 
