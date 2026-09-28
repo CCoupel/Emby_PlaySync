@@ -142,6 +142,18 @@ define([], function () {
         while (node.firstChild) node.removeChild(node.firstChild);
     }
 
+    /// Ligne flex (remplace un <table> sans classe Emby connue — chrome blanc par défaut du navigateur). Styles
+    /// posés en ligne (display/gap/padding uniquement) : indépendants des classes CSS de l'hôte, la couleur/police
+    /// du texte reste héritée normalement du thème de la page.
+    function flexRow() {
+        var row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.style.gap = '8px';
+        row.style.padding = '.35em 0';
+        return row;
+    }
+
     return function (view) {
         var selectableUsers = [];
 
@@ -188,8 +200,11 @@ define([], function () {
         }
 
         function levelSelect(selectedValue) {
-            var select = document.createElement('select');
-            select.setAttribute('is', 'emby-select');
+            // Composant personnalisé natif (customized built-in element) : DOIT être créé avec l'option `is` au
+            // moment de la création pour que le navigateur (ou le polyfill Emby) l'améliore automatiquement —
+            // setAttribute('is', ...) APRÈS createElement('select') ne déclenche PAS cette amélioration (rendu en
+            // <select> brut du navigateur, bug constaté visuellement en QUALIF v1.1.0.4).
+            var select = document.createElement('select', { is: 'emby-select' });
             select.className = 'emby-select-withcolor emby-select';
             ['Write', 'Read'].forEach(function (lvl) {
                 var opt = memberLevelOption(lvl);
@@ -206,9 +221,9 @@ define([], function () {
             FAMILIES.forEach(function (family) {
                 var container = el('div', 'checkboxContainer checkboxContainer-withDescription');
                 var label = document.createElement('label');
-                var input = document.createElement('input');
+                // Même remarque que levelSelect() : `is` DOIT être passé à createElement, jamais via setAttribute.
+                var input = document.createElement('input', { is: 'emby-toggle' });
                 input.type = 'checkbox';
-                input.setAttribute('is', 'emby-toggle');
                 input.className = 'emby-toggle';
                 var state = (playlist.Options && playlist.Options[family]) || 'None';
                 input.checked = state === 'Oui';
@@ -246,11 +261,13 @@ define([], function () {
         }
 
         function renderAddRow(playlist) {
-            var row = el('div', 'inputContainer');
+            var row = flexRow();
+            row.style.flexWrap = 'wrap';
+            row.style.marginTop = '.5em';
 
-            var userSelect = document.createElement('select');
-            userSelect.setAttribute('is', 'emby-select');
+            var userSelect = document.createElement('select', { is: 'emby-select' });
             userSelect.className = 'emby-select-withcolor emby-select';
+            userSelect.style.minWidth = '220px';
             var placeholder = document.createElement('option');
             placeholder.value = '';
             placeholder.textContent = t('addPlaceholder');
@@ -266,8 +283,7 @@ define([], function () {
             var level = levelSelect('Write');
             row.appendChild(level);
 
-            var addBtn = document.createElement('button');
-            addBtn.setAttribute('is', 'emby-button');
+            var addBtn = document.createElement('button', { is: 'emby-button' });
             addBtn.type = 'button';
             addBtn.className = 'raised button-submit block emby-button';
             setText(addBtn, playlist.IsShared ? 'add' : 'share');
@@ -293,21 +309,32 @@ define([], function () {
                 setText(hint, 'onlyYou');
                 section.appendChild(hint);
             } else {
-                var table = document.createElement('table');
-                var head = document.createElement('tr');
-                var thAccount = document.createElement('th'); setText(thAccount, 'accountHeader'); head.appendChild(thAccount);
-                var thAccess = document.createElement('th'); setText(thAccess, 'accessHeader'); head.appendChild(thAccess);
-                head.appendChild(document.createElement('th'));
-                table.appendChild(head);
+                // Pas de <table> : un <table>/<tr>/<td> sans classe Emby connue se rend avec le chrome BLANC par
+                // défaut du navigateur (cause probable du "fond blanc" constaté en QUALIF v1.1.0.4, en plus des
+                // composants non améliorés ci-dessous) — des lignes <div> en flex héritent normalement du thème.
+                var head = flexRow();
+                head.style.opacity = '.7';
+                var headAccount = document.createElement('div');
+                headAccount.style.flex = '1';
+                setText(headAccount, 'accountHeader');
+                var headAccess = document.createElement('div');
+                headAccess.style.minWidth = '150px';
+                setText(headAccess, 'accessHeader');
+                head.appendChild(headAccount);
+                head.appendChild(headAccess);
+                head.appendChild(document.createElement('div'));
+                section.appendChild(head);
 
                 playlist.Members.forEach(function (member) {
-                    var tr = document.createElement('tr');
+                    var row = flexRow();
 
-                    var tdName = document.createElement('td');
-                    tdName.textContent = member.Name; // donnée serveur : textContent uniquement
-                    tr.appendChild(tdName);
+                    var name = document.createElement('div');
+                    name.style.flex = '1';
+                    name.textContent = member.Name; // donnée serveur : textContent uniquement
+                    row.appendChild(name);
 
-                    var tdLevel = document.createElement('td');
+                    var levelHolder = document.createElement('div');
+                    levelHolder.style.minWidth = '150px';
                     var select = levelSelect(member.Level);
                     select.addEventListener('change', function () {
                         var path = 'SharedPlaylist/User/Playlists/' + encodeURIComponent(playlist.PlaylistId) + '/Members';
@@ -316,12 +343,11 @@ define([], function () {
                             function (err) { showError(err); reload(); }
                         );
                     });
-                    tdLevel.appendChild(select);
-                    tr.appendChild(tdLevel);
+                    levelHolder.appendChild(select);
+                    row.appendChild(levelHolder);
 
-                    var tdRemove = document.createElement('td');
-                    var removeBtn = document.createElement('button');
-                    removeBtn.setAttribute('is', 'emby-button');
+                    // Même remarque que levelSelect() : `is` DOIT être passé à createElement.
+                    var removeBtn = document.createElement('button', { is: 'emby-button' });
                     removeBtn.type = 'button';
                     removeBtn.className = 'paper-icon-button-light';
                     removeBtn.title = t('remove');
@@ -344,12 +370,10 @@ define([], function () {
                             }, function () { /* annulé par l'utilisateur : rien à faire */ });
                         });
                     });
-                    tdRemove.appendChild(removeBtn);
-                    tr.appendChild(tdRemove);
+                    row.appendChild(removeBtn);
 
-                    table.appendChild(tr);
+                    section.appendChild(row);
                 });
-                section.appendChild(table);
             }
 
             section.appendChild(renderAddRow(playlist));
