@@ -249,28 +249,25 @@ define([], function () {
         function cloneIconButton() { return stampAndClone(prototypes().querySelectorAll('button')[0], 'icon-btn'); }
         function cloneSubmitButton() { return stampAndClone(prototypes().querySelectorAll('button')[1], 'submit-btn'); }
 
-        /// Demande utilisateur : remplace le menu déroulant Écriture/Lecture par un interrupteur (une seule paire
-        /// de valeurs possibles) — coché = Write, décoché = Read. Même patron que les interrupteurs d'options
-        /// (renderOptions) : un interrupteur = le nom de l'état "activé" comme libellé constant, quel que soit
-        /// l'état. Retourne le <label> conteneur ; l'<input> cloné est accessible via .querySelector('input') pour
-        /// lire .checked au moment de construire l'appel API (jamais .value d'un select, qui n'existe plus ici).
+        /// Correction d'un malentendu du teamleader : PAS de libellé texte à côté de chaque toggle individuel —
+        /// "Lecture / Écriture" est l'EN-TÊTE DE COLONNE (une seule fois, voir renderMembers), jamais répété à
+        /// chaque ligne. Retourne donc directement l'<input> cloné (nu, sans <label>/<span> autour) — coché=Write,
+        /// décoché=Read (sens inchangé). Chaque appelant l'aligne dans sa propre colonne (voir levelColumn()).
         function levelToggle(selectedValue) {
-            var label = document.createElement('label');
-            label.style.setProperty('display', 'inline-flex', 'important'); // reste compact sur la même ligne
-            label.style.alignItems = 'center';
-            label.style.gap = '8px';
-            label.style.cursor = 'pointer';
-            label.style.flexShrink = '0';
-            label.style.whiteSpace = 'nowrap';
             var input = cloneToggle();
             input.checked = selectedValue === 'Write';
-            label.appendChild(input);
-            var span = document.createElement('span');
-            // Demande utilisateur : libellé bidirectionnel "Lecture / Écriture" (un seul texte, pas deux
-            // contrôles) — ne change PAS le sens du toggle (décoché=Read, coché=Write, inchangé).
-            setText(span, 'levelToggleLabel');
-            label.appendChild(span);
-            return label;
+            return input;
+        }
+
+        /// Colonne d'alignement du toggle de niveau, IDENTIQUE en largeur dans les lignes de membre ET la ligne
+        /// d'ajout (demande utilisateur : même colonne verticale) — toggle aligné à droite de cette colonne.
+        function levelColumn() {
+            var holder = document.createElement('div');
+            holder.style.minWidth = '150px';
+            holder.style.display = 'flex';
+            holder.style.justifyContent = 'flex-end';
+            holder.style.flexShrink = '0';
+            return holder;
         }
 
         function renderOptions(playlist) {
@@ -355,8 +352,8 @@ define([], function () {
             // ligne (important) pour ne dépendre d'aucune classe non vérifiée.
             userSelect.style.setProperty('display', 'inline-flex', 'important');
             userSelect.style.setProperty('width', 'auto', 'important');
-            userSelect.style.minWidth = '200px';
-            userSelect.style.flexShrink = '0';
+            userSelect.style.flex = '1'; // prend l'espace disponible, comme le nom dans les lignes de membre —
+            userSelect.style.minWidth = '160px'; // même 1re colonne que renderMembers, pour aligner la colonne du toggle
             var placeholder = document.createElement('option');
             placeholder.value = '';
             placeholder.textContent = t('addPlaceholder');
@@ -369,9 +366,12 @@ define([], function () {
             });
             row.appendChild(userSelect);
 
-            var levelWidget = levelToggle('Write');
-            var levelInput = levelWidget.querySelector('input');
-            row.appendChild(levelWidget);
+            // Même colonne verticale que le toggle des membres existants (demande utilisateur) : levelColumn()
+            // pose la même largeur/alignement à droite dans les deux lignes.
+            var levelHolder = levelColumn();
+            var levelInput = levelToggle('Write');
+            levelHolder.appendChild(levelInput);
+            row.appendChild(levelHolder);
 
             var addBtn = cloneSubmitButton();
             // Demande utilisateur : le bouton doit rester sur la MÊME ligne que les deux menus, pas passer en
@@ -413,9 +413,12 @@ define([], function () {
                 var headAccount = document.createElement('div');
                 headAccount.style.flex = '1';
                 setText(headAccount, 'accountHeader');
+                // Correction d'un malentendu : "Lecture / Écriture" est l'en-tête de CETTE colonne (une seule
+                // fois), jamais répété à côté de chaque toggle individuel ci-dessous.
                 var headAccess = document.createElement('div');
                 headAccess.style.minWidth = '150px';
-                setText(headAccess, 'accessHeader');
+                headAccess.style.textAlign = 'right';
+                setText(headAccess, 'levelToggleLabel');
                 head.appendChild(headAccount);
                 head.appendChild(headAccess);
                 head.appendChild(document.createElement('div'));
@@ -429,10 +432,8 @@ define([], function () {
                     name.textContent = member.Name; // donnée serveur : textContent uniquement
                     row.appendChild(name);
 
-                    var levelHolder = document.createElement('div');
-                    levelHolder.style.minWidth = '150px';
-                    var levelWidget = levelToggle(member.Level);
-                    var levelInput = levelWidget.querySelector('input');
+                    var levelHolder = levelColumn(); // même colonne verticale que la ligne d'ajout
+                    var levelInput = levelToggle(member.Level);
                     levelInput.addEventListener('change', function () {
                         var path = 'SharedPlaylist/User/Playlists/' + encodeURIComponent(playlist.PlaylistId) + '/Members';
                         apiSend('POST', path, { UserId: member.UserId, Level: levelInput.checked ? 'Write' : 'Read' }).then(
@@ -440,7 +441,7 @@ define([], function () {
                             function (err) { showError(err); reload(); }
                         );
                     });
-                    levelHolder.appendChild(levelWidget);
+                    levelHolder.appendChild(levelInput);
                     row.appendChild(levelHolder);
 
                     var removeBtn = cloneIconButton(); // '✕' déjà présent (prototype)
