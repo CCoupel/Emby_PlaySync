@@ -639,4 +639,23 @@ public class UserPlaylistServiceSpecTests
 
         Assert.Empty(r.Journal.Of("OwnerLost"));
     }
+
+    // ------------------------------------------------------------------ Sécurité/QA — Options sérialisé en tableau
+    // (qa-20260928-160840.md §1.1, CRITIQUE) : IReadOnlyDictionary<string,string> était émis par le sérialiseur
+    // JSON de l'hôte Emby comme un TABLEAU de paires {Key,Value} au lieu de l'objet {"remove-si-lu":"Oui",...}
+    // documenté par le contrat — cassait l'affichage des interrupteurs côté page (toujours décochés, confirmé en
+    // QUALIF). Impossible de rejouer le sérialiseur RÉEL de l'hôte dans ce projet de tests (ServiceStack.Text
+    // n'est pas référencé, seuls les DLL du SDK Emby le sont, aucun dotnet côté dev-plugin pour vérifier
+    // autrement) : ce test structurel (réflexion sur le type DÉCLARÉ de la propriété) est le meilleur filet
+    // disponible ici — il échoue si la propriété est un jour re-déclarée en interface (IReadOnlyDictionary/
+    // IDictionary), la régression exacte qui a causé le bug.
+
+    [Fact]
+    public void UserPagePlaylistDto_Options_IsAConcreteDictionaryType_NeverAnInterface()
+    {
+        var property = typeof(UserPagePlaylistDto).GetProperty(nameof(UserPagePlaylistDto.Options));
+        Assert.NotNull(property);
+        Assert.Equal(typeof(Dictionary<string, string>), property!.PropertyType);
+        Assert.False(property.PropertyType.IsInterface, "Options ne doit jamais être déclaré via une interface (IReadOnlyDictionary/IDictionary) : le sérialiseur JSON de l'hôte Emby les émet comme un tableau de paires {Key,Value}, pas un objet.");
+    }
 }

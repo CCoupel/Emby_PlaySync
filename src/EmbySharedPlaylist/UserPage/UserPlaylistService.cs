@@ -17,14 +17,20 @@ public sealed record UserPageMemberDto(string UserId, string Name, string Level)
 
 /// <summary>Playlist possédée par le demandeur, telle qu'exposée à la page (<c>GET User/Playlists</c> et retour des
 /// écritures). <see cref="Options"/> : clés = <see cref="MarkerEvaluator.FamilyName"/>, valeurs =
-/// <c>MarkerState.ToString()</c> ("None"/"Non"/"Oui"/"Both") — état ÉVALUÉ (lecture fraîche), jamais une intention.</summary>
+/// <c>MarkerState.ToString()</c> ("None"/"Non"/"Oui"/"Both") — état ÉVALUÉ (lecture fraîche), jamais une intention.
+/// <see cref="Options"/> est un <see cref="Dictionary{TKey,TValue}"/> CONCRET, jamais une interface
+/// (<c>IReadOnlyDictionary</c>/<c>IDictionary</c>) : confirmé en QUALIF (<c>qa-20260928-160840.md</c> §1.1) que le
+/// sérialiseur JSON de l'hôte Emby émet une propriété déclarée en interface comme un TABLEAU de paires
+/// <c>{"Key":...,"Value":...}</c> au lieu de l'objet <c>{"remove-si-lu":"Oui",...}</c> documenté par le contrat —
+/// cassait l'affichage des interrupteurs côté page (toujours décochés). Même convention déjà utilisée ailleurs
+/// dans le projet pour un DTO sérialisé (<c>DiagnosticsStateDto.GraceCounters</c>).</summary>
 public sealed record UserPagePlaylistDto(
     string PlaylistId,
     string Name,
     int ItemCount,
     bool IsShared,
     IReadOnlyList<UserPageMemberDto> Members,
-    IReadOnlyDictionary<string, string> Options);
+    Dictionary<string, string> Options);
 
 /// <summary>Compte sélectionnable (ajout d'un membre).</summary>
 public sealed record UserPageSelectableDto(string UserId, string Name);

@@ -31,7 +31,15 @@ public sealed class EmbyUserDirectory : IUserDirectory
 
     public DirectoryUser? Find(string userId)
     {
-        var user = _userManager.GetUserById(userId);
+        // qa-20260928-160840.md §1.2 (confirme security-audit-20260928-154256.md §2, FAIBLE) : un identifiant qui
+        // n'a pas la forme d'un GUID fait lever GetUserById (constaté en réel : POST User/Playlists/{id}/Members
+        // avec un TargetUserId malformé renvoyait 500 internal au lieu de 400 invalid-user). Même patron que
+        // EmbyPlaylistGateway.cs/PlaylistEntryReader.cs pour le même appel SDK : un identifiant malformé est
+        // simplement inconnu (contrat déjà « null si inconnu »), jamais une exception qui remonte jusqu'au
+        // Guard générique de UserPlaylistService.
+        User? user;
+        try { user = _userManager.GetUserById(userId); }
+        catch { return null; }
         return user == null ? null : ToDirectoryUser(user);
     }
 
