@@ -1,0 +1,34 @@
+<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow"
+     data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true"
+     data-bindheader="true" data-controller="__plugin/PlaySyncUserScript"
+     data-title="PlaySync">
+
+  <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
+    <div id="PlaySyncUserPage">
+
+      <div class="sectionTitleContainer flex align-items-center">
+        <h2 class="sectionTitle" id="PlaySyncTitle">PlaySync</h2>
+      </div>
+
+      <div class="detailSection">
+        <p class="fieldDescription" id="PlaySyncIntro"></p>
+      </div>
+
+      <!-- Sans permission (Q6b, GATE U13) : l'entrée de menu reste visible pour tous (aucun masquage natif
+           disponible, spike U13 question b), ce message apparaît au premier appel 403 sharing-disabled. -->
+      <div class="detailSection" id="PlaySyncDenied" style="display:none">
+        <p class="fieldDescription" id="PlaySyncDeniedText"></p>
+      </div>
+
+      <!-- Aucune playlist possédée. -->
+      <div class="detailSection" id="PlaySyncEmpty" style="display:none">
+        <p class="fieldDescription" id="PlaySyncEmptyText"></p>
+      </div>
+
+      <!-- Une carte par playlist possédée, construite par le script (aucun HTML brut assigné : noms de comptes et
+           de playlists insérés via textContent uniquement). -->
+      <div id="PlaySyncList"></div>
+
+    </div>
+  </div>
+</div>

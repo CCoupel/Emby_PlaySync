@@ -32,6 +32,9 @@
     <EmbeddedResource Include="Configuration\configScript.js" />
     <!-- Icône du plugin (#49, v1.0.0) : JPEG 320x180, source vectorielle icon.svg versionnée (D-c) -->
     <EmbeddedResource Include="Configuration\thumb.jpg" />
+    <!-- v1.1.0 (#39, D20) : page « PlaySync » du menu utilisateur -->
+    <EmbeddedResource Include="Configuration\userPage.html" />
+    <EmbeddedResource Include="Configuration\userScript.js" />
   </ItemGroup>
 
 </Project>
