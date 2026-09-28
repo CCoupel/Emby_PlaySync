@@ -43,6 +43,7 @@ define([], function () {
             ownerLabel: "Propriétaire (vous)",
             levelWrite: "Écriture",
             levelRead: "Lecture",
+            levelToggleLabel: "Lecture / Écriture",
             remove: "Retirer",
             add: "Ajouter",
             share: "Partager",
@@ -83,6 +84,7 @@ define([], function () {
             ownerLabel: 'Owner (you)',
             levelWrite: 'Write',
             levelRead: 'Read',
+            levelToggleLabel: 'Read / Write',
             remove: 'Remove',
             add: 'Add',
             share: 'Share',
@@ -171,6 +173,8 @@ define([], function () {
         h3.style.opacity = '.75';
         h3.style.textTransform = 'uppercase';
         h3.style.letterSpacing = '.03em';
+        h3.style.textDecoration = 'underline'; // demande utilisateur : titres de section soulignés
+        h3.style.textUnderlineOffset = '3px'; // ignoré si non supporté, sans effet indésirable
         setText(h3, key);
         return h3;
     }
@@ -252,15 +256,19 @@ define([], function () {
         /// lire .checked au moment de construire l'appel API (jamais .value d'un select, qui n'existe plus ici).
         function levelToggle(selectedValue) {
             var label = document.createElement('label');
-            label.style.display = 'flex';
+            label.style.setProperty('display', 'inline-flex', 'important'); // reste compact sur la même ligne
             label.style.alignItems = 'center';
             label.style.gap = '8px';
             label.style.cursor = 'pointer';
+            label.style.flexShrink = '0';
+            label.style.whiteSpace = 'nowrap';
             var input = cloneToggle();
             input.checked = selectedValue === 'Write';
             label.appendChild(input);
             var span = document.createElement('span');
-            setText(span, 'levelWrite'); // "Écriture" : libellé constant, comme pour remove-si-lu/propager-lu
+            // Demande utilisateur : libellé bidirectionnel "Lecture / Écriture" (un seul texte, pas deux
+            // contrôles) — ne change PAS le sens du toggle (décoché=Read, coché=Write, inchangé).
+            setText(span, 'levelToggleLabel');
             label.appendChild(span);
             return label;
         }
@@ -341,7 +349,14 @@ define([], function () {
 
             var userSelect = cloneSelect();
             clear(userSelect); // vide les deux <option> du prototype (Write/Read) : liste variable de comptes
-            userSelect.style.minWidth = '220px';
+            // Demande utilisateur : ce sélecteur, le toggle de niveau et le bouton doivent tenir sur la MÊME
+            // ligne. Même correctif que le bouton "Ajouter" (SHA 62cf946) : la classe emby-select force
+            // vraisemblablement un rendu pleine largeur par défaut (display:block) — repli en style posé en
+            // ligne (important) pour ne dépendre d'aucune classe non vérifiée.
+            userSelect.style.setProperty('display', 'inline-flex', 'important');
+            userSelect.style.setProperty('width', 'auto', 'important');
+            userSelect.style.minWidth = '200px';
+            userSelect.style.flexShrink = '0';
             var placeholder = document.createElement('option');
             placeholder.value = '';
             placeholder.textContent = t('addPlaceholder');
