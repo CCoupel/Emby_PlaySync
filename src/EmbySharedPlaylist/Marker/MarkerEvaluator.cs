@@ -29,6 +29,10 @@ public static class MarkerEvaluator
         new("^\\s*" + Regex.Escape(FamilyName(family)) + "\\s*=\\s*(NON|OUI)\\s*\\z",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    /// <summary>Motif reconnu pour une famille (D19, v1.1.0) : réutilisé par <see cref="MarkerEditor"/> pour ne
+    /// jamais dupliquer la définition (casse ignorée, espaces tolérés — mêmes règles qu'<see cref="Evaluate"/>).</summary>
+    internal static Regex Pattern(MarkerFamily family) => family == MarkerFamily.RemoveSiLu ? RemoveSiLuPattern : PropagerLuPattern;
+
     public static MarkerState Evaluate(IEnumerable<string>? tags, MarkerFamily family)
     {
         if (tags == null) return MarkerState.None;
