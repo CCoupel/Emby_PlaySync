@@ -33,4 +33,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </para>
     /// </summary>
     public bool AutoEnableSharing { get; set; } = false;
+
+    /// <summary>
+    /// SONDE TEMPORAIRE (U13, #39, jamais mergée dans <c>milestone/v1.1.0</c> — branche <c>spike/u13</c> uniquement).
+    /// Active la page <c>PlaySyncSpikeU13</c> (menu utilisateur, <c>EnableInUserMenu</c>) et les endpoints
+    /// <c>/SharedPlaylist/SpikeU13/*</c> ([Authenticated], sans rôle Admin). Défaut faux : 404 sur les endpoints,
+    /// page absente de <c>GetPages()</c>. Réservé aux comptes <c>test_*</c> et aux playlists nommées
+    /// <c>SPIKE-U13-*</c> (gardes appliquées dans <see cref="Spike.SpikeU13Service"/>).
+    /// </summary>
+    public bool EnableSpikeU13 { get; set; } = false;
 }

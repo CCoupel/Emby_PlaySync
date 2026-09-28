@@ -32,6 +32,9 @@
     <EmbeddedResource Include="Configuration\configScript.js" />
     <!-- Icône du plugin (#49, v1.0.0) : JPEG 320x180, source vectorielle icon.svg versionnée (D-c) -->
     <EmbeddedResource Include="Configuration\thumb.jpg" />
+    <!-- SONDE TEMPORAIRE U13 (#39, branche spike/u13, JAMAIS mergée dans milestone/v1.1.0) -->
+    <EmbeddedResource Include="Spike\u13Page.html" />
+    <EmbeddedResource Include="Spike\u13Script.js" />
   </ItemGroup>
 
 </Project>

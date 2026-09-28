@@ -13,6 +13,7 @@ define([], function () {
                 // sauvegardée (une config vierge, ou lue avant toute sauvegarde, n'est pas cochée).
                 view.querySelector('#AutoEnableSharing').checked = cfg.AutoEnableSharing === true;
                 view.querySelector('#EnableDiagnostics').checked = cfg.EnableDiagnostics !== false;
+                view.querySelector('#EnableSpikeU13').checked = cfg.EnableSpikeU13 === true;
                 view.querySelector('#LogToConsole').checked = cfg.LogToConsole !== false;
                 view.querySelector('#LogLevel').value = cfg.LogLevel || 'Info';
             });
@@ -24,6 +25,7 @@ define([], function () {
                 cfg.GracePasses = isNaN(grace) || grace < 1 ? 1 : grace;
                 cfg.AutoEnableSharing = view.querySelector('#AutoEnableSharing').checked;
                 cfg.EnableDiagnostics = view.querySelector('#EnableDiagnostics').checked;
+                cfg.EnableSpikeU13 = view.querySelector('#EnableSpikeU13').checked;
                 cfg.LogToConsole = view.querySelector('#LogToConsole').checked;
                 cfg.LogLevel = view.querySelector('#LogLevel').value;
                 ApiClient.updatePluginConfiguration(PLUGIN_ID, cfg).then(function (result) {

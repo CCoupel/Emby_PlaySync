@@ -44,9 +44,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbIm
 
     public Stream GetThumbImage() => GetType().Assembly.GetManifestResourceStream($"{GetType().Namespace}.Configuration.thumb.jpg")!;
 
+    /// <summary>Sonde U13 (#39, spike/u13 uniquement) : nom de la page menu utilisateur.</summary>
+    public const string SpikeU13PageName = "PlaySyncSpikeU13";
+
+    /// <summary>Sonde U13 : nom du contrôleur JS de la page.</summary>
+    public const string SpikeU13ScriptName = "PlaySyncSpikeU13Script";
+
     public IEnumerable<PluginPageInfo> GetPages()
     {
-        return new[]
+        var pages = new List<PluginPageInfo>
         {
             new PluginPageInfo
             {
@@ -63,5 +69,28 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbIm
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configScript.js"
             }
         };
+
+        // SONDE TEMPORAIRE U13 (#39, spike/u13, jamais mergée) : page menu UTILISATEUR (EnableInUserMenu), visible
+        // seulement si EnableSpikeU13 (défaut faux). Répond aux questions a (accessibilité non-admin) et b (masquage
+        // par utilisateur — MenuSection="user" ici est une hypothèse à confirmer, aucune autre valeur documentée trouvée).
+        if (Configuration.EnableSpikeU13)
+        {
+            pages.Add(new PluginPageInfo
+            {
+                Name                 = SpikeU13PageName,
+                EmbeddedResourcePath = $"{GetType().Namespace}.Spike.u13Page.html",
+                EnableInUserMenu     = true,
+                DisplayName          = "PlaySync Spike U13",
+                MenuSection          = "user",
+                MenuIcon             = "bug_report"
+            });
+            pages.Add(new PluginPageInfo
+            {
+                Name                 = SpikeU13ScriptName,
+                EmbeddedResourcePath = $"{GetType().Namespace}.Spike.u13Script.js"
+            });
+        }
+
+        return pages;
     }
 }

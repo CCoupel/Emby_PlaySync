@@ -1,0 +1,66 @@
+<!--
+  SONDE TEMPORAIRE U13 (#39, branche spike/u13, JAMAIS mergée). Page de menu UTILISATEUR (EnableInUserMenu) : sa
+  simple présence/accessibilité pour un compte non-admin répond à la question a. Contenu minimal, aucun style
+  spécifique au-delà des classes Emby standard (mêmes conventions que Configuration/configPage.html).
+-->
+<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow"
+     data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true"
+     data-bindheader="true" data-controller="__plugin/PlaySyncSpikeU13Script"
+     data-title="PlaySync Spike U13">
+
+  <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
+    <div id="PlaySyncSpikeU13Page">
+
+      <div class="sectionTitleContainer flex align-items-center">
+        <h2 class="sectionTitle">PlaySync — Spike U13 (temporaire)</h2>
+      </div>
+
+      <div class="detailSection">
+        <div class="fieldDescription">
+          <p>
+            Page de sonde jetable (#39, U13) : ne fait pas partie de la fonctionnalité livrée. Si vous voyez ce texte,
+            la page de menu UTILISATEUR (<code>EnableInUserMenu</code>) est accessible à ce compte — question U13-a.
+          </p>
+        </div>
+      </div>
+
+      <div class="detailSection">
+        <div class="inputContainer">
+          <input is="emby-input" type="text" id="PlaylistName" label="Nom de playlist (SPIKE-U13-...)" value="SPIKE-U13-1" />
+        </div>
+        <div class="inputContainer">
+          <input is="emby-input" type="text" id="TargetUserId" label="Id du compte cible (test_*)" />
+        </div>
+        <div class="selectContainer">
+          <label class="selectLabel" for="Level">Niveau</label>
+          <select is="emby-select" id="Level" class="emby-select-withcolor emby-select">
+            <option value="Read">Read</option>
+            <option value="Write">Write</option>
+            <option value="Manage">Manage</option>
+            <option value="ManageDelete">ManageDelete</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="detailSection">
+        <button is="emby-button" type="button" id="btnWhoami" class="raised block emby-button">
+          <span>Whoami</span>
+        </button>
+        <button is="emby-button" type="button" id="btnShares" class="raised block emby-button">
+          <span>Lire les partages (Shares)</span>
+        </button>
+        <button is="emby-button" type="button" id="btnShare" class="raised block emby-button">
+          <span>Écrire une ligne de partage (Share)</span>
+        </button>
+        <button is="emby-button" type="button" id="btnDeleteAll" class="raised block emby-button">
+          <span>DeleteShares (MaxShareLevel vide = tout supprimer)</span>
+        </button>
+      </div>
+
+      <div class="detailSection">
+        <pre id="Result" style="white-space:pre-wrap;word-break:break-all;"></pre>
+      </div>
+
+    </div>
+  </div>
+</div>

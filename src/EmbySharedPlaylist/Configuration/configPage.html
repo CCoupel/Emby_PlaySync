@@ -76,6 +76,17 @@
             Lignes préfixées <code>[EmbySharedPlaylist]</code>, visibles par <code>kubectl logs</code> (en plus du fichier de journal d'Emby).
           </div>
         </div>
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input type="checkbox" id="EnableSpikeU13" is="emby-checkbox" class="emby-checkbox" />
+            <span>Activer la sonde temporaire U13 (#39, spike/u13 uniquement)</span>
+          </label>
+          <div class="fieldDescription checkboxFieldDescription">
+            Expose la page de menu utilisateur et <code>/SharedPlaylist/SpikeU13/*</code> ([Authenticated], pas
+            Admin). Réservé aux comptes/playlists <code>test_*</code> / <code>SPIKE-U13-*</code>. N'existe que sur la
+            branche <code>spike/u13</code>, jamais mergée.
+          </div>
+        </div>
         <div class="selectContainer">
           <label class="selectLabel" for="LogLevel">Niveau de journalisation</label>
           <select is="emby-select" id="LogLevel" class="emby-select-withcolor emby-select">
