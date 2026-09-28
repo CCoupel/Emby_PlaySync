@@ -245,22 +245,24 @@ define([], function () {
         function cloneIconButton() { return stampAndClone(prototypes().querySelectorAll('button')[0], 'icon-btn'); }
         function cloneSubmitButton() { return stampAndClone(prototypes().querySelectorAll('button')[1], 'submit-btn'); }
 
-        /// Signalé par l'utilisateur (inspection DevTools) : les <option> du prototype cloné restaient VIDES de
-        /// texte malgré `textContent = ...` posé juste après le clonage — renommer un enfant déjà présent au
-        /// moment du clonage ne semble pas repris par le composant. Même patron que le sélecteur de compte
-        /// (renderAddRow, jamais signalé comme vide) : vider le clone puis AJOUTER des <option> déjà pourvues de
-        /// leur texte avant d'être insérées, jamais renommées après coup.
-        function levelSelect(selectedValue) {
-            var select = cloneSelect();
-            clear(select); // retire les deux <option> vides du prototype (value="Write"/"Read", sans texte)
-            [['Write', 'levelWrite'], ['Read', 'levelRead']].forEach(function (pair) {
-                var opt = document.createElement('option');
-                opt.value = pair[0];
-                opt.textContent = t(pair[1]);
-                opt.selected = pair[0] === selectedValue;
-                select.appendChild(opt);
-            });
-            return select;
+        /// Demande utilisateur : remplace le menu déroulant Écriture/Lecture par un interrupteur (une seule paire
+        /// de valeurs possibles) — coché = Write, décoché = Read. Même patron que les interrupteurs d'options
+        /// (renderOptions) : un interrupteur = le nom de l'état "activé" comme libellé constant, quel que soit
+        /// l'état. Retourne le <label> conteneur ; l'<input> cloné est accessible via .querySelector('input') pour
+        /// lire .checked au moment de construire l'appel API (jamais .value d'un select, qui n'existe plus ici).
+        function levelToggle(selectedValue) {
+            var label = document.createElement('label');
+            label.style.display = 'flex';
+            label.style.alignItems = 'center';
+            label.style.gap = '8px';
+            label.style.cursor = 'pointer';
+            var input = cloneToggle();
+            input.checked = selectedValue === 'Write';
+            label.appendChild(input);
+            var span = document.createElement('span');
+            setText(span, 'levelWrite'); // "Écriture" : libellé constant, comme pour remove-si-lu/propager-lu
+            label.appendChild(span);
+            return label;
         }
 
         function renderOptions(playlist) {
@@ -352,8 +354,9 @@ define([], function () {
             });
             row.appendChild(userSelect);
 
-            var level = levelSelect('Write');
-            row.appendChild(level);
+            var levelWidget = levelToggle('Write');
+            var levelInput = levelWidget.querySelector('input');
+            row.appendChild(levelWidget);
 
             var addBtn = cloneSubmitButton();
             // Demande utilisateur : le bouton doit rester sur la MÊME ligne que les deux menus, pas passer en
@@ -368,7 +371,7 @@ define([], function () {
             addBtn.addEventListener('click', function () {
                 if (!userSelect.value) return;
                 var path = 'SharedPlaylist/User/Playlists/' + encodeURIComponent(playlist.PlaylistId) + '/Members';
-                apiSend('POST', path, { UserId: userSelect.value, Level: level.value }).then(
+                apiSend('POST', path, { UserId: userSelect.value, Level: levelInput.checked ? 'Write' : 'Read' }).then(
                     function () { reload(); },
                     function (err) { showError(err); reload(); }
                 );
@@ -413,15 +416,16 @@ define([], function () {
 
                     var levelHolder = document.createElement('div');
                     levelHolder.style.minWidth = '150px';
-                    var select = levelSelect(member.Level);
-                    select.addEventListener('change', function () {
+                    var levelWidget = levelToggle(member.Level);
+                    var levelInput = levelWidget.querySelector('input');
+                    levelInput.addEventListener('change', function () {
                         var path = 'SharedPlaylist/User/Playlists/' + encodeURIComponent(playlist.PlaylistId) + '/Members';
-                        apiSend('POST', path, { UserId: member.UserId, Level: select.value }).then(
+                        apiSend('POST', path, { UserId: member.UserId, Level: levelInput.checked ? 'Write' : 'Read' }).then(
                             function () { reload(); },
                             function (err) { showError(err); reload(); }
                         );
                     });
-                    levelHolder.appendChild(select);
+                    levelHolder.appendChild(levelWidget);
                     row.appendChild(levelHolder);
 
                     var removeBtn = cloneIconButton(); // '✕' déjà présent (prototype)
