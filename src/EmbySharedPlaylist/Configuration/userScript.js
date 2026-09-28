@@ -197,10 +197,26 @@ define([], function () {
         // (#PlaySyncPrototypes), jamais construits par document.createElement. Hypothèse retenue : le chargement
         // des composants dépend du HTML STATIQUE de la page, jamais vu pour un élément 100% généré en JS.
         function prototypes() { return view.querySelector('#PlaySyncPrototypes'); }
-        function cloneSelect() { return prototypes().querySelector('select').cloneNode(true); }
-        function cloneToggle() { return prototypes().querySelector('input').cloneNode(true); }
-        function cloneIconButton() { return prototypes().querySelectorAll('button')[0].cloneNode(true); }
-        function cloneSubmitButton() { return prototypes().querySelectorAll('button')[1].cloneNode(true); }
+
+        /// DevTools (QUALIF, confirmé par l'utilisateur) : "Multiple form field elements... same id attribute" —
+        /// le composant natif (upgradé une seule fois, sur le prototype caché) s'assigne apparemment un id lors
+        /// de son upgrade ; cloneNode(true) copie cet id tel quel sur CHAQUE clone. Aucun id n'est nécessaire
+        /// côté script (jamais de <label for="...">, jamais de getElementById sur ces éléments — l'association
+        /// label/input se fait par imbrication, les écouteurs par référence directe) : retiré sans risque, sur le
+        /// clone ET tout descendant (le composant peut construire son propre DOM interne lors de l'upgrade).
+        function stripIds(node) {
+            if (node.removeAttribute) node.removeAttribute('id');
+            if (node.querySelectorAll) {
+                var withId = node.querySelectorAll('[id]');
+                for (var i = 0; i < withId.length; i++) withId[i].removeAttribute('id');
+            }
+            return node;
+        }
+
+        function cloneSelect() { return stripIds(prototypes().querySelector('select').cloneNode(true)); }
+        function cloneToggle() { return stripIds(prototypes().querySelector('input').cloneNode(true)); }
+        function cloneIconButton() { return stripIds(prototypes().querySelectorAll('button')[0].cloneNode(true)); }
+        function cloneSubmitButton() { return stripIds(prototypes().querySelectorAll('button')[1].cloneNode(true)); }
 
         function levelSelect(selectedValue) {
             var select = cloneSelect(); // prototype : deux <option> déjà présentes (value="Write"/"Read")
