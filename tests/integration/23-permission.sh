@@ -6,8 +6,12 @@
 # Pose automatiquement `Policy.AllowSharingPersonalItems=true` pour tous les utilisateurs : à la passe de
 # réconciliation (démarrage + toutes les 5 min, ou déclenchée à la main ici via run_pass) pour les comptes
 # existants, et IMMÉDIATEMENT à la création d'un compte (`IUserManager.UserCreated`), sans attendre la passe
-# suivante. Interrupteur `AutoEnableSharing` (config plugin, défaut true) : à faux, aucune écriture, aucune
-# entrée de journal, même pour un compte nouvellement créé. Ne modifie JAMAIS que ce seul champ de la Policy.
+# suivante. Interrupteur `AutoEnableSharing` (config plugin, défaut FAUX depuis v1.0.0/GATE PROD M1, était vrai
+# en v0.4.0-v0.5.0) : à faux, aucune écriture, aucune entrée de journal, même pour un compte nouvellement créé.
+# Ce script ne présume jamais du défaut : il lit la config existante (ORIG_CFG, restaurée en fin de run) puis
+# pose explicitement AutoEnableSharing=true AVANT tout scénario (voir plus bas), quel que soit le défaut du
+# plugin — valable même sur une instance fraîchement redéployée sans config préalablement sauvegardée.
+# Ne modifie JAMAIS que ce seul champ de la Policy.
 # Comportement ASSUMÉ (D-e, docs/chronogrammes.md) : le plugin ne mémorise aucun décochage manuel — un
 # administrateur qui décoche la permission d'un compte la voit RÉACTIVÉE à la passe suivante ; testé ici comme
 # un SUCCÈS attendu (I40), pas une anomalie. Seul l'interrupteur global protège, et il ne révoque jamais un
