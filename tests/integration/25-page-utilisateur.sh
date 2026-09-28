@@ -62,6 +62,10 @@ UP="/SharedPlaylist/User"
 upage_err() { jq -r '.error // empty' "$RESP"; } # après normalisation camelCase de api() (chemin /SharedPlaylist/*)
 body_member() { jq -nc --arg u "$1" --arg l "$2" '{UserId:$u,Level:$l}'; }
 body_option() { jq -nc --arg f "$1" --argjson e "$2" '{Family:$f,Enabled:$e}'; }
+# has_both_tags JSON TAG1 TAG2 : vrai si les deux étiquettes sont présentes (appelée directement, JAMAIS via
+# `bash -c` : has_tag/int-lib.sh n'est pas exportée avec `export -f`, un sous-shell bash ne la verrait pas —
+# qa-20260928-160840.md §4.1 ; même raison pour toute autre assertion basée sur has_tag dans ce script).
+has_both_tags() { has_tag "$1" "$2" && has_tag "$1" "$3"; }
 # st_err ATTENDU_HTTP ATTENDU_CODE METHODE CHEMIN [CORPS] [TOKEN] : vrai si HTTP + corps Error==CODE
 st_err() {
   local wantst=$1 wantcode=$2; shift 2
@@ -180,8 +184,8 @@ p11() {
   local t o
   t=$(tags_of "$PL"); o=$(overview_of "$PL")
   ck P11.non_rm "remove-si-lu=NON posée (1re détection IMMÉDIATE, CA4, sans attendre la passe)" "$t" \
-    bash -c "has_tag \"\$0\" \"$NON_RM\"" "$t"
-  ck P11.non_pr "propager-lu=NON posée" "$t" bash -c "has_tag \"\$0\" \"$NON_PR\"" "$t"
+    has_tag "$t" "$NON_RM"
+  ck P11.non_pr "propager-lu=NON posée" "$t" has_tag "$t" "$NON_PR"
   ck P11.help "message d'aide écrit (description non vide)" "\"$o\"" test -n "$o"
   local j n
   j=$(journal ShareChanged)
@@ -205,7 +209,7 @@ p13() {
   st=$(api GET "/Users/ItemAccess?ItemId=$PL" "" "$T1")
   ck P13.item_access_http "GET /Users/ItemAccess (côté propriétaire) -> 2xx" "null" is2xx "$st"
   ck P13.item_access "partage de test_u3 visible dans la réponse native" "$(cat "$RESP")" \
-    bash -c "jq -e --arg u \"\$0\" '.[]|select(.UserId==\$u)' '$RESP' >/dev/null" "$U3"
+    bash -c "jq -e --arg u \"\$0\" '.Items[]|select(.Id==\$u)' '$RESP' >/dev/null" "$U3"
 }
 
 p14() {
@@ -222,7 +226,7 @@ p15() {
   local t n
   t=$(tags_of "$PL")
   ck P15.single_tag "une seule étiquette remove-si-lu, canonique OUI" "$t" test "$(tag_count "$t" remove-si-lu)" = 1
-  ck P15.other_family_intact "propager-lu=NON toujours présente (jamais touchée)" "$t" bash -c "has_tag \"\$0\" \"$NON_PR\"" "$t"
+  ck P15.other_family_intact "propager-lu=NON toujours présente (jamais touchée)" "$t" has_tag "$t" "$NON_PR"
   local j; j=$(journal MarkerSet)
   n=$(jcount "$j" "$PL" MarkerSet 'family=remove-si-lu value=OUI removed=1')
   ck P15.journal "MarkerSet journalisé (family=remove-si-lu value=OUI removed=1)" "$j" test "$n" -ge 1
@@ -232,7 +236,7 @@ p16() {
   echo "== P16 (S10.3) — conflit résolu par la bascule : édition manuelle OUI+NON coexistants -> removed=2"
   owner_edit "$PL" '["remove-si-lu=NON"]' '[]'   # ajoute manuellement NON en plus du OUI déjà posé (P15) : conflit
   local t n; t=$(tags_of "$PL")
-  ck P16.conflict_setup "conflit posé (OUI et NON coexistent)" "$t" bash -c "has_tag \"\$0\" \"$OUI_RM\" && has_tag \"\$0\" \"$NON_RM\"" "$t"
+  ck P16.conflict_setup "conflit posé (OUI et NON coexistent)" "$t" has_both_tags "$t" "$OUI_RM" "$NON_RM"
   jclear
   ck P16 "POST Options {remove-si-lu,true} de nouveau -> 200, conflit résolu" "null" st_ok 200 POST "$UP/Playlists/$PL/Options" "$(body_option remove-si-lu true)" "$T1"
   t=$(tags_of "$PL")
@@ -279,7 +283,7 @@ p21() {
   ck P21 "DELETE Members/{u2} (dernier membre) -> 200, isShared=false" "null" st_ok 200 DELETE "$UP/Playlists/$PL/Members/$U2" "" "$T1"
   ck P21.unshared "isShared=false dans la réponse" "$(cat "$RESP")" bash -c "jq -e '.isShared==false' '$RESP' >/dev/null"
   local t; t=$(tags_of "$PL")
-  ck P21.tags_inert "remove-si-lu=OUI toujours présente (jamais supprimée par le retrait d'un membre)" "$t" bash -c "has_tag \"\$0\" \"$OUI_RM\"" "$t"
+  ck P21.tags_inert "remove-si-lu=OUI toujours présente (jamais supprimée par le retrait d'un membre)" "$t" has_tag "$t" "$OUI_RM"
 }
 
 p22() {
@@ -304,21 +308,21 @@ p23() {
   st=$(api GET "/Users/ItemAccess?ItemId=$pl3" "" "$T1")
   ck P23.owner_before_http "GET /Users/ItemAccess -> 2xx (avant tout retrait)" "null" is2xx "$st"
   ck P23.owner_before "propriétaire (u1) a ManageDelete AVANT tout retrait" "$(cat "$RESP")" \
-    bash -c "jq -e --arg u \"\$0\" '.[]|select(.UserId==\$u and .ItemAccess==\"ManageDelete\")' '$RESP' >/dev/null" "$U1"
+    bash -c "jq -e --arg u \"\$0\" '.Items[]|select(.Id==\$u and .UserItemShareLevel==\"ManageDelete\")' '$RESP' >/dev/null" "$U1"
 
   # Retrait d'un membre NON dernier (u2) : reconstruction = [propriétaire, u3].
   ck P23.remove_not_last "DELETE Members/{u2} (u3 reste) -> 200" "null" st_ok 200 DELETE "$UP/Playlists/$pl3/Members/$U2" "" "$T1"
   st=$(api GET "/Users/ItemAccess?ItemId=$pl3" "" "$T1")
   ck P23.owner_after_notlast_http "GET /Users/ItemAccess -> 2xx (après retrait non-dernier)" "null" is2xx "$st"
   ck P23.owner_after_notlast "propriétaire garde ManageDelete APRÈS le retrait d'un membre non-dernier" "$(cat "$RESP")" \
-    bash -c "jq -e --arg u \"\$0\" '.[]|select(.UserId==\$u and .ItemAccess==\"ManageDelete\")' '$RESP' >/dev/null" "$U1"
+    bash -c "jq -e --arg u \"\$0\" '.Items[]|select(.Id==\$u and .UserItemShareLevel==\"ManageDelete\")' '$RESP' >/dev/null" "$U1"
 
   # Retrait du DERNIER membre (u3) : reconstruction = [propriétaire] SEUL — cas le plus à risque (security-audit point 7).
   ck P23.remove_last "DELETE Members/{u3} (dernier membre) -> 200" "null" st_ok 200 DELETE "$UP/Playlists/$pl3/Members/$U3" "" "$T1"
   st=$(api GET "/Users/ItemAccess?ItemId=$pl3" "" "$T1")
   ck P23.owner_after_last_http "GET /Users/ItemAccess -> 2xx (après retrait du dernier membre)" "null" is2xx "$st"
   ck P23.owner_after_last "propriétaire garde ManageDelete APRÈS le retrait du DERNIER membre (cas le plus à risque)" "$(cat "$RESP")" \
-    bash -c "jq -e --arg u \"\$0\" '.[]|select(.UserId==\$u and .ItemAccess==\"ManageDelete\")' '$RESP' >/dev/null" "$U1"
+    bash -c "jq -e --arg u \"\$0\" '.Items[]|select(.Id==\$u and .UserItemShareLevel==\"ManageDelete\")' '$RESP' >/dev/null" "$U1"
 
   # Preuve applicative complémentaire : le plugin lui-même retrouve encore le propriétaire ensuite (GetOwned),
   # pas seulement le natif /Users/ItemAccess.
@@ -340,6 +344,10 @@ for s in "${WANT[@]}"; do
 done
 
 echo "== Comptes protégés"
+# cleanup_test_accounts AVANT compare_protected (qa-20260928-160840.md §4.4) : le compte éphémère
+# SPIKE-P-noperm-* (créé pour P2/P3) doit avoir disparu avant la comparaison, sinon compare_protected voit un
+# utilisateur en plus par rapport au snapshot de 00-setup-users.sh (idempotent : on_exit le rappelle sans effet).
+cleanup_test_accounts
 compare_protected "fin des scénarios" "${TEST_USERS[@]}" && rec PROTECTED OK "admin, cyril, user2 inchangés" || rec PROTECTED KO "comptes protégés modifiés" "null"
 
 write_out false; DONE=1
