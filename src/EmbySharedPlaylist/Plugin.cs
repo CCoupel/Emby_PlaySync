@@ -40,7 +40,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbIm
         PluginRuntime.Log?.Info(LogFormat.ConfigSaved());
     }
 
-    public override string Name => "Emby Shared Playlist";
+    // v1.1.0 (#39) : renommage produit (dépôt CCoupel/Emby_PlaySync, marque/site déjà "PlaySync", entrée de menu
+    // utilisateur déjà "PlaySync" depuis ce même lot) — décision initiale du plan de ne pas y toucher, remplacée
+    // par une demande explicite de l'utilisateur. Ne renomme QUE ce qui est visible côté admin (Name, page de
+    // config) : ni les classes/namespaces C#, ni AssemblyName/RootNamespace (EmbySharedPlaylist.dll inchangé),
+    // ni le nom de la tâche planifiée, ni le message d'aide écrit dans les playlists (HelpText — un changement
+    // de texte y déclencherait un remplacement V2→V3 sur toutes les playlists, hors périmètre de cette demande).
+    public override string Name => "PlaySync";
 
     public override string Description => "Playlists « À voir » partagées : un média lu est retiré de la liste et marqué lu pour les membres du groupe.";
 
@@ -59,7 +65,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbIm
                 Name                 = ConfigPageName,
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
                 EnableInMainMenu     = true,
-                DisplayName          = "Emby Shared Playlist",
+                DisplayName          = "PlaySync",
                 MenuSection          = "server",
                 MenuIcon             = "playlist_play"
             },
