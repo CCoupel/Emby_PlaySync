@@ -5,9 +5,9 @@
 > demande explicitement.
 
 - **Nom affiché** : PlaySync (variante « PlaySync for Emby » / « PlaySync pour Emby » utilisée en
-  sous-titre dans le header et l'eyebrow du hero quand le contexte doit être précisé). Le nom du
-  dépôt GitHub (`CCoupel/Emby_shared_playlist`) n'est jamais renommé : tous les liens techniques
-  (GitHub, Releases, Documentation) pointent vers le dépôt tel quel.
+  sous-titre dans le header et l'eyebrow du hero quand le contexte doit être précisé). Tous les
+  liens techniques (GitHub, Releases, Documentation) pointent vers le dépôt tel quel : `CCoupel/Emby_PlaySync`
+  depuis son renommage le 2026-09-28 (ex-`CCoupel/Emby_shared_playlist`).
 - **Public cible** : administrateurs de serveurs Emby personnels ou familiaux gérant plusieurs
   comptes utilisateurs.
 - **Proposition de valeur** : « Partagez vos listes « À voir » entre comptes Emby, sans jamais

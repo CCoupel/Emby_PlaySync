@@ -50,7 +50,7 @@
   "deployment.binaries.th_cmd": "Install",
   "deployment.binaries.row_platform": "Any (wherever Emby Server runs)",
   "deployment.binaries.row_cmd": "Copy into Emby's <code>plugins/</code> folder (root, not a subfolder), then restart.",
-  "deployment.binaries.link": "Latest version on the <a href=\"https://github.com/CCoupel/Emby_shared_playlist/releases\" target=\"_blank\" rel=\"noopener\">GitHub Releases</a> page.",
+  "deployment.binaries.link": "Latest version on the <a href=\"https://github.com/CCoupel/Emby_PlaySync/releases\" target=\"_blank\" rel=\"noopener\">GitHub Releases</a> page.",
   "deployment.config.intro": "Configuration happens on the plugin's own page (Emby dashboard) and via tags on each playlist — no separate file to edit.",
   "deployment.config.th_key": "Setting",
   "deployment.config.th_default": "Default",
