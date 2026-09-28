@@ -1,5 +1,19 @@
 # Changelog des contrats
 
+## [20260928] — v1.1.0 : page utilisateur (menu Emby) — gestion du partage et des options (#39, planifié)
+
+- **[NEW]** `GET /SharedPlaylist/User/Playlists` — playlists possédées par le demandeur (partagées ou non), membres, état des deux familles.
+- **[NEW]** `GET /SharedPlaylist/User/Users` — comptes sélectionnables (hors demandeur et comptes désactivés), id + nom.
+- **[NEW]** `POST /SharedPlaylist/User/Playlists/{PlaylistId}/Members` — ajout/changement de niveau d'un membre (`Read`/`Write` seulement) ; premier partage d'une playlist non partagée + première détection immédiate.
+- **[NEW]** `DELETE /SharedPlaylist/User/Playlists/{PlaylistId}/Members/{UserId}` — retrait d'un membre.
+- **[NEW]** `POST /SharedPlaylist/User/Playlists/{PlaylistId}/Options` — bascule d'une famille (D19).
+- **[NEW]** Premiers endpoints **non-admin** du plugin : `[Authenticated]` utilisateur, identité = session, 403 si `AllowSharingPersonalItems=false`, 404 indiscernable pour une playlist non possédée (anti-IDOR), codes d'erreur stables sans texte serveur. Exposent des **noms** (utilisateurs, playlists) au seul propriétaire.
+- **[NEW]** kinds `Diagnostics/Journal` : `ShareChanged`, `MarkerSet`.
+- **[CHANGED]** (spec, **D19**) Règle « le plugin ne supprime jamais une étiquette » (D3) : **reste vraie pour tout comportement automatique** (moteur, réconciliation, première détection). Exception unique : une action **explicite** du propriétaire sur la page utilisateur remplace atomiquement toutes les étiquettes d'une famille par une seule `=OUI` ou `=NON`. Rétrocompatible : aucune playlist existante n'est modifiée sans action utilisateur.
+- **[CHANGED]** (spec, **D20**) Le plugin écrit désormais des **partages** (`SaveUserItemShares`/`DeleteUserItemShares`) pour le compte du propriétaire, niveaux `Read`/`Write` uniquement (R2 inchangée : le propriétaire reste seul gestionnaire). Le menu natif « Gérer la collaboration » reste valable ; les deux voies sont équivalentes.
+- **[INFO]** Page `PlaySync` dans le **menu utilisateur** (`EnableInUserMenu`), FR/EN (traduction côté client), masquée pour les comptes sans permission de partage — faisabilité (accès non-admin, filtrage du menu par utilisateur, propriétaire d'une playlist non partagée) à confirmer par le spike U13.
+- Aucun BREAKING : endpoints et comportements existants inchangés.
+
 ## [20260927] — v1.0.0 : clôture — récapitulatif du périmètre livré depuis v0.1.0 (#35 #36 #37 #38 #49)
 
 Livraison finale de la v1.0.0 (build/publish/deploy QUALIF, recette complète, icône du plugin). **Aucun changement de contrat HTTP dans ce lot** : cette entrée récapitule, elle ne documente aucune nouveauté technique.
