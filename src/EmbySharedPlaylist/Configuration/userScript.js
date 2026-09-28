@@ -150,8 +150,29 @@ define([], function () {
         row.style.display = 'flex';
         row.style.alignItems = 'center';
         row.style.gap = '8px';
-        row.style.padding = '.35em 0';
+        row.style.padding = '10px 0'; // aéré (maquette : td/th padding 8px 6px) — demande utilisateur, moins tassé
         return row;
+    }
+
+    /// Section d'une carte de playlist (Options/Membres) : mêmes proportions que .section de la maquette
+    /// (padding:14px 16px, séparateur sous la section sauf la dernière). Styles posés en ligne, comme le reste de
+    /// cette page (les classes Emby de configPage.html se sont révélées peu fiables ici — GATE 4).
+    function cardSection(isLast) {
+        var section = document.createElement('div');
+        section.style.padding = '14px 16px';
+        if (!isLast) section.style.borderBottom = '1px solid rgba(128,128,128,.25)';
+        return section;
+    }
+
+    function sectionHeading(key) {
+        var h3 = document.createElement('h3');
+        h3.style.margin = '0 0 10px';
+        h3.style.fontSize = '.9em';
+        h3.style.opacity = '.75';
+        h3.style.textTransform = 'uppercase';
+        h3.style.letterSpacing = '.03em';
+        setText(h3, key);
+        return h3;
     }
 
     return function (view) {
@@ -237,8 +258,8 @@ define([], function () {
         }
 
         function renderOptions(playlist) {
-            var section = el('div', 'section');
-            var h3 = el('h3'); setText(h3, 'optionsHeader'); section.appendChild(h3);
+            var section = cardSection(false); // jamais la dernière section de la carte (Membres suit toujours)
+            section.appendChild(sectionHeading('optionsHeader'));
 
             FAMILIES.forEach(function (family) {
                 // Mise en page en flex, styles POSÉS EN LIGNE (jamais les classes checkboxContainer/
@@ -248,7 +269,7 @@ define([], function () {
                 // interrupteur à gauche, colonne de texte (libellé + description) alignée juste à droite, sur
                 // toute sa largeur — jamais de marqueur de liste, jamais de dépendance à une classe non vérifiée.
                 var container = document.createElement('div');
-                container.style.padding = '8px 0';
+                container.style.padding = '10px 0';
 
                 var label = document.createElement('label');
                 label.style.display = 'flex';
@@ -274,14 +295,14 @@ define([], function () {
                 var desc = document.createElement('div');
                 desc.style.opacity = '.75';
                 desc.style.fontSize = '.9em';
-                desc.style.marginTop = '2px';
+                desc.style.marginTop = '4px';
                 setText(desc, playlist.IsShared ? familyDescKey(family) : 'optionsUnavailable');
                 textCol.appendChild(desc);
 
                 if (playlist.IsShared && state === 'Both') {
                     var warn = document.createElement('div');
                     warn.style.fontSize = '.9em';
-                    warn.style.marginTop = '2px';
+                    warn.style.marginTop = '4px';
                     setText(warn, 'conflict');
                     textCol.appendChild(warn);
                 }
@@ -308,7 +329,7 @@ define([], function () {
         function renderAddRow(playlist) {
             var row = flexRow();
             row.style.flexWrap = 'wrap';
-            row.style.marginTop = '.5em';
+            row.style.marginTop = '12px';
 
             var userSelect = cloneSelect();
             clear(userSelect); // vide les deux <option> du prototype (Write/Read) : liste variable de comptes
@@ -344,8 +365,8 @@ define([], function () {
         }
 
         function renderMembers(playlist) {
-            var section = el('div', 'section');
-            var h3 = el('h3'); setText(h3, 'membersHeader'); section.appendChild(h3);
+            var section = cardSection(true); // toujours la dernière section de la carte
+            section.appendChild(sectionHeading('membersHeader'));
 
             if (!playlist.Members || playlist.Members.length === 0) {
                 var hint = el('p', 'fieldDescription');
@@ -421,14 +442,18 @@ define([], function () {
 
         function renderCard(playlist) {
             var card = el('div', 'detailSection');
-            card.style.marginBottom = '1.2em'; // espace entre les cartes de playlists (maquette : 18px)
+            card.style.marginBottom = '18px'; // espace entre les cartes de playlists (maquette)
+            card.style.padding = '0'; // le padding est posé section par section (cardSection) + sur l'en-tête ci-dessous
 
             // Retouches visuelles demandées par l'utilisateur (GATE 4) : espacement explicite (le nom collait au
             // badge) ; badge simplifié (le nombre de membres était redondant avec la liste juste en dessous, déjà
-            // visible sans avoir à le répéter dans l'en-tête).
+            // visible sans avoir à le répéter dans l'en-tête) ; en-tête aéré et séparé du contenu (maquette :
+            // .card-head, padding 14px 16px + séparateur).
             var head = el('div', 'sectionTitleContainer flex align-items-center');
-            head.style.gap = '10px';
+            head.style.gap = '12px';
             head.style.flexWrap = 'wrap';
+            head.style.padding = '14px 16px';
+            head.style.borderBottom = '1px solid rgba(128,128,128,.25)';
             var h2 = document.createElement('h2');
             h2.className = 'sectionTitle';
             h2.style.margin = '0';
