@@ -1,0 +1,95 @@
+<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow"
+     data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true"
+     data-bindheader="true" data-controller="__plugin/EmbySharedPlaylistConfigScript"
+     data-title="Emby Shared Playlist">
+
+  <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
+    <div id="EmbySharedPlaylistConfigPage">
+
+      <div class="sectionTitleContainer flex align-items-center">
+        <h2 class="sectionTitle">Emby Shared Playlist</h2>
+      </div>
+
+      <div class="detailSection">
+        <div class="fieldDescription">
+          <p>
+            Une playlist « À voir » devient <strong>partagée</strong> via le partage natif d'Emby : menu « … » de la
+            playlist → <strong>Gérer la collaboration</strong>. Ce plugin ajoute ensuite deux comportements réglés par
+            étiquette (Modifier les métadonnées → Mot-clé, sur la playlist elle-même), à NON par défaut (rien ne
+            change) — pour activer une option, remplacez NON par OUI :
+          </p>
+          <ul>
+            <li><code>remove-si-lu=OUI</code> : un média qui passe à « lu » est retiré de la playlist.</li>
+            <li><code>propager-lu=OUI</code> : le flag « lu » et l'avancement de lecture (position) sont propagés aux
+              autres membres.</li>
+          </ul>
+          <p>
+            La permission de partage (« Permettre le partage de contenus personnels ») peut être accordée
+            <strong>automatiquement</strong> par le plugin pour tous les comptes, via la case « Activer le partage
+            automatiquement » ci-dessous — <strong>désactivée par défaut</strong> (un élargissement de droits pour
+            tous les comptes n'est pas activé sans décision explicite, en particulier sur un serveur exposé). Si vous
+            l'activez : limite connue — un administrateur qui retire cette permission manuellement pour un compte
+            précis la voit <strong>réappliquée à la passe suivante</strong> (le plugin ne mémorise pas ce retrait) —
+            seul le décochage de la case ci-dessous empêche cette repose pour tous les comptes.
+          </p>
+          <p>
+            Limites connues : le comportement dépend du client utilisé pour la lecture (confirmé sur le client web ;
+            TV/mobile non entièrement vérifiés à ce jour).
+          </p>
+        </div>
+      </div>
+
+      <div class="detailSection">
+        <div class="inputContainer">
+          <input is="emby-input" type="number" id="GracePasses" min="1" step="1" label="Passes de grâce" />
+          <div class="fieldDescription">
+            Nombre de passes de réconciliation consécutives sans étiquette (ou avec une description vide) avant que le plugin repose la valeur par défaut. Défaut : 2, minimum : 1. La période des passes se règle dans les tâches planifiées d'Emby.
+          </div>
+        </div>
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input type="checkbox" id="AutoEnableSharing" is="emby-checkbox" class="emby-checkbox" />
+            <span>Activer le partage automatiquement pour tous les utilisateurs</span>
+          </label>
+          <div class="fieldDescription checkboxFieldDescription">
+            Pose <code>Policy.AllowSharingPersonalItems=true</code> pour tous les comptes (existants et nouveaux), au
+            démarrage, à la réconciliation périodique et à la création d'un compte. Désactivé (défaut) : aucune
+            écriture. Dans tous les cas, une fois activé : ne révoque jamais un accès déjà accordé, même si vous
+            décochez ensuite cette case.
+          </div>
+        </div>
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input type="checkbox" id="EnableDiagnostics" is="emby-checkbox" class="emby-checkbox" />
+            <span>Activer les diagnostics (administrateur)</span>
+          </label>
+          <div class="fieldDescription checkboxFieldDescription">
+            Expose <code>/SharedPlaylist/Diagnostics/*</code> (journal des décisions et état en mémoire, identifiants seulement).
+          </div>
+        </div>
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input type="checkbox" id="LogToConsole" is="emby-checkbox" class="emby-checkbox" />
+            <span>Écrire les journaux sur la console du serveur</span>
+          </label>
+          <div class="fieldDescription checkboxFieldDescription">
+            Lignes préfixées <code>[EmbySharedPlaylist]</code>, visibles par <code>kubectl logs</code> (en plus du fichier de journal d'Emby).
+          </div>
+        </div>
+        <div class="selectContainer">
+          <label class="selectLabel" for="LogLevel">Niveau de journalisation</label>
+          <select is="emby-select" id="LogLevel" class="emby-select-withcolor emby-select">
+            <option value="Off">Désactivé</option>
+            <option value="Info">Info</option>
+            <option value="Debug">Debug</option>
+          </select>
+        </div>
+      </div>
+
+      <button is="emby-button" type="button" id="btnSave" class="raised button-submit block emby-button">
+        <span>Enregistrer</span>
+      </button>
+
+    </div>
+  </div>
+</div>

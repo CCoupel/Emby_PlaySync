@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Icône du plugin Emby Shared Playlist (#49, v1.0.0) — création originale, de zéro, aucune ressource sous droits
+  tiers (D-c). Source vectorielle de référence ; convertie en JPEG 320x180 (Configuration/thumb.jpg, même format que
+  la convention Emby_Badges) pour l'EmbeddedResource embarquée par Plugin.cs (IHasThumbImage).
+  Concept : une liste de lecture (trois lignes à cocher) partagée entre plusieurs comptes (symbole de partage à
+  droite, trois nœuds reliés). Fond uni sombre : lisible aussi bien sur le thème clair que sombre du tableau de
+  bord Emby (le fond de la vignette reste constant, indépendant du thème de la page qui l'entoure).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" width="320" height="180">
+  <rect width="320" height="180" fill="#20323f"/>
+
+  <!-- Liste de lecture : trois entrées, coche + barre -->
+  <g fill="none" stroke="#eef3f6" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="52" cy="55" r="15" fill="#2ea6a1" stroke="none"/>
+    <path d="M45 55 L50 61 L60 48" stroke="#20323f" stroke-width="5"/>
+    <line x1="80" x2="230" y1="55" y2="55" stroke-width="12" stroke="#eef3f6"/>
+
+    <circle cx="52" cy="95" r="15" fill="#2ea6a1" stroke="none"/>
+    <path d="M45 95 L50 101 L60 88" stroke="#20323f" stroke-width="5"/>
+    <line x1="80" x2="205" y1="95" y2="95" stroke-width="12" stroke="#eef3f6"/>
+
+    <circle cx="52" cy="135" r="15" fill="none" stroke="#8fa3ad" stroke-width="5"/>
+    <line x1="80" x2="180" y1="135" y2="135" stroke-width="12" stroke="#8fa3ad"/>
+  </g>
+
+  <!-- Partage : trois nœuds reliés -->
+  <g fill="#f2a640" stroke="#f2a640" stroke-width="7" stroke-linecap="round">
+    <line x1="258" y1="52" x2="285" y2="90"/>
+    <line x1="258" y1="128" x2="285" y2="90"/>
+    <circle cx="258" cy="52" r="14" stroke="none"/>
+    <circle cx="258" cy="128" r="14" stroke="none"/>
+    <circle cx="288" cy="90" r="16" stroke="none"/>
+  </g>
+</svg>

@@ -10,7 +10,8 @@
 2. **Destination** : `/config/plugins/EmbySharedPlaylist.dll` — racine du dossier plugins, **pas** un sous-dossier (comme `VirtualLib.dll`, `Iconic.dll`...). Le nom dans le pod est `EmbySharedPlaylist.dll` (sans version).
 3. **`MSYS_NO_PATHCONV=1`** obligatoire (Git Bash/Windows) pour tout argument kubectl contenant un chemin Linux absolu.
 4. **Source relative** : chemin du DLL relatif a la racine du repo (`build/qualif_v.../...`), jamais un chemin Windows absolu (casse `kubectl cp`).
-5. **Copier AVANT le restart** : le restart cree un pod qui relit le volume persistant ; la copie se fait sur le pod courant.
+5. **Copier AVANT l'arret** : la copie se fait sur le pod courant (le PVC `media-config-claim` est propre a emby2, distinct de la prod), puis l'ancien pod est **arrete completement avant** de demarrer le nouveau.
+7. **Jamais de rolling update** : deux pods Emby simultanes sur le meme volume provoquent `database is locked` (SQLite sur MooseFS/fuse, observe au premier deploiement). Strategie imposee : `scale --replicas=0`, attente de la suppression du pod, `scale --replicas=1`.
 6. **Verification dans le NOUVEAU pod** : la taille du DLL doit egaler celle de l'artefact publie.
 
 ## Variables attendues
@@ -32,7 +33,10 @@ EXPECTED_SIZE=$(stat -c %s "$ARTIFACT")
 POD=$(kubectl get pods -n media --no-headers | grep emby2 | awk '{print $1}')
 MSYS_NO_PATHCONV=1 kubectl exec -n media "$POD" -- cp /config/plugins/EmbySharedPlaylist.dll /config/plugins/EmbySharedPlaylist.dll.prev 2>/dev/null || true
 MSYS_NO_PATHCONV=1 kubectl cp "$ARTIFACT" media/$POD:/config/plugins/EmbySharedPlaylist.dll
-kubectl rollout restart deployment/emby2 -n media
+# Arret de l'ancien pod AVANT le nouveau (pas de rollout restart : rolling update => database is locked)
+kubectl scale deployment/emby2 --replicas=0 -n media
+kubectl wait --for=delete pod/$POD -n media --timeout=180s
+kubectl scale deployment/emby2 --replicas=1 -n media
 
 # 3. Rollout + verification dans le NOUVEAU pod
 kubectl rollout status deployment/emby2 -n media --timeout=90s
@@ -55,5 +59,6 @@ est **inoperant** ici (le DLL vit dans le volume, pas dans l'image) — restaure
 ```bash
 POD=$(kubectl get pods -n media --no-headers | grep emby2 | awk '{print $1}')
 MSYS_NO_PATHCONV=1 kubectl exec -n media "$POD" -- cp /config/plugins/EmbySharedPlaylist.dll.prev /config/plugins/EmbySharedPlaylist.dll
-kubectl rollout restart deployment/emby2 -n media
+kubectl scale deployment/emby2 --replicas=0 -n media && kubectl wait --for=delete pod/$POD -n media --timeout=180s
+kubectl scale deployment/emby2 --replicas=1 -n media
 ```
