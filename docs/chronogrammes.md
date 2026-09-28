@@ -113,7 +113,7 @@ Elle s'applique **indépendamment** à `remove-si-lu` et à `propager-lu` : aucu
 
 Règles complémentaires :
 
-- Le plugin **ne supprime jamais** une étiquette.
+- Le plugin **ne supprime jamais** une étiquette **de lui-même** (moteur, réconciliation, première détection). Seule exception : une action **explicite** du propriétaire sur la page utilisateur (D19, v1.1.0).
 - Une playlist non partagée (aucun membre) n'est jamais gérée, quelle que soit l'étiquette.
 - **Première détection** : la première fois que le plugin voit une playlist partagée depuis son démarrage. Elle a lieu (1) à la passe périodique, ou (2) à l'action : une transition vers lu d'un membre sur une playlist non encore vue, ou un événement d'ajout/retrait/modification sur une playlist **non encore vue**. Le plugin marque la playlist comme « vue » **avant** d'écrire, pour ne pas réagir à ses propres écritures.
 - **Grâce** : pour une playlist déjà vue, une famille absente est reposée en NON seulement après **2 passes consécutives** (`GracePasses`, soit 10 min pour une passe toutes les 5 min). Le plugin ne pose **jamais** NON sur un événement `ItemUpdated` d'une playlist déjà vue.
@@ -139,7 +139,7 @@ Le plugin ne mémorise rien : si le propriétaire vide ensuite la description, l
 | # | Règle |
 |---|---|
 | R1 | Ajouter/retirer un média d'une liste est **indépendant** du flag lu. |
-| R2 | Seul le **propriétaire** gère les membres et les étiquettes. Un destinataire ne peut pas repartager la liste ni modifier ses métadonnées (403 natif). |
+| R2 | Seul le **propriétaire** gère les membres et les étiquettes. Un destinataire ne peut pas repartager la liste ni modifier ses métadonnées (403 natif). Depuis v1.1.0 (D20), le propriétaire peut aussi le faire depuis la page utilisateur du plugin, qui n'attribue que `Read`/`Write` et n'agit que sur ses propres playlists. |
 | R3 | Contenu : la playlist est **unique** et partagée nativement ; les ajouts et retraits explicites des membres `Write` sont visibles immédiatement par tous, sans réplication. |
 | R4a | **Retrait (`remove-si-lu`)** : quand un membre **U** (propriétaire, `Write` ou `Read`) fait passer un média de non lu à lu (**transition**, origine utilisateur), pour **chaque playlist partagée dont U est membre, qui contient le média et dont `remove-si-lu=OUI` est actif** : toutes les entrées du média sont retirées de la playlist, **pour tous les membres**. Sinon (NON, aucune étiquette, OUI+NON), le plugin **ne fait rien** (legacy). Livrée en **v0.2.0**. |
 | R4b | **Propagation du lu (`propager-lu`)** : sur la même transition, si `propager-lu=OUI` est actif, le flag lu est posé chez les autres membres. **Indépendante** de R4a (voir la matrice ci-dessous). Livrée en **v0.3.0**. |
@@ -448,6 +448,38 @@ sequenceDiagram
 
 Sans `propager-lu=OUI` seule, seules les lignes des actions utilisateur ont lieu : aucune écriture du plugin. Propagation livrée en **v0.3.1** (#44–#48) ; comportement de `SaveReason`, écriture pour un autre utilisateur et « reprendre la lecture » à valider par le spike U10 (#44).
 
+### S10 — Page utilisateur : partager et activer une option (v1.1.0, D19/D20)
+
+U1 (permission de partage accordée) possède la playlist `À voir` (F1), non partagée ; U2 n'a pas la permission.
+
+```mermaid
+sequenceDiagram
+    actor U1
+    participant W as Page PlaySync (menu utilisateur)
+    participant P as Plugin (endpoints User/*)
+    participant E as Emby
+    U1->>W: ouvre PlaySync
+    W->>P: GET User/Playlists (identité = session)
+    P-->>W: « À voir » (non partagée, options None)
+    U1->>W: ajoute U3 en Écriture
+    W->>P: POST User/Playlists/{id}/Members {U3, Write}
+    P->>E: SaveUserItemShares(U3, Write) sous verrou
+    P->>E: première détection : remove-si-lu=NON, propager-lu=NON (+ aide si description vide)
+    U1->>W: active « retirer si lu »
+    W->>P: POST User/Playlists/{id}/Options {remove-si-lu, true}
+    P->>E: remplace toutes les étiquettes remove-si-lu* par remove-si-lu=OUI (D19)
+```
+
+| t | Événement | Playlist | Étiquettes | Résultat |
+|---|---|---|---|---|
+| 0 | état initial | ▣ (non partagée) | aucune | page : « non partagée », options indisponibles |
+| 1 | U1 ajoute U3 (`Write`) | ▣ partagée U3 | `remove-si-lu=NON`, `propager-lu=NON` (p) | première détection immédiate |
+| 2 | U1 active « retirer si lu » | ▣ | `remove-si-lu=OUI` (u, via page), `propager-lu=NON` | famille active |
+| 3 | U1 réactive alors que `remove-si-lu=OUI` + `Remove-si-lu = non` coexistent (édition manuelle) | ▣ | `remove-si-lu=OUI` seule | conflit résolu, `removed=2` |
+| 4 | U2 (sans permission) | — | — | entrée de menu absente ; `User/*` → 403 |
+| 5 | U4 appelle `User/Playlists/{id}/Members` sur `À voir` (non propriétaire) | inchangée | inchangées | 404 (indiscernable d'une playlist inexistante) |
+| 6 | U1 retire U3 (dernier membre) | ▣ (non partagée) | inchangées (inertes) | playlist non gérée |
+
 ## 5. Algorithme de référence (lecture)
 
 ```
@@ -530,6 +562,8 @@ passe périodique (tâche planifiée Emby : démarrage + 5 min):
 | D16 | **Période de réconciliation** : celle de la tâche planifiée d'Emby (déclencheurs par défaut : démarrage, puis toutes les 5 min ; modifiable au tableau de bord), et non un champ de configuration du plugin. La passe prend **le même verrou par playlist** que les gestionnaires d'événements. Elle borne le délai de prise en compte d'un nouveau partage et la grâce (2 passes). |
 | D17 | **R8 vérifié en conditions réelles sur QUALIF** (compte de test à droits de bibliothèque restreints), pas seulement en unitaire — décision utilisateur du 2026-09-27, à l'inverse de la recommandation initiale (unitaire suffisant). |
 | D18 | **`PlaylistLocks` (verrou par playlist, R12) n'est jamais borné** : contrairement à `SeenPlaylists` (borne explicite, R11), le dictionnaire des verrous ne retire jamais une entrée. Croissance non bornée en théorie (une entrée par playlist partagée jamais vue depuis le démarrage), jugée **négligeable en pratique** sur un serveur personnel. **Décision consciente, pas un oubli** : une éviction active romprait potentiellement l'exclusion mutuelle si mal implémentée (verrou repris par une autre instance pendant qu'il est encore tenu) ; le coût/risque dépasse le bénéfice mémoire réel. |
+| D19 | **Bascule d'une option par le propriétaire (v1.1.0, #39)** : sur la page utilisateur, une action **explicite** du propriétaire remplace **atomiquement**, en une seule écriture sous le verrou de la playlist (R12), **toutes** les étiquettes d'une famille (toutes variantes reconnues : casse, espaces) par une seule étiquette canonique `<famille>=OUI` ou `<famille>=NON` ; les autres étiquettes sont intactes ; relecture après écriture. **D3 reste vraie pour tout comportement automatique** (le plugin ne supprime jamais une étiquette de lui-même). La bascule n'est proposée que sur une playlist partagée (une playlist non partagée n'est pas gérée). Journal `MarkerSet`. |
+| D20 | **Page utilisateur (v1.1.0, #39)** : entrée « PlaySync » du **menu utilisateur** Emby, FR/EN, **masquée** pour un compte sans `AllowSharingPersonalItems` (le plugin ne contourne jamais cette permission ; endpoints en 403). Elle liste **uniquement les playlists dont l'utilisateur est propriétaire** (partagées ou non) et permet : ajouter un membre (sélecteur des comptes actifs), changer son niveau (`Read`/`Write` seulement, jamais `Manage`), le retirer (D2), partager une playlist non encore partagée (première détection immédiate), basculer les deux options (D19). La **description n'est pas gérée** par la page. Le menu natif « Gérer la collaboration » reste équivalent. Le plugin écrit donc des partages pour le compte du propriétaire (`SaveUserItemShares`/`DeleteUserItemShares`) : autorisation calculée côté serveur (identité de session, propriété vérifiée, 404 indiscernable pour une playlist non possédée) ; **audit sécurité obligatoire** avant livraison. |
 
 ## 7. Points ouverts
 
