@@ -279,17 +279,46 @@ define([], function () {
         function cloneIconButton() { return stampAndClone(prototypes().querySelectorAll('button')[0], 'icon-btn'); }
         function cloneSubmitButton() { return stampAndClone(prototypes().querySelectorAll('button')[1], 'submit-btn'); }
 
+        /// Cause exacte trouvée par DevTools (QUALIF v1.1.0.19, confirmée par l'utilisateur, pas une hypothèse) :
+        /// le <label> prototype (#PlaySyncPrototypes) qui enveloppe l'<input is="emby-toggle"> n'est PAS un
+        /// simple conteneur cosmétique — c'est un widget ATOMIQUE que le composant natif s'approprie à l'upgrade :
+        /// il ajoute la classe "emby-toggle-label" à SON PARENT DIRECT et y insère lui-même 2 éléments frères
+        /// (span.toggleLabel, div.toggleSwitch — ce dernier étant l'élément RÉELLEMENT VISIBLE du slider,
+        /// l'<input> restant invisible par design du CSS Emby). cloneToggle() ne clonait QUE l'<input> nu, que
+        /// levelToggle() plaçait ensuite directement comme 2e enfant de memberGridRow() — le composant ajoutait
+        /// alors ses 2 enfants injectés dans CETTE MÊME grille (devenue malgré elle "emby-toggle-label"), portant
+        /// le total à 5 enfants pour 3 colonnes déclarées : l'auto-placement CSS Grid débordait sur une 2e ligne
+        /// avec les 2 derniers, dont .toggleSwitch — exactement le rendu "décalé en bas à gauche" observé sur
+        /// toutes les captures depuis que le toggle s'affiche. Fix : cloner le <label> PROTOTYPE ENTIER, jamais
+        /// juste l'<input> à l'intérieur — il devient un SEUL enfant direct de la grille (le composant peut y
+        /// injecter ses propres enfants sans jamais toucher au nombre d'enfants DIRECTS de memberGridRow()).
+        /// L'id unique est posé sur l'<input> interne (avant clonage, comme d'habitude — cf. stampAndClone), pas
+        /// sur le <label> lui-même. Retourne { widget, input } : l'appelant ajoute .widget au DOM (jamais .input
+        /// seul) et lit/écoute .input pour l'état coché.
+        function cloneToggleWidget() {
+            var protoLabel = prototypes().querySelector('label');
+            var protoInput = protoLabel.querySelector('input');
+            var id = uniqueId('toggle');
+            protoInput.id = id;
+            if ('name' in protoInput) protoInput.name = id;
+            var widget = protoLabel.cloneNode(true);
+            protoInput.removeAttribute('id');
+            if (protoInput.hasAttribute && protoInput.hasAttribute('name')) protoInput.removeAttribute('name');
+            return { widget: widget, input: widget.querySelector('input') };
+        }
+
         /// Correction d'un malentendu du teamleader : PAS de libellé texte à côté de chaque toggle individuel —
         /// "Lecture / Écriture" est l'EN-TÊTE DE COLONNE (une seule fois, voir renderMembers), jamais répété à
-        /// chaque ligne. Retourne donc directement l'<input> cloné (nu, sans <label>/<span> autour) — coché=Write,
-        /// décoché=Read (sens inchangé). Chaque appelant le place tel quel dans la 2e colonne de memberGridRow()
-        /// (grille CSS : plus besoin d'un conteneur d'alignement dédié, `justify-self` suffit sur l'élément
-        /// directement — voir renderMembers()/renderAddRow()).
+        /// chaque ligne — le <span> interne du prototype reste donc vide. Coché=Write, décoché=Read (sens
+        /// inchangé). Retourne { widget, input } (voir cloneToggleWidget()) : l'appelant ajoute .widget tel quel
+        /// (JAMAIS décomposé) comme 2e enfant direct de memberGridRow(), et utilise .input pour lire/écouter
+        /// l'état coché — voir renderMembers()/renderAddRow().
         function levelToggle(selectedValue) {
-            var input = cloneToggle();
-            input.checked = selectedValue === 'Write';
-            input.style.justifySelf = 'center'; // centré dans sa colonne (10%, memberGridRow) — jamais collé à un bord
-            return input;
+            var toggle = cloneToggleWidget();
+            toggle.input.checked = selectedValue === 'Write';
+            toggle.widget.style.justifySelf = 'center'; // le widget ENTIER centré dans sa colonne (10%, memberGridRow)
+            toggle.widget.style.margin = '0'; // reset du margin par défaut d'un <label>, superflu une fois le composant amélioré mais neutre sinon
+            return toggle;
         }
 
         function renderOptions(playlist) {
@@ -389,8 +418,10 @@ define([], function () {
             });
             row.appendChild(userSelect);
 
-            var levelInput = levelToggle('Write');
-            row.appendChild(levelInput);
+            // .widget (jamais .input seul) ajouté au DOM : le <label> prototype doit rester intact, voir
+            // cloneToggleWidget() — sinon le composant natif injecte ses enfants dans la grille elle-même.
+            var level = levelToggle('Write');
+            row.appendChild(level.widget);
 
             var addBtn = cloneSubmitButton();
             // Demande utilisateur : le bouton doit rester sur la MÊME ligne que les deux menus, pas passer en
@@ -407,7 +438,7 @@ define([], function () {
             addBtn.addEventListener('click', function () {
                 if (!userSelect.value) return;
                 var path = 'SharedPlaylist/User/Playlists/' + encodeURIComponent(playlist.PlaylistId) + '/Members';
-                apiSend('POST', path, { UserId: userSelect.value, Level: levelInput.checked ? 'Write' : 'Read' }).then(
+                apiSend('POST', path, { UserId: userSelect.value, Level: level.input.checked ? 'Write' : 'Read' }).then(
                     function () { reload(); },
                     function (err) { showError(err); reload(); }
                 );
@@ -467,15 +498,17 @@ define([], function () {
                     name.textContent = member.Name; // donnée serveur : textContent uniquement
                     row.appendChild(name);
 
-                    var levelInput = levelToggle(member.Level);
-                    levelInput.addEventListener('change', function () {
+                    var level = levelToggle(member.Level);
+                    level.input.addEventListener('change', function () {
                         var path = 'SharedPlaylist/User/Playlists/' + encodeURIComponent(playlist.PlaylistId) + '/Members';
-                        apiSend('POST', path, { UserId: member.UserId, Level: levelInput.checked ? 'Write' : 'Read' }).then(
+                        apiSend('POST', path, { UserId: member.UserId, Level: level.input.checked ? 'Write' : 'Read' }).then(
                             function () { reload(); },
                             function (err) { showError(err); reload(); }
                         );
                     });
-                    row.appendChild(levelInput);
+                    // .widget (jamais .input seul) ajouté au DOM : le <label> prototype doit rester intact, voir
+                    // cloneToggleWidget() — sinon le composant natif injecte ses enfants dans la grille elle-même.
+                    row.appendChild(level.widget);
 
                     var removeBtn = cloneIconButton(); // '✕' déjà présent (prototype)
                     removeBtn.style.justifySelf = 'center'; // 3e colonne (40%) : bouton icône toujours visible/centré
