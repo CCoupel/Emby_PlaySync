@@ -143,7 +143,16 @@ public sealed class UserPlaylistService
             var wasShared = fresh.IsShared;
             var wasMember = fresh.Members.Any(m => string.Equals(m.UserId, targetUserId, StringComparison.Ordinal));
 
-            using (WriteScope.Enter()) _shares.UpsertShare(playlistId, targetUserId, level);
+            // Revue de code (code-review-20260928-154519.md, MINEUR) : le retour bool n'était jusqu'ici jamais
+            // vérifié — un échec silencieux de l'adaptateur (fenêtre TOCTOU étroite entre la relecture sous verrou
+            // ci-dessus et cet appel) aurait été journalisé comme un succès. Désormais vérifié explicitement.
+            bool wrote;
+            using (WriteScope.Enter()) wrote = _shares.UpsertShare(playlistId, targetUserId, level);
+            if (!wrote)
+            {
+                _journal.Add(JournalEntries.Of(_clock, JournalEntries.Error, playlistId, "upsert-share-failed"));
+                return Fail(UserPageErrors.Internal);
+            }
 
             _journal.Add(JournalEntries.ShareChangedEntry(_clock, playlistId, targetUserId,
                 $"action={(wasMember ? "update" : "add")} level={level}"));
@@ -179,7 +188,14 @@ public sealed class UserPlaylistService
             if (!fresh.Members.Any(m => string.Equals(m.UserId, targetUserId, StringComparison.Ordinal)))
                 return Fail(UserPageErrors.NotFound);
 
-            using (WriteScope.Enter()) _shares.DeleteShare(playlistId, targetUserId);
+            // Revue de code (code-review-20260928-154519.md, MINEUR) : voir même remarque qu'AddOrUpdateMember.
+            bool wrote;
+            using (WriteScope.Enter()) wrote = _shares.DeleteShare(playlistId, targetUserId);
+            if (!wrote)
+            {
+                _journal.Add(JournalEntries.Of(_clock, JournalEntries.Error, playlistId, "delete-share-failed"));
+                return Fail(UserPageErrors.Internal);
+            }
 
             _journal.Add(JournalEntries.ShareChangedEntry(_clock, playlistId, targetUserId, "action=remove level=-"));
 

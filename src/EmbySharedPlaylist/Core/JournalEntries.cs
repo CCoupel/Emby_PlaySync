@@ -16,6 +16,13 @@ public static class JournalEntries
     /// <summary>v1.1.0 (#39, D19) : bascule explicite d'une option par le propriétaire. <c>UserId</c> = propriétaire.</summary>
     public const string MarkerSet = "MarkerSet";
 
+    /// <summary>v1.1.0 (#39) : sévérité ADMIN, kind dédié (jamais noyé dans <c>Error</c>) — la ligne <c>ManageDelete</c>
+    /// du propriétaire a disparu après une opération de retrait de partage (séquence purge+reconstruction non
+    /// transactionnelle côté SDK, <c>security-audit-20260928-154256.md</c> point 7) : la playlist devient ingérable
+    /// via le plugin tant qu'un administrateur n'intervient pas manuellement (hors plugin). <c>UserId</c> =
+    /// propriétaire ATTENDU (peut être <c>null</c> si son compte a lui-même disparu entre-temps).</summary>
+    public const string OwnerLost = "OwnerLost";
+
     private static JournalEntry New(IClock? clock, string kind) => new()
     {
         Ts = (clock?.UtcNow ?? DateTimeOffset.UtcNow).UtcDateTime.ToString("o"),
@@ -41,6 +48,10 @@ public static class JournalEntries
     /// <paramref name="detail"/> attendu : <c>family=&lt;f&gt; value=OUI|NON removed=&lt;n&gt;</c>.</summary>
     public static JournalEntry MarkerSetEntry(IClock? clock, string? playlistId, string? ownerUserId, string? detail) =>
         FillWithUser(New(clock, MarkerSet), playlistId, ownerUserId, detail);
+
+    /// <summary><c>OwnerLost</c> (v1.1.0) : <paramref name="ownerUserId"/> = propriétaire attendu, ids seulement.</summary>
+    public static JournalEntry OwnerLostEntry(IClock? clock, string? playlistId, string? ownerUserId) =>
+        FillWithUser(New(clock, OwnerLost), playlistId, ownerUserId, "owner-manage-delete-missing-after-delete-share");
 
     private static JournalEntry Fill(JournalEntry e, string? playlistId, string? detail)
     {

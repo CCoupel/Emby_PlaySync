@@ -12,7 +12,9 @@ public static class DiagnosticsMapper
         JournalEntries.ScanPass, JournalEntries.MarkerPosed, JournalEntries.DescriptionWritten, "MarkerSeen", "Removal",
         "Propagation", "PositionPropagation", "PermissionPass", "PermissionPosed", JournalEntries.Skipped, JournalEntries.Error,
         // v1.1.0 (#39, D19/D20) : page utilisateur.
-        JournalEntries.ShareChanged, JournalEntries.MarkerSet
+        JournalEntries.ShareChanged, JournalEntries.MarkerSet,
+        // v1.1.0 (#39, security-audit-20260928-154256.md point 7) : sévérité admin, jamais filtré par défaut.
+        JournalEntries.OwnerLost
     };
 
     public static readonly string[] CounterKeys = { "remove-si-lu", "propager-lu", DefaultsService.DescriptionKey };

@@ -88,7 +88,7 @@ public static class PluginRuntime
             // v1.1.0 (#39, D20) : page utilisateur — ports dédiés + service applicatif composé (indépendant d'Emby,
             // voir UserPage/UserPlaylistService.cs). Même verrou (Locks) et même DefaultsService que le moteur : le
             // premier partage depuis la page réutilise OnFirstDetection sous le même verrou réentrant (S10).
-            var shareGateway = new EmbyShareGateway(libraryManager, userManager, itemRepository);
+            var shareGateway = new EmbyShareGateway(libraryManager, userManager, itemRepository, journal);
             ShareGateway = shareGateway;
             var userDirectory = new EmbyUserDirectory(userManager, policyGateway);
             UserDirectory = userDirectory;
