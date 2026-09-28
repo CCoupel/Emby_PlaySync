@@ -231,13 +231,21 @@ define([], function () {
             uidCounter += 1;
             return 'PlaySync-' + prefix + '-' + uidCounter;
         }
+        /// Élargi (id/name toujours manquant sur un select après le 1er correctif) : un composant natif peut
+        /// construire son propre champ interne (ex. un <input> caché de recherche/saisie) qui n'a JAMAIS eu
+        /// d'id — un tel descendant est invisible à `querySelectorAll('[id]')` (il n'a pas encore d'id à trouver).
+        /// Cible désormais TOUT descendant de type champ de formulaire, avec ou sans id préexistant.
         function assignUniqueIds(node, prefix) {
             var id = uniqueId(prefix);
             node.id = id;
             if ('name' in node) node.name = id;
             if (node.querySelectorAll) {
-                var withId = node.querySelectorAll('[id]');
-                for (var i = 0; i < withId.length; i++) withId[i].id = uniqueId(prefix + '-part');
+                var fields = node.querySelectorAll('input, select, textarea, button');
+                for (var i = 0; i < fields.length; i++) {
+                    var fid = uniqueId(prefix + '-part');
+                    fields[i].id = fid;
+                    if ('name' in fields[i]) fields[i].name = fid;
+                }
             }
             return node;
         }
@@ -247,13 +255,21 @@ define([], function () {
         function cloneIconButton() { return assignUniqueIds(prototypes().querySelectorAll('button')[0].cloneNode(true), 'icon-btn'); }
         function cloneSubmitButton() { return assignUniqueIds(prototypes().querySelectorAll('button')[1].cloneNode(true), 'submit-btn'); }
 
+        /// Signalé par l'utilisateur (inspection DevTools) : les <option> du prototype cloné restaient VIDES de
+        /// texte malgré `textContent = ...` posé juste après le clonage — renommer un enfant déjà présent au
+        /// moment du clonage ne semble pas repris par le composant. Même patron que le sélecteur de compte
+        /// (renderAddRow, jamais signalé comme vide) : vider le clone puis AJOUTER des <option> déjà pourvues de
+        /// leur texte avant d'être insérées, jamais renommées après coup.
         function levelSelect(selectedValue) {
-            var select = cloneSelect(); // prototype : deux <option> déjà présentes (value="Write"/"Read")
-            var options = select.querySelectorAll('option');
-            options[0].textContent = t('levelWrite');
-            options[0].selected = selectedValue === 'Write';
-            options[1].textContent = t('levelRead');
-            options[1].selected = selectedValue === 'Read';
+            var select = cloneSelect();
+            clear(select); // retire les deux <option> vides du prototype (value="Write"/"Read", sans texte)
+            [['Write', 'levelWrite'], ['Read', 'levelRead']].forEach(function (pair) {
+                var opt = document.createElement('option');
+                opt.value = pair[0];
+                opt.textContent = t(pair[1]);
+                opt.selected = pair[0] === selectedValue;
+                select.appendChild(opt);
+            });
             return select;
         }
 
