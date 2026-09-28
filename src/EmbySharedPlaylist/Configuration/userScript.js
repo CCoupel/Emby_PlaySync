@@ -219,41 +219,31 @@ define([], function () {
         // des composants dépend du HTML STATIQUE de la page, jamais vu pour un élément 100% généré en JS.
         function prototypes() { return view.querySelector('#PlaySyncPrototypes'); }
 
-        /// DevTools (QUALIF, confirmé par l'utilisateur) : "Multiple form field elements... same id attribute" —
-        /// le composant natif (upgradé une seule fois, sur le prototype caché) s'assigne apparemment un id lors
-        /// de son upgrade ; cloneNode(true) copie cet id tel quel sur CHAQUE clone. Un premier correctif retirait
-        /// simplement l'id (aucun <label for="..."> ni getElementById n'en dépend côté script), mais ça a fait
-        /// apparaître un AUTRE avertissement Chrome ("a form field element has neither an id nor a name") : un
-        /// id ET un name UNIQUES sont donc assignés à la place (compteur incrémental par vue), sur le clone ET
-        /// tout descendant qui en porterait un (le composant peut construire son propre DOM interne à l'upgrade).
+        /// DevTools (QUALIF, confirmé par l'utilisateur) : "Multiple form field elements... same id attribute" puis
+        /// (après un 1er correctif) "neither an id nor a name attribute". RÉGRESSION constatée ensuite : les
+        /// interrupteurs d'option, qui fonctionnaient (v1.1.0.6, SHA 6307fe6), sont redevenus des cases à cocher
+        /// brutes après le passage à assignUniqueIds() posant id/name SUR LE CLONE, APRÈS cloneNode (v1.1.0.7-10,
+        /// SHA 85c233a/18ee826). Hypothèse retenue : muter id/name APRÈS le clonage désynchronise l'upgrade du
+        /// composant natif d'une façon qui casse son rendu (pour le toggle en tout cas — select/boutons semblaient
+        /// épargnés). Fix : poser id/name SUR LE PROTOTYPE PARTAGÉ juste AVANT de le cloner, jamais après — l'id
+        /// fait ainsi partie de l'état cloné dès le départ, dans la même opération synchrone que l'upgrade du
+        /// clone, comme au moment où ça fonctionnait (7c53ae8/6307fe6, qui ne posait aucun id du tout).
         var uidCounter = 0;
         function uniqueId(prefix) {
             uidCounter += 1;
             return 'PlaySync-' + prefix + '-' + uidCounter;
         }
-        /// Élargi (id/name toujours manquant sur un select après le 1er correctif) : un composant natif peut
-        /// construire son propre champ interne (ex. un <input> caché de recherche/saisie) qui n'a JAMAIS eu
-        /// d'id — un tel descendant est invisible à `querySelectorAll('[id]')` (il n'a pas encore d'id à trouver).
-        /// Cible désormais TOUT descendant de type champ de formulaire, avec ou sans id préexistant.
-        function assignUniqueIds(node, prefix) {
+        function stampAndClone(prototypeEl, prefix) {
             var id = uniqueId(prefix);
-            node.id = id;
-            if ('name' in node) node.name = id;
-            if (node.querySelectorAll) {
-                var fields = node.querySelectorAll('input, select, textarea, button');
-                for (var i = 0; i < fields.length; i++) {
-                    var fid = uniqueId(prefix + '-part');
-                    fields[i].id = fid;
-                    if ('name' in fields[i]) fields[i].name = fid;
-                }
-            }
-            return node;
+            prototypeEl.id = id;
+            if ('name' in prototypeEl) prototypeEl.name = id;
+            return prototypeEl.cloneNode(true);
         }
 
-        function cloneSelect() { return assignUniqueIds(prototypes().querySelector('select').cloneNode(true), 'select'); }
-        function cloneToggle() { return assignUniqueIds(prototypes().querySelector('input').cloneNode(true), 'toggle'); }
-        function cloneIconButton() { return assignUniqueIds(prototypes().querySelectorAll('button')[0].cloneNode(true), 'icon-btn'); }
-        function cloneSubmitButton() { return assignUniqueIds(prototypes().querySelectorAll('button')[1].cloneNode(true), 'submit-btn'); }
+        function cloneSelect() { return stampAndClone(prototypes().querySelector('select'), 'select'); }
+        function cloneToggle() { return stampAndClone(prototypes().querySelector('input'), 'toggle'); }
+        function cloneIconButton() { return stampAndClone(prototypes().querySelectorAll('button')[0], 'icon-btn'); }
+        function cloneSubmitButton() { return stampAndClone(prototypes().querySelectorAll('button')[1], 'submit-btn'); }
 
         /// Signalé par l'utilisateur (inspection DevTools) : les <option> du prototype cloné restaient VIDES de
         /// texte malgré `textContent = ...` posé juste après le clonage — renommer un enfant déjà présent au
