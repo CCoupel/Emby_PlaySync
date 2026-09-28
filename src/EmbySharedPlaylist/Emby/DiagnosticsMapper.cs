@@ -10,7 +10,9 @@ public static class DiagnosticsMapper
     public static readonly string[] EngineKinds =
     {
         JournalEntries.ScanPass, JournalEntries.MarkerPosed, JournalEntries.DescriptionWritten, "MarkerSeen", "Removal",
-        "Propagation", "PositionPropagation", "PermissionPass", "PermissionPosed", JournalEntries.Skipped, JournalEntries.Error
+        "Propagation", "PositionPropagation", "PermissionPass", "PermissionPosed", JournalEntries.Skipped, JournalEntries.Error,
+        // v1.1.0 (#39, D19/D20) : page utilisateur.
+        JournalEntries.ShareChanged, JournalEntries.MarkerSet
     };
 
     public static readonly string[] CounterKeys = { "remove-si-lu", "propager-lu", DefaultsService.DescriptionKey };
