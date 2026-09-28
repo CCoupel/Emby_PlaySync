@@ -98,6 +98,8 @@ Exclut le demandeur et les comptes **désactivés**. Tri par `Name`. Aucun autre
 
 **Response 200** : la playlist mise à jour (même forme qu'un élément de `GET /SharedPlaylist/User/Playlists`).
 
+`Level` : comparaison **exacte, sensible à la casse**, contre `{"Read","Write"}` uniquement (pas de tolérance casse/espaces comme pour les étiquettes — revue sécurité `security-design-20260928-143848.md` MOYENNE-1) ; toute autre valeur (y compris `read`, `WRITE `, `Manage`, chaîne vide, null) → `invalid-level`.
+
 **Errors** : 400 (`invalid-level` : autre que `Read`/`Write` ; `invalid-user` : inconnu, désactivé ; `self` : le demandeur lui-même), 401, 403 (`sharing-disabled`), 404 (`not-found` : inexistante ou non possédée), 409 (`busy`)
 
 ### DELETE /SharedPlaylist/User/Playlists/{PlaylistId}/Members/{UserId}
