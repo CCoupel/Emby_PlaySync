@@ -460,6 +460,13 @@ define([], function () {
             var card = el('div', 'detailSection');
             card.style.marginBottom = '18px'; // espace entre les cartes de playlists (maquette)
             card.style.padding = '0'; // le padding est posé section par section (cardSection) + sur l'en-tête ci-dessous
+            // Encadré demandé par l'utilisateur (maquette : .card { border:1px solid var(--line); border-radius:6px }).
+            // var(--line, ...) : essaie une variable de thème Emby plausible, avec repli sur un gris discret
+            // (théme-agnostique) si elle n'existe pas — même couleur que les séparateurs de section ci-dessous, pour
+            // rester cohérent même si la variable n'est pas reconnue.
+            card.style.border = '1px solid var(--line, rgba(128,128,128,.25))';
+            card.style.borderRadius = '6px';
+            card.style.overflow = 'hidden'; // l'en-tête/les sections gardent des angles nets sous le rayon de la carte
 
             // Retouches visuelles demandées par l'utilisateur (GATE 4) : espacement explicite (le nom collait au
             // badge) ; badge simplifié (le nombre de membres était redondant avec la liste juste en dessous, déjà
@@ -473,6 +480,8 @@ define([], function () {
             var h2 = document.createElement('h2');
             h2.className = 'sectionTitle';
             h2.style.margin = '0';
+            h2.style.fontSize = '18px'; // agrandi (maquette : .card-head h2 { font-size:18px; font-weight:500 })
+            h2.style.fontWeight = '500';
             h2.textContent = playlist.Name; // donnée serveur : textContent uniquement
             head.appendChild(h2);
 
