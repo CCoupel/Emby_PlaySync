@@ -1,6 +1,6 @@
-# CLAUDE.md — Emby_shared_playlist
+# CLAUDE.md — Emby_PlaySync
 
-> **Repo** : `CCoupel/Emby_shared_playlist`
+> **Repo** : `CCoupel/Emby_PlaySync`
 > **Branche principale** : `main`
 > **Versionnement** : `X.Y.Z.a` en dev / `X.Y.Z` en prod — voir `.claude/commands/context/COMMON.md` section 5
 
@@ -20,7 +20,7 @@
 
 | Paramètre | Valeur |
 |-----------|--------|
-| Projet | `Emby_shared_playlist` |
+| Projet | `Emby_PlaySync` |
 | Team | `emby-shared-playlist-team` |
 | Backend | `C# / .NET 6` |
 | Frontend | `aucun (page de config Emby)` |

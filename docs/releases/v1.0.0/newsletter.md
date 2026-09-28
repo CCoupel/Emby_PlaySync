@@ -46,9 +46,9 @@ sur les playlists existantes sont conservées telles quelles.
 Cette v1.0.0 est le résultat d'un travail continu de recette, de revue de code et d'audit de
 sécurité avant chaque étape. Merci à toutes celles et ceux qui suivent le projet.
 
-[Voir le dépôt](https://github.com/CCoupel/Emby_shared_playlist) ·
-[Documentation](https://github.com/CCoupel/Emby_shared_playlist#readme) ·
-[GitHub Release v1.0.0](https://github.com/CCoupel/Emby_shared_playlist/releases/tag/v1.0.0)
+[Voir le dépôt](https://github.com/CCoupel/Emby_PlaySync) ·
+[Documentation](https://github.com/CCoupel/Emby_PlaySync#readme) ·
+[GitHub Release v1.0.0](https://github.com/CCoupel/Emby_PlaySync/releases/tag/v1.0.0)
 
 ---
 

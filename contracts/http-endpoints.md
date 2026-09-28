@@ -1,4 +1,4 @@
-# Contrats HTTP — Emby_shared_playlist
+# Contrats HTTP — Emby_PlaySync
 
 > Endpoints exposés par le plugin via `IService` (préfixe `/emby` selon l'installation). Auth : header `X-Emby-Token` (clé API admin ou token de session admin).
 > Les endpoints `Spike/*` (diagnostic temporaire de v0.1.0/v0.2.0) et la sonde de réentrance U11 ont été **retirés en v0.2.0 (#15)** : remplacés par `Diagnostics/*` ci-dessous. Leur historique (routes, format, garde-fous) reste dans `CHANGELOG.md` et dans git.

@@ -1,4 +1,4 @@
-# Deploy QUALIF — adaptations projet Emby_shared_playlist
+# Deploy QUALIF — adaptations projet Emby_PlaySync
 
 > Compagnon de `deploy.qualif.template.md` : **remplace integralement** la procedure Helm generique
 > (pas de Helm ni d'image : le plugin est un DLL copie dans le volume `/config/plugins` du pod Emby).

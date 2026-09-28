@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>PlaySync — playlists partagées pour Emby</title>
+  <meta name="description" content="PlaySync partage des playlists « À voir » entre comptes Emby : retrait automatique des médias vus et progression de lecture synchronisée.">
+  <meta name="current-major" content="1">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- ============ HEADER ============ -->
+<header>
+  <div class="wrap row">
+    <div class="brand">
+      <span>PlaySync</span>
+      <span class="for-emby">for Emby</span>
+      <span class="version-pill">v1.0.0</span>
+    </div>
+    <nav>
+      <a href="#problems" data-i18n="nav.problems">Problématiques</a>
+      <a href="#solutions" data-i18n="nav.solutions">Solutions</a>
+      <a href="#architecture" data-i18n="nav.architecture">Architecture</a>
+      <a href="#deployment" data-i18n="nav.deployment">Déploiement</a>
+      <a href="https://github.com/CCoupel/Emby_PlaySync" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+    <div class="lang-switcher">
+      <button class="lang-btn active" data-lang="fr">FR</button>
+      <span>|</span>
+      <button class="lang-btn" data-lang="en">EN</button>
+    </div>
+  </div>
+</header>
+
+<!-- ============ HERO ============ -->
+<section class="hero wrap" style="border-top:none;">
+  <span class="eyebrow" data-i18n="hero.eyebrow">PlaySync pour Emby</span>
+  <h1 data-i18n="hero.title">Partagez vos listes « À voir » entre comptes Emby</h1>
+  <p class="lede" data-i18n="hero.lede">PlaySync retire automatiquement les médias vus d'une playlist partagée et synchronise l'avancement de lecture entre ses membres — sans jamais perdre le fil de qui a vu quoi.</p>
+  <div class="cta-row">
+    <a class="btn btn-primary" href="https://github.com/CCoupel/Emby_PlaySync" target="_blank" rel="noopener" data-i18n="hero.cta_primary">Voir sur GitHub</a>
+    <a class="btn btn-ghost" href="https://github.com/CCoupel/Emby_PlaySync/releases" target="_blank" rel="noopener" data-i18n="hero.cta_secondary">Téléchargements</a>
+  </div>
+</section>
+
+<!-- ============ PROBLEMS ============ -->
+<section id="problems" class="wrap">
+  <span class="eyebrow" data-i18n="problems.eyebrow">Le constat</span>
+  <h2 data-i18n="problems.title">Une liste « à voir » partagée devient vite ingérable</h2>
+  <p class="intro" data-i18n="problems.intro">Sur un serveur Emby personnel ou familial, chaque compte gère sa propre liste. Sans coordination, elle accumule doublons, oublis et médias déjà vus.</p>
+  <div class="grid3">
+    <div class="card">
+      <span class="icon">🗂️</span>
+      <h3 data-i18n="problems.c1.title">Doublons et oublis</h3>
+      <p data-i18n="problems.c1.text">Chacun ajoute les mêmes médias sans savoir ce que les autres membres du foyer ont déjà regardé.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🧹</span>
+      <h3 data-i18n="problems.c2.title">Retrait manuel</h3>
+      <p data-i18n="problems.c2.text">Un média regardé reste dans la liste partagée : il faut penser à le retirer soi-même, pour tout le monde.</p>
+    </div>
+    <div class="card">
+      <span class="icon">⏱️</span>
+      <h3 data-i18n="problems.c3.title">Progression perdue</h3>
+      <p data-i18n="problems.c3.text">Changer de compte ou d'appareil en cours de visionnage fait perdre la position de lecture.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SOLUTIONS ============ -->
+<section id="solutions" class="wrap">
+  <span class="eyebrow" data-i18n="solutions.eyebrow">La réponse</span>
+  <h2 data-i18n="solutions.title">Ce que fait PlaySync</h2>
+  <p class="intro" data-i18n="solutions.intro">PlaySync s'appuie sur le partage natif de playlists d'Emby et y ajoute la gestion automatique de l'état « vu », activable par étiquette, playlist par playlist.</p>
+  <div class="grid2">
+    <div class="card">
+      <span class="icon">🔗</span>
+      <h3><span data-i18n="solutions.c1.title">Partage natif, sans friction</span> <span class="badge badge-orange" data-badge-version="v1.0.0">Nouveau v1.0.0</span></h3>
+      <p data-i18n="solutions.c1.text">Le partage passe par le menu Emby standard. La permission nécessaire côté propriétaire est accordée automatiquement à tous les comptes.</p>
+    </div>
+    <div class="card">
+      <span class="icon">✅</span>
+      <h3><span data-i18n="solutions.c2.title">Retrait automatique du média lu</span> <span class="badge badge-orange" data-badge-version="v1.0.0">Nouveau v1.0.0</span></h3>
+      <p data-i18n="solutions.c2.text">Étiquette <code>remove-si-lu</code> : quand un membre termine un média, il disparaît de la liste pour tout le monde.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🔄</span>
+      <h3><span data-i18n="solutions.c3.title">Progression partagée</span> <span class="badge badge-orange" data-badge-version="v1.0.0">Nouveau v1.0.0</span></h3>
+      <p data-i18n="solutions.c3.text">Étiquette <code>propager-lu</code> : le flag lu et la position de lecture sont copiés chez les autres membres — commencez sur un compte, poursuivez sur l'autre.</p>
+    </div>
+    <div class="card">
+      <span class="icon">📊</span>
+      <h3><span data-i18n="solutions.c4.title">Diagnostics intégrés</span> <span class="badge badge-orange" data-badge-version="v1.0.0">Nouveau v1.0.0</span></h3>
+      <p data-i18n="solutions.c4.text">Journal des décisions et état en mémoire consultables par un administrateur ; comportement vérifié à l'échelle (10+ playlists, 5+ membres simultanés, latence sous 1 s).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ARCHITECTURE ============ -->
+<section id="architecture" class="wrap">
+  <span class="eyebrow" data-i18n="architecture.eyebrow">Sous le capot</span>
+  <h2 data-i18n="architecture.title">Un plugin, sans service additionnel</h2>
+  <p class="intro" data-i18n="architecture.intro">PlaySync s'exécute à l'intérieur du processus Emby Server : il écoute les événements natifs (lecture, playlists) et réagit en conséquence, sans base de données ni serveur séparé.</p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 760 260" role="img" aria-label="Schéma d'architecture de PlaySync">
+      <rect x="20" y="20" width="720" height="220" rx="14" fill="none" stroke="var(--line)" stroke-width="2"/>
+      <text x="40" y="46" font-family="IBM Plex Mono, monospace" font-size="13" fill="var(--ink-soft)">Emby Server (processus hôte)</text>
+
+      <rect x="300" y="70" width="180" height="60" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="390" y="95" text-anchor="middle" font-family="Work Sans, sans-serif" font-size="13" font-weight="600" fill="var(--ink)">PlaySync</text>
+      <text x="390" y="113" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--ink-soft)">plugin C# / .NET 6</text>
+
+      <rect x="60" y="170" width="150" height="46" rx="8" fill="var(--bg-raised)" stroke="var(--line)"/>
+      <text x="135" y="198" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--ink)">IUserDataManager</text>
+
+      <rect x="305" y="170" width="150" height="46" rx="8" fill="var(--bg-raised)" stroke="var(--line)"/>
+      <text x="380" y="198" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--ink)">ISessionManager</text>
+
+      <rect x="550" y="170" width="150" height="46" rx="8" fill="var(--bg-raised)" stroke="var(--line)"/>
+      <text x="625" y="198" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--ink)">IPlaylistManager</text>
+
+      <line x1="360" y1="130" x2="200" y2="170" stroke="var(--ink-soft)" stroke-width="1.3"/>
+      <line x1="390" y1="130" x2="390" y2="170" stroke="var(--ink-soft)" stroke-width="1.3"/>
+      <line x1="420" y1="130" x2="580" y2="170" stroke="var(--ink-soft)" stroke-width="1.3"/>
+    </svg>
+  </div>
+
+  <div class="stack-list">
+    <span>C# / .NET 6</span>
+    <span data-i18n="architecture.stack.native">Plugin Emby natif</span>
+    <span data-i18n="architecture.stack.nodb">Aucune base de données</span>
+    <span data-i18n="architecture.stack.noui">Aucun frontend dédié — page de config Emby</span>
+  </div>
+  <p class="intro" style="margin-top:16px;" data-i18n="architecture.requirement">Prérequis : un serveur Emby existant (testé sur le SDK 4.9.3.0). Le plugin s'installe sur l'instance déjà en place, sans infrastructure supplémentaire.</p>
+</section>
+
+<!-- ============ DEPLOYMENT ============ -->
+<section id="deployment" class="wrap">
+  <span class="eyebrow" data-i18n="deployment.eyebrow">Mise en place</span>
+  <h2 data-i18n="deployment.title">Installer PlaySync</h2>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="sources" data-i18n="deployment.tab.sources">Depuis les sources</button>
+    <button class="tab-btn" data-tab="binaries" data-i18n="deployment.tab.binaries">Depuis une release</button>
+    <button class="tab-btn" data-tab="config" data-i18n="deployment.tab.config">Configuration</button>
+  </div>
+
+  <div class="tab-panel active" data-panel="sources">
+    <pre><code># Cloner le dépôt
+git clone https://github.com/CCoupel/Emby_PlaySync.git
+cd Emby_PlaySync
+
+# Compiler
+dotnet build src/EmbySharedPlaylist/EmbySharedPlaylist.csproj \
+  --configuration Release --output dist/
+
+# Installer
+cp dist/EmbySharedPlaylist.dll /config/plugins/
+# puis redémarrer Emby</code></pre>
+  </div>
+
+  <div class="tab-panel" data-panel="binaries">
+    <table>
+      <thead><tr><th data-i18n="deployment.binaries.th_platform">Plateforme</th><th data-i18n="deployment.binaries.th_pkg">Fichier</th><th data-i18n="deployment.binaries.th_cmd">Installation</th></tr></thead>
+      <tbody>
+        <tr>
+          <td data-i18n="deployment.binaries.row_platform">Toutes (partout où Emby Server tourne)</td>
+          <td><code>EmbySharedPlaylist.dll</code></td>
+          <td data-i18n="deployment.binaries.row_cmd">Copier dans le dossier <code>plugins/</code> d'Emby (racine, pas de sous-dossier), puis redémarrer.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="intro" style="margin-top:14px;" data-i18n="deployment.binaries.link">Dernière version sur la page <a href="https://github.com/CCoupel/Emby_PlaySync/releases" target="_blank" rel="noopener">GitHub Releases</a>.</p>
+  </div>
+
+  <div class="tab-panel" data-panel="config">
+    <p class="intro" data-i18n="deployment.config.intro">La configuration se fait dans la page du plugin (tableau de bord Emby) et par étiquette sur chaque playlist — aucun fichier séparé à éditer.</p>
+    <table>
+      <thead><tr><th data-i18n="deployment.config.th_key">Paramètre</th><th data-i18n="deployment.config.th_default">Défaut</th><th data-i18n="deployment.config.th_role">Rôle</th></tr></thead>
+      <tbody>
+        <tr><td><code>AutoEnableSharing</code></td><td>true</td><td data-i18n="deployment.config.row1">Accorde automatiquement la permission de partage à tous les comptes</td></tr>
+        <tr><td><code>remove-si-lu</code></td><td>NON</td><td data-i18n="deployment.config.row2">Étiquette de playlist — retire un média lu pour tous les membres</td></tr>
+        <tr><td><code>propager-lu</code></td><td>NON</td><td data-i18n="deployment.config.row3">Étiquette de playlist — propage le flag lu et la position de lecture</td></tr>
+        <tr><td><code>EnableDiagnostics</code></td><td>true</td><td data-i18n="deployment.config.row4">Active le journal et l'état consultables par un administrateur</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer class="wrap">
+  <div class="row">
+    <p data-i18n="footer.tagline">PlaySync — plugin communautaire pour Emby, non affilié à Emby.</p>
+    <div class="links">
+      <a href="https://github.com/CCoupel/Emby_PlaySync" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/CCoupel/Emby_PlaySync/releases" target="_blank" rel="noopener" data-i18n="footer.releases">Releases</a>
+      <a href="https://github.com/CCoupel/Emby_PlaySync/blob/main/docs/chronogrammes.md" target="_blank" rel="noopener" data-i18n="footer.docs">Documentation</a>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/badges.js"></script>
+<script src="assets/lang.js"></script>
+<script>
+  // Onglets de la section Déploiement (comportement local, sans i18n)
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+      document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
+      btn.classList.add('active');
+      document.querySelector('.tab-panel[data-panel="' + btn.dataset.tab + '"]').classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

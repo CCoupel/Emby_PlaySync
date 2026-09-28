@@ -1,4 +1,4 @@
-# Deploy PROD — adaptations projet Emby_shared_playlist
+# Deploy PROD — adaptations projet Emby_PlaySync
 
 > Compagnon de `deploy.prod.template.md` : **remplace** la procedure Helm generique. Meme mecanique que
 > `deploy.qualif.md` (copie du DLL dans `/config/plugins`, restart, verification de taille) mais :
@@ -16,7 +16,7 @@ Sinon : STOP, remonter a `main` sans rien executer. Ne jamais l'enchainer automa
 export KUBECONFIG="${KUBECONFIG:-private/kubeconfig.yml}"
 [ -n "$KUBE_CONTEXT" ] && kubectl config use-context "$KUBE_CONTEXT"
 mkdir -p build/prod_v$VERSION
-gh release download "v$VERSION" -R CCoupel/Emby_shared_playlist -p EmbySharedPlaylist.dll -D "build/prod_v$VERSION" --clobber
+gh release download "v$VERSION" -R CCoupel/Emby_PlaySync -p EmbySharedPlaylist.dll -D "build/prod_v$VERSION" --clobber
 ARTIFACT="build/prod_v$VERSION/EmbySharedPlaylist.dll"
 EXPECTED_SIZE=$(stat -c %s "$ARTIFACT")
 

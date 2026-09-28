@@ -1,4 +1,4 @@
-# Publish QUALIF — adaptations projet Emby_shared_playlist
+# Publish QUALIF — adaptations projet Emby_PlaySync
 
 > Compagnon de `publish.qualif.template.md` (mode `promote`) : **prevaut** sur le template. Meme principe
 > (zero rebuild), artefact adapte au plugin.

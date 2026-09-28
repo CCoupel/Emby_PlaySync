@@ -44,7 +44,7 @@ visible pour les utilisateurs.
 
 ## Comment mettre à jour
 
-1. Téléchargez `EmbySharedPlaylist.dll` depuis la page [Releases](https://github.com/CCoupel/Emby_shared_playlist/releases).
+1. Téléchargez `EmbySharedPlaylist.dll` depuis la page [Releases](https://github.com/CCoupel/Emby_PlaySync/releases).
 2. Copiez-le dans le dossier `plugins/` d'Emby, à la racine (pas de sous-dossier).
 3. Redémarrez Emby.
 
@@ -57,6 +57,6 @@ ne sont pas activées à la main.
 
 ## Liens
 
-- [Guide d'utilisation et documentation technique](https://github.com/CCoupel/Emby_shared_playlist#readme)
-- [GitHub Release v1.0.0](https://github.com/CCoupel/Emby_shared_playlist/releases/tag/v1.0.0)
-- [Dépôt du projet](https://github.com/CCoupel/Emby_shared_playlist)
+- [Guide d'utilisation et documentation technique](https://github.com/CCoupel/Emby_PlaySync#readme)
+- [GitHub Release v1.0.0](https://github.com/CCoupel/Emby_PlaySync/releases/tag/v1.0.0)
+- [Dépôt du projet](https://github.com/CCoupel/Emby_PlaySync)
