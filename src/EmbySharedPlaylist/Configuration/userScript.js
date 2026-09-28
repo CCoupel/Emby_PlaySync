@@ -200,23 +200,31 @@ define([], function () {
 
         /// DevTools (QUALIF, confirmé par l'utilisateur) : "Multiple form field elements... same id attribute" —
         /// le composant natif (upgradé une seule fois, sur le prototype caché) s'assigne apparemment un id lors
-        /// de son upgrade ; cloneNode(true) copie cet id tel quel sur CHAQUE clone. Aucun id n'est nécessaire
-        /// côté script (jamais de <label for="...">, jamais de getElementById sur ces éléments — l'association
-        /// label/input se fait par imbrication, les écouteurs par référence directe) : retiré sans risque, sur le
-        /// clone ET tout descendant (le composant peut construire son propre DOM interne lors de l'upgrade).
-        function stripIds(node) {
-            if (node.removeAttribute) node.removeAttribute('id');
+        /// de son upgrade ; cloneNode(true) copie cet id tel quel sur CHAQUE clone. Un premier correctif retirait
+        /// simplement l'id (aucun <label for="..."> ni getElementById n'en dépend côté script), mais ça a fait
+        /// apparaître un AUTRE avertissement Chrome ("a form field element has neither an id nor a name") : un
+        /// id ET un name UNIQUES sont donc assignés à la place (compteur incrémental par vue), sur le clone ET
+        /// tout descendant qui en porterait un (le composant peut construire son propre DOM interne à l'upgrade).
+        var uidCounter = 0;
+        function uniqueId(prefix) {
+            uidCounter += 1;
+            return 'PlaySync-' + prefix + '-' + uidCounter;
+        }
+        function assignUniqueIds(node, prefix) {
+            var id = uniqueId(prefix);
+            node.id = id;
+            if ('name' in node) node.name = id;
             if (node.querySelectorAll) {
                 var withId = node.querySelectorAll('[id]');
-                for (var i = 0; i < withId.length; i++) withId[i].removeAttribute('id');
+                for (var i = 0; i < withId.length; i++) withId[i].id = uniqueId(prefix + '-part');
             }
             return node;
         }
 
-        function cloneSelect() { return stripIds(prototypes().querySelector('select').cloneNode(true)); }
-        function cloneToggle() { return stripIds(prototypes().querySelector('input').cloneNode(true)); }
-        function cloneIconButton() { return stripIds(prototypes().querySelectorAll('button')[0].cloneNode(true)); }
-        function cloneSubmitButton() { return stripIds(prototypes().querySelectorAll('button')[1].cloneNode(true)); }
+        function cloneSelect() { return assignUniqueIds(prototypes().querySelector('select').cloneNode(true), 'select'); }
+        function cloneToggle() { return assignUniqueIds(prototypes().querySelector('input').cloneNode(true), 'toggle'); }
+        function cloneIconButton() { return assignUniqueIds(prototypes().querySelectorAll('button')[0].cloneNode(true), 'icon-btn'); }
+        function cloneSubmitButton() { return assignUniqueIds(prototypes().querySelectorAll('button')[1].cloneNode(true), 'submit-btn'); }
 
         function levelSelect(selectedValue) {
             var select = cloneSelect(); // prototype : deux <option> déjà présentes (value="Write"/"Read")
