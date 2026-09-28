@@ -197,6 +197,20 @@ internal sealed class FakeGateway : IPlaylistGateway
             return new ApplyResult(posed, wrote);
         }
     }
+
+    /// <summary>D19 (v1.1.0, #39) : ajouté à l'interface après ce fichier — implémentation minimale cohérente
+    /// (MarkerEditor, même patron que ApplyDefaults) pour que FakeGateway reste utilisable ailleurs sans changer
+    /// le comportement testé par ce fichier (DefaultsService n'appelle jamais ReplaceFamily).</summary>
+    public ReplaceFamilyResult ReplaceFamily(string playlistId, MarkerFamily family, bool enabled)
+    {
+        lock (Gate)
+        {
+            var s = Playlists[playlistId];
+            var (newTags, removed) = MarkerEditor.Replace(s.Tags, family, enabled);
+            s.Tags = newTags.ToList();
+            return new ReplaceFamilyResult(newTags, removed);
+        }
+    }
 }
 
 public class DefaultsServiceDevTests
@@ -757,6 +771,7 @@ public class FirstDetectionCoordinatorDevTests
         public PlaylistSnapshot? Get(string playlistId) => throw new InvalidOperationException("secret");
         public bool RemoveOneEntry(string playlistId, string itemId) => throw new InvalidOperationException("secret");
         public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, OverviewChange? overview) => throw new InvalidOperationException("secret");
+        public ReplaceFamilyResult ReplaceFamily(string playlistId, MarkerFamily family, bool enabled) => throw new InvalidOperationException("secret");
     }
 }
 

@@ -26,6 +26,10 @@ public sealed class ApplyResult
 /// </summary>
 public sealed record OverviewChange(string? RequiredCurrent, string NewValue);
 
+/// <summary>Résultat d'<see cref="IPlaylistGateway.ReplaceFamily"/> (D19, v1.1.0) : l'état des étiquettes APRÈS remplacement
+/// (relu, source de vérité) et le nombre d'étiquettes de la famille retirées à cet appel.</summary>
+public sealed record ReplaceFamilyResult(IReadOnlyList<string> Tags, int Removed);
+
 /// <summary>Port vers Emby (adaptateur : <c>Emby/EmbyPlaylistGateway</c>) : uniquement des appels internes du SDK, jamais de SQL.</summary>
 public interface IPlaylistGateway
 {
@@ -46,4 +50,15 @@ public interface IPlaylistGateway
     /// DE L'ÉCRITURE ; la description suit <paramref name="overview"/> (ré-vérifiée au même instant). Jamais de suppression.
     /// </summary>
     ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, OverviewChange? overview);
+
+    /// <summary>
+    /// D19 (v1.1.0, #39) : action EXPLICITE du propriétaire (page utilisateur) — remplace ATOMIQUEMENT, en une seule
+    /// écriture, toutes les étiquettes reconnues de <paramref name="family"/> (<see cref="EmbySharedPlaylist.Marker.MarkerEditor"/>,
+    /// même motif que <see cref="EmbySharedPlaylist.Marker.MarkerEvaluator"/>) par la canonique <c>&lt;famille&gt;=OUI</c>/<c>=NON</c>
+    /// selon <paramref name="enabled"/> ; les autres étiquettes (étrangères, autre famille) sont intactes. Même
+    /// patron qu'<see cref="ApplyDefaults"/> : lecture fraîche AU MOMENT DE L'ÉCRITURE, écriture, relecture de
+    /// vérification. Seule méthode du port qui SUPPRIME des étiquettes (D3 reste vraie pour tout comportement
+    /// automatique du moteur/réconciliation — <see cref="ApplyDefaults"/> n'en supprime jamais).
+    /// </summary>
+    ReplaceFamilyResult ReplaceFamily(string playlistId, MarkerFamily family, bool enabled);
 }
