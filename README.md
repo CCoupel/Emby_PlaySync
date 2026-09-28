@@ -30,11 +30,17 @@ Sans activer l'interrupteur, chaque propriétaire doit accorder cette permission
 
 ### 2. Partager une liste
 
+**Méthode native (interface Emby)** :
 1. Le propriétaire crée sa playlist « À voir ».
 2. Menu « … » de la playlist → **Gérer la collaboration**.
 3. Choisir pour chaque utilisateur le niveau **Écriture** (peut ajouter et retirer des médias) ou **Lecture** (consultation seule).
 
-Seul le propriétaire gère les membres et les étiquettes. Un membre en écriture ne peut ni repartager la liste ni modifier son nom, sa description ou ses étiquettes.
+**Méthode PlaySync (depuis v1.1.0)** :
+1. Le propriétaire ouvre le menu utilisateur (Avatar, en haut à droite) → **PlaySync**.
+2. Sélectionner la playlist, ajouter un membre, choisir son niveau, valider.
+3. Gérer également les deux options (retrait automatique du média lu, propagation de l'état de lecture) via des interrupteurs simples, sans éditer les étiquettes manuellement.
+
+Seul le propriétaire gère les membres et les étiquettes. Un membre en écriture ne peut ni repartager la liste ni modifier son nom, sa description ou ses étiquettes. Voir [docs/chronogrammes.md §9](docs/chronogrammes.md#9-page-utilisateur-playsync-v110-39) pour le guide complet de la page PlaySync.
 
 Dès qu'une playlist est partagée, le plugin lui ajoute les deux étiquettes **`remove-si-lu=NON`** et **`propager-lu=NON`**, et, si la description est vide, un message d'aide.
 
