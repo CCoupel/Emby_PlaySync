@@ -356,6 +356,14 @@ define([], function () {
             row.appendChild(level);
 
             var addBtn = cloneSubmitButton();
+            // Demande utilisateur : le bouton doit rester sur la MÊME ligne que les deux menus, pas passer en
+            // pleine largeur en dessous. Le prototype porte la classe "block" (pleine largeur, pertinente pour le
+            // bouton "Enregistrer" de configPage.html, seul sur sa ligne) — retirée ici, avec un repli en style
+            // posé en ligne (important) pour ne dépendre d'aucune classe non vérifiée.
+            addBtn.classList.remove('block');
+            addBtn.style.setProperty('width', 'auto', 'important');
+            addBtn.style.setProperty('display', 'inline-flex', 'important');
+            addBtn.style.flexShrink = '0';
             setText(addBtn, playlist.IsShared ? 'add' : 'share');
             addBtn.addEventListener('click', function () {
                 if (!userSelect.value) return;
@@ -470,8 +478,13 @@ define([], function () {
             var h2 = document.createElement('h2');
             h2.className = 'sectionTitle';
             h2.style.margin = '0';
-            h2.style.fontSize = '18px'; // agrandi (maquette : .card-head h2 { font-size:18px; font-weight:500 })
-            h2.style.fontWeight = '500';
+            // Signalé pas assez gros malgré ce même réglage à 18px (SHA 8fcb28f) : la classe "sectionTitle" a
+            // peut-être une règle plus prioritaire (!important) dans la feuille de style de l'hôte — repris avec
+            // setProperty(..., 'important') pour que le style posé en ligne l'emporte dans tous les cas, et monté
+            // à 22px (maquette : 18px, mais plus net demandé par l'utilisateur).
+            h2.style.setProperty('font-size', '22px', 'important');
+            h2.style.setProperty('font-weight', '600', 'important');
+            h2.style.setProperty('line-height', '1.3', 'important');
             h2.textContent = playlist.Name; // donnée serveur : textContent uniquement
             head.appendChild(h2);
 
