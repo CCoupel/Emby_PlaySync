@@ -566,10 +566,24 @@ define([], function () {
 
         view.addEventListener('viewshow', function () {
             localize();
-            apiGet('SharedPlaylist/User/Users').then(
-                function (list) { selectableUsers = list || []; reload(); },
-                function () { selectableUsers = []; reload(); }
-            );
+            // Cause racine confirmée par inspection DevTools réelle (teamleader) : le markup <input is="emby-
+            // toggle" .../> est correct en tout point (is/class/id/name), mais Emby ne charge le MODULE JS/CSS
+            // qui DÉFINIT ces composants (modules/emby-elements/*/...) que si quelque chose le require()
+            // explicitement — jamais automatiquement sur une page de menu UTILISATEUR (contrairement au
+            // dashboard admin, où ces modules sont quasi toujours déjà préchargés par ailleurs — d'où
+            // configScript.js, qui n'en a jamais eu besoin, et le fonctionnement par intermittence observé ici :
+            // le module restait chargé en mémoire d'une navigation Settings antérieure dans la même session,
+            // pas grâce à cette page). Sans ce require(), l'élément reste un <select>/<input>/<button> brut
+            // malgré un markup parfait — aucune quantité de correctifs sur la CRÉATION de l'élément n'y change
+            // quoi que ce soit (confirmé par les tentatives précédentes). Noms de modules EXACTS (journal
+            // console réel) : seuls ceux réellement utilisés par cette page (emby-checkbox n'est jamais utilisé
+            // ici, volontairement exclu).
+            require(['emby-toggle', 'emby-select', 'emby-button'], function () {
+                apiGet('SharedPlaylist/User/Users').then(
+                    function (list) { selectableUsers = list || []; reload(); },
+                    function () { selectableUsers = []; reload(); }
+                );
+            });
         });
     };
 });
