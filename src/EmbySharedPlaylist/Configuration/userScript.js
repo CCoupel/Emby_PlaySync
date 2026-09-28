@@ -217,27 +217,53 @@ define([], function () {
             var h3 = el('h3'); setText(h3, 'optionsHeader'); section.appendChild(h3);
 
             FAMILIES.forEach(function (family) {
-                var container = el('div', 'checkboxContainer checkboxContainer-withDescription');
+                // Mise en page en flex, styles POSÉS EN LIGNE (jamais les classes checkboxContainer/
+                // fieldDescription/checkboxFieldDescription — GATE 4, 3e passe : leur comportement réel dans ce
+                // contexte produisait des puces parasites devant la description et un mauvais alignement). Même
+                // structure que .opt/.opt-text de la maquette (docs/mockup/v1.1.0/ui/user-page__b39.html) :
+                // interrupteur à gauche, colonne de texte (libellé + description) alignée juste à droite, sur
+                // toute sa largeur — jamais de marqueur de liste, jamais de dépendance à une classe non vérifiée.
+                var container = document.createElement('div');
+                container.style.padding = '8px 0';
+
                 var label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'flex-start';
+                label.style.gap = '12px';
+                label.style.cursor = 'pointer';
+
                 var input = cloneToggle();
+                input.style.flexShrink = '0';
+                input.style.marginTop = '2px';
                 var state = (playlist.Options && playlist.Options[family]) || 'None';
                 input.checked = state === 'Oui';
                 input.disabled = !playlist.IsShared;
                 label.appendChild(input);
-                var titleSpan = document.createElement('span');
-                setText(titleSpan, familyTitleKey(family));
-                label.appendChild(titleSpan);
-                container.appendChild(label);
 
-                var desc = el('div', 'fieldDescription checkboxFieldDescription');
+                var textCol = document.createElement('div');
+
+                var titleEl = document.createElement('div');
+                titleEl.style.fontWeight = '500';
+                setText(titleEl, familyTitleKey(family));
+                textCol.appendChild(titleEl);
+
+                var desc = document.createElement('div');
+                desc.style.opacity = '.75';
+                desc.style.fontSize = '.9em';
+                desc.style.marginTop = '2px';
                 setText(desc, playlist.IsShared ? familyDescKey(family) : 'optionsUnavailable');
-                container.appendChild(desc);
+                textCol.appendChild(desc);
 
                 if (playlist.IsShared && state === 'Both') {
-                    var warn = el('div', 'fieldDescription checkboxFieldDescription');
+                    var warn = document.createElement('div');
+                    warn.style.fontSize = '.9em';
+                    warn.style.marginTop = '2px';
                     setText(warn, 'conflict');
-                    container.appendChild(warn);
+                    textCol.appendChild(warn);
                 }
+
+                label.appendChild(textCol);
+                container.appendChild(label);
 
                 if (playlist.IsShared) {
                     input.addEventListener('change', function () {
