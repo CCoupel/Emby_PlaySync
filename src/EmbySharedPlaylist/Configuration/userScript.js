@@ -192,25 +192,23 @@ define([], function () {
             showToast(t(errorKey(err && err.Error)));
         }
 
-        function memberLevelOption(value) {
-            var opt = document.createElement('option');
-            opt.value = value;
-            opt.textContent = value === 'Write' ? t('levelWrite') : t('levelRead');
-            return opt;
-        }
+        // GATE 4 (2e tentative, v1.1.0.5 : createElement(tag, {is:...}) seul n'a RIEN changé visuellement) :
+        // les composants natifs sont maintenant CLONÉS depuis les prototypes écrits en dur dans userPage.html
+        // (#PlaySyncPrototypes), jamais construits par document.createElement. Hypothèse retenue : le chargement
+        // des composants dépend du HTML STATIQUE de la page, jamais vu pour un élément 100% généré en JS.
+        function prototypes() { return view.querySelector('#PlaySyncPrototypes'); }
+        function cloneSelect() { return prototypes().querySelector('select').cloneNode(true); }
+        function cloneToggle() { return prototypes().querySelector('input').cloneNode(true); }
+        function cloneIconButton() { return prototypes().querySelectorAll('button')[0].cloneNode(true); }
+        function cloneSubmitButton() { return prototypes().querySelectorAll('button')[1].cloneNode(true); }
 
         function levelSelect(selectedValue) {
-            // Composant personnalisé natif (customized built-in element) : DOIT être créé avec l'option `is` au
-            // moment de la création pour que le navigateur (ou le polyfill Emby) l'améliore automatiquement —
-            // setAttribute('is', ...) APRÈS createElement('select') ne déclenche PAS cette amélioration (rendu en
-            // <select> brut du navigateur, bug constaté visuellement en QUALIF v1.1.0.4).
-            var select = document.createElement('select', { is: 'emby-select' });
-            select.className = 'emby-select-withcolor emby-select';
-            ['Write', 'Read'].forEach(function (lvl) {
-                var opt = memberLevelOption(lvl);
-                if (lvl === selectedValue) opt.selected = true;
-                select.appendChild(opt);
-            });
+            var select = cloneSelect(); // prototype : deux <option> déjà présentes (value="Write"/"Read")
+            var options = select.querySelectorAll('option');
+            options[0].textContent = t('levelWrite');
+            options[0].selected = selectedValue === 'Write';
+            options[1].textContent = t('levelRead');
+            options[1].selected = selectedValue === 'Read';
             return select;
         }
 
@@ -221,10 +219,7 @@ define([], function () {
             FAMILIES.forEach(function (family) {
                 var container = el('div', 'checkboxContainer checkboxContainer-withDescription');
                 var label = document.createElement('label');
-                // Même remarque que levelSelect() : `is` DOIT être passé à createElement, jamais via setAttribute.
-                var input = document.createElement('input', { is: 'emby-toggle' });
-                input.type = 'checkbox';
-                input.className = 'emby-toggle';
+                var input = cloneToggle();
                 var state = (playlist.Options && playlist.Options[family]) || 'None';
                 input.checked = state === 'Oui';
                 input.disabled = !playlist.IsShared;
@@ -265,8 +260,8 @@ define([], function () {
             row.style.flexWrap = 'wrap';
             row.style.marginTop = '.5em';
 
-            var userSelect = document.createElement('select', { is: 'emby-select' });
-            userSelect.className = 'emby-select-withcolor emby-select';
+            var userSelect = cloneSelect();
+            clear(userSelect); // vide les deux <option> du prototype (Write/Read) : liste variable de comptes
             userSelect.style.minWidth = '220px';
             var placeholder = document.createElement('option');
             placeholder.value = '';
@@ -283,9 +278,7 @@ define([], function () {
             var level = levelSelect('Write');
             row.appendChild(level);
 
-            var addBtn = document.createElement('button', { is: 'emby-button' });
-            addBtn.type = 'button';
-            addBtn.className = 'raised button-submit block emby-button';
+            var addBtn = cloneSubmitButton();
             setText(addBtn, playlist.IsShared ? 'add' : 'share');
             addBtn.addEventListener('click', function () {
                 if (!userSelect.value) return;
@@ -346,12 +339,8 @@ define([], function () {
                     levelHolder.appendChild(select);
                     row.appendChild(levelHolder);
 
-                    // Même remarque que levelSelect() : `is` DOIT être passé à createElement.
-                    var removeBtn = document.createElement('button', { is: 'emby-button' });
-                    removeBtn.type = 'button';
-                    removeBtn.className = 'paper-icon-button-light';
+                    var removeBtn = cloneIconButton(); // '✕' déjà présent (prototype)
                     removeBtn.title = t('remove');
-                    removeBtn.textContent = '✕';
                     removeBtn.addEventListener('click', function () {
                         // Confirmation via le dialogue natif Emby (module "confirm"), jamais une boîte bloquante du navigateur.
                         require(['confirm'], function (confirmAction) {
@@ -382,22 +371,27 @@ define([], function () {
 
         function renderCard(playlist) {
             var card = el('div', 'detailSection');
+            card.style.marginBottom = '1.2em'; // espace entre les cartes de playlists (maquette : 18px)
 
+            // Retouches visuelles demandées par l'utilisateur (GATE 4) : espacement explicite (le nom collait au
+            // badge) ; badge simplifié (le nombre de membres était redondant avec la liste juste en dessous, déjà
+            // visible sans avoir à le répéter dans l'en-tête).
             var head = el('div', 'sectionTitleContainer flex align-items-center');
+            head.style.gap = '10px';
+            head.style.flexWrap = 'wrap';
             var h2 = document.createElement('h2');
             h2.className = 'sectionTitle';
+            h2.style.margin = '0';
             h2.textContent = playlist.Name; // donnée serveur : textContent uniquement
             head.appendChild(h2);
 
             var badge = document.createElement('span');
-            var memberCount = (playlist.Members || []).length;
-            badge.textContent = playlist.IsShared
-                ? (t('shared') + ' · ' + memberCount + ' ' + (memberCount === 1 ? t('member') : t('members')))
-                : t('unshared');
+            badge.textContent = playlist.IsShared ? t('shared') : t('unshared');
             head.appendChild(badge);
 
             var count = document.createElement('span');
-            count.textContent = ' — ' + playlist.ItemCount + ' ' + t('items');
+            count.style.opacity = '.7';
+            count.textContent = playlist.ItemCount + ' ' + t('items');
             head.appendChild(count);
 
             card.appendChild(head);

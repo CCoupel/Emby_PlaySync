@@ -29,6 +29,26 @@
            de playlists insérés via textContent uniquement). -->
       <div id="PlaySyncList"></div>
 
+      <!-- Prototypes CACHÉS des composants Emby natifs, ÉCRITS EN DUR (même patron que Configuration/configPage.html,
+           où is="emby-select"/is="emby-checkbox" sont présents dans le HTML statique) — GATE 4 (2e tentative) : un
+           composant créé entièrement en JS à l'exécution (document.createElement, même avec l'option `is`) ne
+           s'améliorait PAS visuellement en QUALIF v1.1.0.5, contrairement à configPage.html. Hypothèse retenue :
+           le chargement des composants dépend du HTML STATIQUE de la page, jamais vu pour des éléments 100%
+           générés en JS. Le script CLONE ces prototypes (cloneNode) au lieu d'appeler createElement pour les
+           instances dynamiques (options, sélecteurs de niveau, boutons) — jamais affichés tels quels. -->
+      <div id="PlaySyncPrototypes" style="display:none" aria-hidden="true">
+        <select is="emby-select" class="emby-select-withcolor emby-select">
+          <option value="Write"></option>
+          <option value="Read"></option>
+        </select>
+        <label>
+          <input is="emby-toggle" type="checkbox" class="emby-toggle" />
+          <span></span>
+        </label>
+        <button is="emby-button" type="button" class="paper-icon-button-light">✕</button>
+        <button is="emby-button" type="button" class="raised button-submit block emby-button"></button>
+      </div>
+
     </div>
   </div>
 </div>
