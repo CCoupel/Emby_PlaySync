@@ -13,13 +13,14 @@ namespace EmbySharedPlaylist.Tests;
 /// propre à CETTE instance/boucle (copie de comportement, pas de code partagé) : mérite sa propre vérification, comme
 /// <see cref="ReadRemovalEngineBudgetSpecTests"/> pour le retrait/la propagation du lu.
 ///
-/// Chaîne complète (déclencheur ISessionManager -> PauseTransitionTracker/Stopped -> garde D-c -> PlaybackPositionEngine,
+/// Chaîne complète (déclencheur ISessionManager -> PauseTransitionTracker/Stopped -> seuil 30 s -> PlaybackPositionEngine ;
+/// depuis v1.2.0 (#57, D21) la garde D-c « déclencheur déjà lu » est SUPPRIMÉE et la famille est propager-avancement,
 /// pendant de <see cref="PropagationChainSpecTests"/> pour #20) : Emby/PlaybackSessionListener (livré, #45/#46) est un
-/// adaptateur SDK fin, comme EmbyPlaylistGateway/EmbyUserDataGateway — sa logique (TryExtract, garde D-c) est en méthodes
+/// adaptateur SDK fin, comme EmbyPlaylistGateway/EmbyUserDataGateway — sa logique (TryExtract, seuil) est en méthodes
 /// statiques privées couplées aux types de session Emby réels (PlaybackProgressEventArgs.Session/.Item) et à l'état
 /// statique PluginRuntime, PAS une classe injectable comme PlaybackEventProcessor pour #20/#21 : pas de point d'injection
 /// pour un test de chaîne en mémoire, contrairement à PropagationChainSpecTests. Non testable ici sans SDK, comme les
-/// autres adaptateurs Emby ; couvert par tests/integration/22-avancement.sh (I27-I36, dont la garde D-c : I32) en QUALIF.
+/// autres adaptateurs Emby ; couvert par tests/integration/22-avancement.sh (I27-I36 ; I32/I37 réécrits v1.2.0 : relecture d'un média lu propagée, #57) en QUALIF.
 /// </summary>
 public class PlaybackPositionEngineSpecTests
 {
@@ -41,7 +42,7 @@ public class PlaybackPositionEngineSpecTests
 
         public FakeGateway.State Playlist(string id, params string[] members)
         {
-            var s = Gateway.Add(id, "propager-lu=OUI");
+            var s = Gateway.Add(id, "propager-avancement=OUI");
             s.Overview = "déjà";
             s.Members = members.ToList();
             s.Items = new List<string> { "m1" };

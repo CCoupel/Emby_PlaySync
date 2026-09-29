@@ -170,6 +170,11 @@ internal sealed class FakeGateway : IPlaylistGateway
         lock (Gate) return Playlists[playlistId].Items.Remove(itemId);
     }
 
+    public string CreatePlaylist(string ownerId, string name)
+    {
+        lock (Gate) { var id = "created-" + (Playlists.Count + 1); Playlists[id] = new State { Owner = ownerId, Members = new List<string> { ownerId } }; return id; }
+    }
+
     public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, OverviewChange? overview)
     {
         Interlocked.Increment(ref ApplyCalls);
@@ -235,17 +240,17 @@ public class DefaultsServiceDevTests
     }
 
     [Fact]
-    public void FirstDetection_PosesBothNonAndTheHelpMessage_KeepingOwnerTags()
+    public void FirstDetection_PosesTheThreeNonFamiliesAndTheHelpMessage_KeepingOwnerTags()
     {
         var r = new Rig();
         var s = r.Gateway.Add("1", "famille", "noel");
         var outcome = r.Service.OnFirstDetection(r.Snapshot("1"));
 
-        Assert.Equal(new[] { "famille", "noel", "remove-si-lu=NON", "propager-lu=NON" }, s.Tags);
+        Assert.Equal(new[] { "famille", "noel", "remove-si-lu=NON", "propager-lu=NON", "propager-avancement=NON" }, s.Tags);   // v1.2.0 : 3 familles
         Assert.Equal(Help, s.Overview);
-        Assert.Equal(2, outcome.MarkersPosed);
+        Assert.Equal(3, outcome.MarkersPosed);
         Assert.True(outcome.DescriptionWritten);
-        Assert.Equal(new[] { "family=remove-si-lu cause=first-detection", "family=propager-lu cause=first-detection" }, r.Journal.Details("MarkerPosed"));
+        Assert.Equal(new[] { "family=remove-si-lu cause=first-detection", "family=propager-lu cause=first-detection", "family=propager-avancement cause=first-detection" }, r.Journal.Details("MarkerPosed"));
         Assert.Equal(new[] { "cause=first-detection" }, r.Journal.Details("DescriptionWritten"));
         Assert.True(r.Seen.IsSeen("1"));
     }
@@ -256,17 +261,42 @@ public class DefaultsServiceDevTests
         var r = new Rig();
         var s = r.Gateway.Add("1", "propager-lu=OUI");
         r.Service.OnFirstDetection(r.Snapshot("1"));
-        Assert.Equal(new[] { "propager-lu=OUI", "remove-si-lu=NON" }, s.Tags);
+        Assert.Equal(new[] { "propager-lu=OUI", "remove-si-lu=NON", "propager-avancement=NON" }, s.Tags);   // aucun héritage : avancement = NON (D21)
+    }
+
+    [Fact]
+    public void FirstDetection_NeverInheritsPropagerAvancementFromPropagerLu_D21()
+    {
+        // BREAKING v1.2.0 : une playlist qui propageait l'avancement via propager-lu=OUI (v0.3.1-v1.1.0) le PERD ;
+        // propager-avancement est posé à NON, jamais à OUI, quelles que soient les autres familles.
+        var r = new Rig();
+        var s = r.Gateway.Add("1", "propager-lu=OUI", "remove-si-lu=OUI");
+        r.Service.OnFirstDetection(r.Snapshot("1"));
+        Assert.Equal(MarkerState.Non, MarkerEvaluator.Evaluate(s.Tags, MarkerFamily.PropagerAvancement));
+        Assert.DoesNotContain("propager-avancement=OUI", s.Tags);
+        Assert.Equal(new[] { "family=propager-avancement cause=first-detection" }, r.Journal.Details("MarkerPosed"));
+        Assert.Equal(new[] { "propager-lu=OUI", "remove-si-lu=OUI", "propager-avancement=NON" }, s.Tags);   // les OUI existants sont intacts
+    }
+
+    [Fact]
+    public void FirstDetection_OnlyPropagerAvancementMissing_PosesOnlyIt()
+    {
+        var r = new Rig();
+        var s = r.Gateway.Add("1", "remove-si-lu=OUI", "propager-lu=OUI");
+        s.Overview = "déjà";
+        var outcome = r.Service.OnFirstDetection(r.Snapshot("1"));
+        Assert.Equal(1, outcome.MarkersPosed);
+        Assert.Equal(new[] { "remove-si-lu=OUI", "propager-lu=OUI", "propager-avancement=NON" }, s.Tags);
     }
 
     [Fact]
     public void FirstDetection_NeverTouchesAnExistingOuiOrBoth()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=OUI", "remove-si-lu=NON", "propager-lu=oui");
+        var s = r.Gateway.Add("1", "remove-si-lu=OUI", "remove-si-lu=NON", "propager-lu=oui", "propager-avancement=OUI", "propager-avancement=NON");
         s.Overview = "mon texte";
         var outcome = r.Service.OnFirstDetection(r.Snapshot("1"));
-        Assert.Equal(new[] { "remove-si-lu=OUI", "remove-si-lu=NON", "propager-lu=oui" }, s.Tags);
+        Assert.Equal(new[] { "remove-si-lu=OUI", "remove-si-lu=NON", "propager-lu=oui", "propager-avancement=OUI", "propager-avancement=NON" }, s.Tags);
         Assert.Equal("mon texte", s.Overview);
         Assert.True(outcome.Skipped);
         Assert.Equal(0, r.Gateway.ApplyCalls);
@@ -360,7 +390,7 @@ public class DefaultsServiceDevTests
         var svc = new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, Help, () => 2, null, TimeSpan.FromSeconds(5));
         Parallel.For(0, 16, _ => svc.OnFirstDetection(snap));
         Assert.Equal(1, r.Gateway.ApplyCalls);
-        Assert.Equal(2, r.Journal.Of("MarkerPosed").Count());
+        Assert.Equal(3, r.Journal.Of("MarkerPosed").Count());
     }
 
     // ---- OnPass : grâce -------------------------------------------------------------------------
@@ -369,7 +399,7 @@ public class DefaultsServiceDevTests
     public void Grace_AbsentFamilyIsReposedAfterGracePasses_ThenCounterResets()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "propager-lu=NON");
+        var s = r.Gateway.Add("1", "propager-lu=NON", "propager-avancement=NON");
         s.Overview = "x";
         r.Seen.TryMarkSeen("1");
 
@@ -392,6 +422,7 @@ public class DefaultsServiceDevTests
         var s = r.Gateway.Add("1");
         s.Overview = "x";
         s.Tags.Add("propager-lu=NON");
+        s.Tags.Add("propager-avancement=NON");
         r.Seen.TryMarkSeen("1");
 
         r.Service.OnPass(r.Snapshot("1"));            // état intermédiaire : remove-si-lu absent (compteur 1)
@@ -401,7 +432,7 @@ public class DefaultsServiceDevTests
         r.Service.OnPass(r.Snapshot("1"));
 
         Assert.Equal(0, r.Gateway.ApplyCalls);
-        Assert.Equal(new[] { "propager-lu=NON", "remove-si-lu=OUI" }, s.Tags);
+        Assert.Equal(new[] { "propager-lu=NON", "propager-avancement=NON", "remove-si-lu=OUI" }, s.Tags);
         Assert.Equal(0, r.Seen.Get("1", "remove-si-lu"));
     }
 
@@ -409,7 +440,7 @@ public class DefaultsServiceDevTests
     public void Grace_AddOuiThenRemoveNon_IsNeverReposed()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON", "propager-avancement=NON");
         s.Overview = "x";
         r.Seen.TryMarkSeen("1");
         s.Tags.Add("remove-si-lu=OUI");   // {NON, OUI}
@@ -429,15 +460,15 @@ public class DefaultsServiceDevTests
         r.Service.OnPass(r.Snapshot("1"));
         s.Tags.Add("propager-lu=NON");                 // seule propager-lu est revenue
         var second = r.Service.OnPass(r.Snapshot("1"));
-        Assert.Equal(new[] { "propager-lu=NON", "remove-si-lu=NON" }, s.Tags);
-        Assert.Equal(1, second.MarkersPosed);
+        Assert.Equal(new[] { "propager-lu=NON", "remove-si-lu=NON", "propager-avancement=NON" }, s.Tags);
+        Assert.Equal(2, second.MarkersPosed);          // les deux autres familles, grâce écoulée pour chacune
     }
 
     [Fact]
     public void Grace_EmptiedDescription_IsRewrittenAfterGracePasses_NeverOverText()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON", "propager-avancement=NON");
         r.Seen.TryMarkSeen("1");
         r.Service.OnPass(r.Snapshot("1"));
         Assert.Null(s.Overview);
@@ -456,7 +487,7 @@ public class DefaultsServiceDevTests
     public void Grace_TextAppearingResetsTheDescriptionCounter()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON", "propager-avancement=NON");
         r.Seen.TryMarkSeen("1");
         r.Service.OnPass(r.Snapshot("1"));
         s.Overview = "texte";
@@ -471,7 +502,7 @@ public class DefaultsServiceDevTests
     public void Grace_UsesTheCurrentConfigurationEachPass_WithAMinimumOfOne()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "propager-lu=NON");
+        var s = r.Gateway.Add("1", "propager-lu=NON", "propager-avancement=NON");
         s.Overview = "x";
         r.Seen.TryMarkSeen("1");
         r.Grace = 0; // valeur invalide : traitée comme 1
@@ -486,7 +517,7 @@ public class DefaultsServiceDevTests
         var s = r.Gateway.Add("1");
         r.Service.OnFirstDetection(r.Snapshot("1"));
         for (var i = 0; i < 4; i++) r.Service.OnPass(r.Snapshot("1"));
-        Assert.Equal(new[] { "remove-si-lu=NON", "propager-lu=NON" }, s.Tags);
+        Assert.Equal(new[] { "remove-si-lu=NON", "propager-lu=NON", "propager-avancement=NON" }, s.Tags);
         Assert.Equal(1, r.Gateway.ApplyCalls);
     }
 
@@ -496,7 +527,7 @@ public class DefaultsServiceDevTests
         var r = new Rig();
         var s = r.Gateway.Add("1");
         var outcome = r.Service.OnPass(r.Snapshot("1"));
-        Assert.Equal(2, outcome.MarkersPosed);
+        Assert.Equal(3, outcome.MarkersPosed);
         Assert.Contains("family=remove-si-lu cause=first-detection", r.Journal.Details("MarkerPosed"));
         Assert.True(r.Seen.IsSeen("1"));
     }
@@ -509,8 +540,8 @@ public class DefaultsServiceDevTests
         var stale = r.Snapshot("1");               // lu sans étiquette
         s.Tags.Add("remove-si-lu=OUI");            // le propriétaire agit entre la lecture et l'écriture
         var outcome = r.Service.OnFirstDetection(stale);
-        Assert.Equal(new[] { "remove-si-lu=OUI", "propager-lu=NON" }, s.Tags);
-        Assert.Equal(1, outcome.MarkersPosed);
+        Assert.Equal(new[] { "remove-si-lu=OUI", "propager-lu=NON", "propager-avancement=NON" }, s.Tags);
+        Assert.Equal(2, outcome.MarkersPosed);
     }
 }
 
@@ -540,10 +571,10 @@ public class ReconciliationServiceDevTests
         var result = r.Service.RunPass();
 
         Assert.Equal(2, result.Shared);
-        Assert.Equal(3, result.Posed);       // 2 + 1
+        Assert.Equal(5, result.Posed);       // 3 + 2 (trois familles depuis v1.2.0)
         Assert.Equal(0, result.Pending);
         var detail = r.Journal.Details("ScanPass").Single();
-        Assert.StartsWith("playlists=2 shared=2 posed=3 pending=0 durationMs=", detail);
+        Assert.StartsWith("playlists=2 shared=2 posed=5 pending=0 durationMs=", detail);
         Assert.True(r.Seen.IsSeen("1") && r.Seen.IsSeen("2"));
     }
 
@@ -660,7 +691,7 @@ public class ReconciliationServiceDevTests
             () => { for (var i = 1; i <= 8; i++) defaults.OnFirstDetection(r.Gateway.Get(i.ToString())!); },
             () => svc.RunPass());
         Assert.Equal(8, r.Gateway.ApplyCalls);
-        Assert.All(r.Gateway.Playlists.Values, s => Assert.Equal(new[] { "remove-si-lu=NON", "propager-lu=NON" }, s.Tags));
+        Assert.All(r.Gateway.Playlists.Values, s => Assert.Equal(new[] { "remove-si-lu=NON", "propager-lu=NON", "propager-avancement=NON" }, s.Tags));
     }
 }
 
@@ -686,7 +717,7 @@ public class FirstDetectionCoordinatorDevTests
         var r = new Rig();
         var s = r.Gateway.Add("1");
         r.Coordinator.OnPlaylistEvent("1");
-        Assert.Equal(new[] { "remove-si-lu=NON", "propager-lu=NON" }, s.Tags);
+        Assert.Equal(new[] { "remove-si-lu=NON", "propager-lu=NON", "propager-avancement=NON" }, s.Tags);
         Assert.True(r.Seen.IsSeen("1"));
     }
 
@@ -750,7 +781,7 @@ public class FirstDetectionCoordinatorDevTests
         r.Coordinator.OnPlaylistEvent("1");
         s.Members = new List<string> { "o", "m" };
         r.Coordinator.OnPlaylistEvent("1");
-        Assert.Equal(2, s.Tags.Count);
+        Assert.Equal(3, s.Tags.Count);
     }
 
     [Fact]
@@ -772,6 +803,7 @@ public class FirstDetectionCoordinatorDevTests
         public bool RemoveOneEntry(string playlistId, string itemId) => throw new InvalidOperationException("secret");
         public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, OverviewChange? overview) => throw new InvalidOperationException("secret");
         public ReplaceFamilyResult ReplaceFamily(string playlistId, MarkerFamily family, bool enabled) => throw new InvalidOperationException("secret");
+        public string CreatePlaylist(string ownerId, string name) => throw new InvalidOperationException("secret");
     }
 }
 
@@ -822,9 +854,16 @@ public class HelpTextV2DevTests
     }
 }
 
-/// <summary>#51 : remplacement conditionnel du message d'aide v0.2.0 -> v0.3.0, sans aucun état mémorisé.</summary>
+/// <summary>
+/// #51 puis v1.2.0 (D21, tâche B3) : remplacement conditionnel du message d'aide, sans aucun état mémorisé. Depuis v1.2.0,
+/// une description identique caractère pour caractère à <see cref="HelpText.V1"/> OU <see cref="HelpText.V2"/> est remplacée
+/// par <see cref="HelpText.V3"/> (causes <c>v1-to-v3</c> / <c>v2-to-v3</c>) ; <c>v1-to-v2</c> n'est plus jamais émis
+/// (CHANGELOG des contrats v1.2.0). Mis à jour (CHANGED documenté) : la version précédente de cette classe figeait V1 -> V2.
+/// </summary>
 public class DefaultsServiceHelpTextReplacementDevTests
 {
+    private const string AllNon = "propager-avancement=NON";
+
     private sealed class Rig
     {
         public readonly FakeGateway Gateway = new();
@@ -834,73 +873,95 @@ public class DefaultsServiceHelpTextReplacementDevTests
         public int Grace = 2;
         public readonly DefaultsService Service;
 
-        public Rig() => Service = new DefaultsService(Gateway, Seen, Locks, Journal, HelpText.V1, () => Grace, new FakeClock(), TimeSpan.FromMilliseconds(150));
+        // Le message écrit sur une description VIDE est celui qui est injecté (V3 en production, PluginRuntime).
+        public Rig() => Service = new DefaultsService(Gateway, Seen, Locks, Journal, HelpText.V3, () => Grace, new FakeClock(), TimeSpan.FromMilliseconds(150));
 
         public PlaylistSnapshot Snapshot(string id) => Gateway.Get(id)!;
     }
 
-    [Fact]
-    public void FirstDetection_MarkerPosedAndDescriptionV1ToV2_HaveDistinctCauses()
+    [Theory]
+    [InlineData(true, "v1-to-v3")]
+    [InlineData(false, "v2-to-v3")]
+    public void FirstDetection_MarkerPosedAndDescriptionReplacement_HaveDistinctCauses(bool fromV1, string cause)
     {
-        // Cas croisé (revue, I10.cause) : la playlist reçoit sa PREMIÈRE pose de marqueur ET sa description vaut déjà
-        // exactement V1, au même passage. Les deux causes doivent rester distinctes dans le journal.
+        // Cas croisé (revue, I10.cause) : première pose de marqueurs ET description identique à un message historique.
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=OUI"); // propager-lu absent : première pose de ce seul marqueur
-        s.Overview = HelpText.V1;
+        var s = r.Gateway.Add("1", "remove-si-lu=OUI"); // propager-lu et propager-avancement absents
+        s.Overview = fromV1 ? HelpText.V1 : HelpText.V2;
         r.Service.OnFirstDetection(r.Snapshot("1"));
 
-        Assert.Equal(new[] { "family=propager-lu cause=first-detection" }, r.Journal.Details("MarkerPosed"));
-        Assert.Equal(new[] { "cause=v1-to-v2" }, r.Journal.Details("DescriptionWritten"));
-        Assert.Equal(HelpText.V2, s.Overview);
-        Assert.Contains("propager-lu=NON", s.Tags);
+        Assert.Equal(new[] { "family=propager-lu cause=first-detection", "family=propager-avancement cause=first-detection" }, r.Journal.Details("MarkerPosed"));
+        Assert.Equal(new[] { "cause=" + cause }, r.Journal.Details("DescriptionWritten"));
+        Assert.Equal(HelpText.V3, s.Overview);
+        Assert.Contains("propager-avancement=NON", s.Tags);
     }
 
-    [Fact]
-    public void OnPass_MarkerPosedAndDescriptionV1ToV2_HaveDistinctCauses()
+    [Theory]
+    [InlineData(true, "v1-to-v3")]
+    [InlineData(false, "v2-to-v3")]
+    public void OnPass_MarkerPosedAndDescriptionReplacement_HaveDistinctCauses(bool fromV1, string cause)
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1"); // les deux marqueurs absents
-        s.Overview = HelpText.V1;
+        var s = r.Gateway.Add("1"); // aucune famille
+        s.Overview = fromV1 ? HelpText.V1 : HelpText.V2;
         r.Seen.TryMarkSeen("1");
-        r.Service.OnPass(r.Snapshot("1")); // 1re passe : compteurs de grâce démarrés, rien posé encore
-        var outcome = r.Service.OnPass(r.Snapshot("1")); // 2e passe : grâce atteinte pour les marqueurs
+        r.Service.OnPass(r.Snapshot("1")); // 1re passe : grâce démarrée pour les marqueurs, description remplacée immédiatement
+        var outcome = r.Service.OnPass(r.Snapshot("1")); // 2e passe : grâce atteinte
 
-        Assert.Equal(2, outcome.MarkersPosed);
+        Assert.Equal(3, outcome.MarkersPosed);
+        Assert.Equal(3, r.Journal.Of("MarkerPosed").Count());
         Assert.All(r.Journal.Details("MarkerPosed"), d => Assert.EndsWith("cause=grace-elapsed", d));
-        Assert.Equal(new[] { "cause=v1-to-v2" }, r.Journal.Details("DescriptionWritten")); // jamais "grace-elapsed" ici
-        Assert.Equal(HelpText.V2, s.Overview);
+        Assert.Equal(new[] { "cause=" + cause }, r.Journal.Details("DescriptionWritten")); // jamais "grace-elapsed" ici
+        Assert.Equal(HelpText.V3, s.Overview);
     }
 
-    [Fact]
-    public void FirstDetection_ExactV1_IsReplacedByV2_Immediately()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void FirstDetection_ExactHistoricalMessage_IsReplacedByV3_Immediately(bool fromV1)
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=OUI", "propager-lu=OUI"); // familles déjà présentes : seule la description change
-        s.Overview = HelpText.V1;
+        var s = r.Gateway.Add("1", "remove-si-lu=OUI", "propager-lu=OUI", AllNon); // familles présentes : seule la description change
+        s.Overview = fromV1 ? HelpText.V1 : HelpText.V2;
         var outcome = r.Service.OnFirstDetection(r.Snapshot("1"));
-        Assert.Equal(HelpText.V2, s.Overview);
+        Assert.Equal(HelpText.V3, s.Overview);
         Assert.True(outcome.DescriptionWritten);
-        Assert.Equal(new[] { "cause=v1-to-v2" }, r.Journal.Details("DescriptionWritten"));
+        Assert.Equal(new[] { fromV1 ? "cause=v1-to-v3" : "cause=v2-to-v3" }, r.Journal.Details("DescriptionWritten"));
     }
 
-    [Fact]
-    public void OnPass_ExactV1_IsReplacedByV2_WithoutWaitingForGrace()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void OnPass_ExactHistoricalMessage_IsReplacedByV3_WithoutWaitingForGrace(bool fromV1)
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
-        s.Overview = HelpText.V1;
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON", AllNon);
+        s.Overview = fromV1 ? HelpText.V1 : HelpText.V2;
         r.Seen.TryMarkSeen("1");
         var outcome = r.Service.OnPass(r.Snapshot("1")); // une seule passe suffit, pas deux comme pour la grâce des étiquettes
-        Assert.Equal(HelpText.V2, s.Overview);
+        Assert.Equal(HelpText.V3, s.Overview);
         Assert.True(outcome.DescriptionWritten);
+    }
+
+    [Fact]
+    public void V1ToV2_IsNeverEmittedAnymore()
+    {
+        var r = new Rig();
+        var s = r.Gateway.Add("1");
+        s.Overview = HelpText.V1;
+        r.Service.OnFirstDetection(r.Snapshot("1"));
+        r.Service.OnPass(r.Snapshot("1"));
+        r.Service.OnPass(r.Snapshot("1"));
+        Assert.DoesNotContain("cause=v1-to-v2", r.Journal.Details("DescriptionWritten"));
+        Assert.NotEqual(HelpText.V2, s.Overview);
     }
 
     [Fact]
     public void ModifiedDescription_IsNeverTouched()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
-        s.Overview = "le propriétaire a écrit autre chose, même en partie identique à " + HelpText.V1;
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON", AllNon);
+        s.Overview = "le propriétaire a écrit autre chose, même en partie identique à " + HelpText.V1 + HelpText.V2;
         r.Seen.TryMarkSeen("1");
         var before = s.Overview;
         r.Service.OnPass(r.Snapshot("1"));
@@ -909,68 +970,73 @@ public class DefaultsServiceHelpTextReplacementDevTests
     }
 
     [Fact]
-    public void AlreadyV2_IsNeverTouchedAgain_NoLoop()
+    public void AlreadyV3_IsNeverTouchedAgain_NoLoop()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
-        s.Overview = HelpText.V2;
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON", AllNon);
+        s.Overview = HelpText.V3;
         r.Seen.TryMarkSeen("1");
         r.Service.OnPass(r.Snapshot("1"));
         r.Service.OnPass(r.Snapshot("1"));
-        Assert.Equal(HelpText.V2, s.Overview);
+        Assert.Equal(HelpText.V3, s.Overview);
         Assert.Empty(r.Journal.Of("DescriptionWritten"));
     }
 
     [Fact]
-    public void EmptyDescription_StillPosesV1First_ThenV2OnceReplaced()
+    public void EmptyDescription_PosesTheInjectedV3_ThenNothingMore()
     {
         var r = new Rig();
         var s = r.Gateway.Add("1");
-        r.Service.OnFirstDetection(r.Snapshot("1")); // pose V1 (description vide)
-        Assert.Equal(HelpText.V1, s.Overview);
-        r.Service.OnPass(r.Snapshot("1"));           // relu : égal à V1 -> remplacé par V2, sans grâce
-        Assert.Equal(HelpText.V2, s.Overview);
+        r.Service.OnFirstDetection(r.Snapshot("1"));
+        Assert.Equal(HelpText.V3, s.Overview);
+        Assert.Equal(new[] { "cause=first-detection" }, r.Journal.Details("DescriptionWritten"));
+        r.Service.OnPass(r.Snapshot("1"));
+        Assert.Equal(HelpText.V3, s.Overview);
+        Assert.Single(r.Journal.Of("DescriptionWritten"));
     }
 
     [Fact]
     public void ReplacementDoesNotAffectTagGraceCounters()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=NON"); // propager-lu absent : compteur de grâce en cours
-        s.Overview = HelpText.V1;
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON"); // propager-avancement absent : compteur de grâce en cours
+        s.Overview = HelpText.V2;
         r.Seen.TryMarkSeen("1");
         var first = r.Service.OnPass(r.Snapshot("1"));
-        Assert.Equal(HelpText.V2, s.Overview);           // description remplacée immédiatement
-        Assert.Equal(1, first.PendingGrace);              // propager-lu reste en attente de grâce, indépendant
-        Assert.DoesNotContain("propager-lu=NON", s.Tags);
+        Assert.Equal(HelpText.V3, s.Overview);            // description remplacée immédiatement
+        Assert.Equal(1, first.PendingGrace);               // propager-avancement reste en attente de grâce, indépendant
+        Assert.DoesNotContain("propager-avancement=NON", s.Tags);
     }
 
-    [Fact]
-    public void CaseOrWhitespaceDifference_IsNotAnExactMatch_NeverReplaced()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CaseOrWhitespaceDifference_IsNotAnExactMatch_NeverReplaced(bool fromV1)
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON");
-        s.Overview = HelpText.V1 + " "; // un seul caractère de différence
+        var s = r.Gateway.Add("1", "remove-si-lu=NON", "propager-lu=NON", AllNon);
+        var historical = (fromV1 ? HelpText.V1 : HelpText.V2) + " "; // un seul caractère de différence
+        s.Overview = historical;
         r.Seen.TryMarkSeen("1");
         r.Service.OnPass(r.Snapshot("1"));
-        Assert.Equal(HelpText.V1 + " ", s.Overview);
+        Assert.Equal(historical, s.Overview);
     }
 
     [Fact]
-    public void GatewayApplyDefaults_ReplacesOnlyIfStillExactlyV1AtWriteTime()
+    public void GatewayApplyDefaults_ReplacesOnlyIfStillExactlyTheExpectedTextAtWriteTime()
     {
         // Test direct du port (OverviewChange), indépendant de DefaultsService : la ré-vérification se fait DANS
         // ApplyDefaults, au moment de l'écriture, jamais sur une valeur lue avant.
         var r = new Rig();
         var s = r.Gateway.Add("1");
         s.Overview = "le propriétaire a déjà écrit autre chose";
-        var result = r.Gateway.ApplyDefaults("1", Array.Empty<MarkerFamily>(), new OverviewChange(HelpText.V1, HelpText.V2));
+        var result = r.Gateway.ApplyDefaults("1", Array.Empty<MarkerFamily>(), new OverviewChange(HelpText.V2, HelpText.V3));
         Assert.False(result.OverviewWritten);
         Assert.Equal("le propriétaire a déjà écrit autre chose", s.Overview);
 
-        s.Overview = HelpText.V1;
-        result = r.Gateway.ApplyDefaults("1", Array.Empty<MarkerFamily>(), new OverviewChange(HelpText.V1, HelpText.V2));
+        s.Overview = HelpText.V2;
+        result = r.Gateway.ApplyDefaults("1", Array.Empty<MarkerFamily>(), new OverviewChange(HelpText.V2, HelpText.V3));
         Assert.True(result.OverviewWritten);
-        Assert.Equal(HelpText.V2, s.Overview);
+        Assert.Equal(HelpText.V3, s.Overview);
     }
 }

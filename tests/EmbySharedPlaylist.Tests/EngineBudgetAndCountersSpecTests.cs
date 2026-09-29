@@ -30,7 +30,7 @@ public class ReadRemovalEngineBudgetSpecTests
 
         public FakeGateway.State Playlist(string id, params string[] items)
         {
-            var s = Gateway.Add(id, "remove-si-lu=OUI");
+            var s = Gateway.Add(id, "remove-si-lu=OUI", "propager-lu=OUI");   // v1.2.0 (D21) : le retrait exige propager-lu=OUI
             s.Overview = "déjà";
             s.Members = new List<string> { "o", "m" };
             s.Items = items.ToList();

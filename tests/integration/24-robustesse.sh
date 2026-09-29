@@ -173,6 +173,7 @@ i44() {
   fakeitem="99999999999"
   pl=$(shared_pl "SPIKE-I44" "$(next_media)"); prime "$pl" || true
   set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
+  set_marker_state "$pl" propager-avancement oui   # v1.2.0 : l'avancement visé ci-dessous relève de sa propre famille
   st=$(api POST "/Playlists/$pl/Items?Ids=$fakeitem&UserId=$U1" "" "$T1")
   if [[ $st != 2* ]]; then
     skip I44 "Emby refuse d'ajouter un itemId inexistant à une playlist (HTTP $st) : simulation D-d non réalisable via cette API sur ce serveur"
@@ -239,7 +240,7 @@ i47() {
   for ((i=0; i<n; i++)); do
     pl=$(shared_pl "SPIKE-I47-$i" "$shared_item")
     prime "$pl" || true
-    set_marker_state "$pl" remove-si-lu oui; set_marker_state "$pl" propager-lu non
+    set_marker_state "$pl" remove-si-lu oui; set_marker_state "$pl" propager-lu oui   # v1.2.0 (D21) : le retrait exige propager-lu=OUI
     pls+=("$pl")
   done
   jclear

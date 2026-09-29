@@ -21,7 +21,8 @@ cat > "$W/bin/kubectl" <<'K'
 [[ "$*" == *logs* ]] && echo "Info tout va bien"
 K
 chmod +x "$W/bin/kubectl"
-# V1 exact (le seul « fonction à venir » restant) : stub HelpText.cs lu par I25 via $ROOT/src/... (pas de #51 réel ici).
+# V1/V2/V3 exacts (marqueurs « fonction à venir », « aussi propagé », « Trois étiquettes ») : stub HelpText.cs lu par I25 via
+# $ROOT/src/... (pas de HelpText réel ici) ; le faux moteur remplace V1 et V2 par V3 (causes v1-to-v3 / v2-to-v3, v1.2.0).
 cat > "$W/src/EmbySharedPlaylist/Reconciliation/HelpText.cs" <<'CS'
 namespace EmbySharedPlaylist.Reconciliation;
 public static class HelpText
@@ -31,6 +32,19 @@ public static class HelpText
         "Deux étiquettes (Modifier les métadonnées > Mot-clé) règlent son comportement. Elles sont à NON par défaut : rien ne change.\n" +
         "- remove-si-lu=OUI : un média qui passe à « lu » est retiré de la playlist.\n" +
         "- propager-lu=OUI : l'état de lecture (lu, avancement) est propagé aux autres membres (fonction à venir).\n" +
+        "Pour activer une option, remplacez NON par OUI : ajoutez l'étiquette « ...=OUI » et retirez « ...=NON » (si les deux sont présentes, NON l'emporte).";
+    public const string V2 =
+        "Playlist partagée gérée par Emby Shared Playlist.\n" +
+        "Deux étiquettes (Modifier les métadonnées > Mot-clé) règlent son comportement. Elles sont à NON par défaut : rien ne change.\n" +
+        "- remove-si-lu=OUI : un média qui passe à « lu » est retiré de la playlist.\n" +
+        "- propager-lu=OUI : quand un média est lu par un membre, le flag « lu » est posé chez les autres ; l'avancement de lecture (position, pause) est aussi propagé.\n" +
+        "Pour activer une option, remplacez NON par OUI : ajoutez l'étiquette « ...=OUI » et retirez « ...=NON » (si les deux sont présentes, NON l'emporte).";
+    public const string V3 =
+        "Playlist partagée gérée par Emby Shared Playlist.\n" +
+        "Trois étiquettes (Modifier les métadonnées > Mot-clé) règlent son comportement. Elles sont à NON par défaut : rien ne change.\n" +
+        "- propager-lu=OUI : quand un membre passe un média à « lu », le « lu » est posé chez les autres membres.\n" +
+        "- remove-si-lu=OUI : un média qui passe à « lu » est retiré de la playlist (seulement si propager-lu=OUI).\n" +
+        "- propager-avancement=OUI : la position de lecture (pause, arrêt) est recopiée chez les autres membres, sans toucher au « lu ».\n" +
         "Pour activer une option, remplacez NON par OUI : ajoutez l'étiquette « ...=OUI » et retirez « ...=NON » (si les deux sont présentes, NON l'emporte).";
 }
 CS
@@ -61,7 +75,7 @@ status_of() { jq -r --arg id "$1" '[.results[]|select(.id==$id)|.status]|first /
 
 echo "== 1. moteur conforme : tous scénarios sauf I26 (régression testée séparément)"
 run ok I18 I19 I20 I21 I22 I23 I24 I25
-[[ $RC == 0 ]] && ok "code 0 (aucun KO)" || { ko "rc=$RC"; echo "$OUT" | grep -E "^  \[KO\]" | head -30; }
+[[ $RC == 0 ]] && ok "code 0 (aucun KO)" || { ko "rc=$RC"; echo "$OUT" | tail -30; }
 for id in I18.A.removed I18.A.propagated I18.C.removed I18.C.propagated I18.E.removed I18.E.propagated \
           I19.unchanged I19.othernew I19.aggregate I19.permember \
           I20.others I20.aggregate I20.permember I20.noerror \
@@ -69,12 +83,18 @@ for id in I18.A.removed I18.A.propagated I18.C.removed I18.C.propagated I18.E.re
           I23.S6a.L1removed I23.S6a.L2untouched I23.S6a.propagation I23.S6a.noecho I23.S6a.nojournalL2 \
           I23.S6b.bothremoved I23.S6b.bothpropagated I23.S6c.L2removed I23.S6c.L1untouched I23.S6c.notouch \
           I24.propagated I24.echoconsumed I24.once \
-          I25.replaced I25.journal I25.stillhelp I25.novenir I25.idempotent I25.untouched I25.alreadyV2 PROTECTED; do
+          I25.replaced I25.journal I25.nov1v2 I25.stillhelp I25.novenir I25.idempotent I25.v2replaced I25.v2journal I25.untouched I25.alreadyV3 PROTECTED; do
   [[ $(status_of "$id") == OK ]] || ko "$id : $(status_of "$id")"
 done
 [[ $fail == 0 ]] && ok "tous les identifiants clés sont OK"
 ok "I20 exécuté (le compte restreint est créé par le scénario lui-même, plus de SKIP possible)"
 [[ $(jq -e '[.[]|select(.Name=="test_u4")]|length' <<<"$USERS_AFTER") == 0 ]] && ok "test_u4 n'existe plus après le run (créé ET nettoyé dans le même run)" || ko "test_u4 encore présent après le run : fuite de compte"
+
+echo "== 1b. défaut v1.2.0 : retrait SANS propager-lu (retraitseul, comportement v0.2.0-v1.1.0) : la matrice I18 (lignes E/F/G) le détecte"
+run retraitseul I18
+[[ $RC == 1 ]] && ok "code 1" || ko "rc=$RC"
+[[ $(status_of I18.E.removed) == KO ]] && ok "I18.E.removed : KO (remove-si-lu=OUI seul retire encore : D21/S3b non appliqué)" || ko "I18.E.removed : $(status_of I18.E.removed)"
+[[ $(status_of I18.C.removed) == OK ]] && ok "I18.C.removed : OK (les deux actives : retrait attendu)" || ko "I18.C.removed : $(status_of I18.C.removed)"
 
 echo "== 2. moteur qui ne retire jamais (noremove) : matrice I18 détecte le défaut"
 run noremove I18

@@ -199,7 +199,7 @@ owner_edit() { # PLAYLIST AJOUTS_JSON RETRAITS_JSON [OVERVIEW_JSON] [OWNER_UID] 
 }
 # étiquettes de la famille en minuscules exactes (posées par le plugin)
 
-# set_marker_state PLAYLIST FAMILLE(remove-si-lu|propager-lu) ETAT(none|non|oui|both) [OWNER_UID] [OWNER_TOK] :
+# set_marker_state PLAYLIST FAMILLE(remove-si-lu|propager-lu|propager-avancement) ETAT(none|non|oui|both) [OWNER_UID] [OWNER_TOK] :
 # atteint l'état en UNE édition du propriétaire (ajoute/retire ce qu'il faut ; ne touche jamais à l'autre famille
 # ni aux étiquettes du propriétaire). UID/TOK optionnels transmis à owner_edit (défaut test_u1, comportement
 # inchangé pour tous les appels existants) — nécessaires pour une playlist dont le propriétaire n'est pas
@@ -338,15 +338,16 @@ cleanup_registered_playlists() {
 }
 
 NON_RM='remove-si-lu=NON'; NON_PR='propager-lu=NON'; OUI_RM='remove-si-lu=OUI'; OUI_PR='propager-lu=OUI'
+NON_AV='propager-avancement=NON'; OUI_AV='propager-avancement=OUI'   # v1.2.0 (#56, D21) : 3e famille, indépendante de propager-lu
 has_tag() { jq -e --arg t "$2" 'index($t)!=null' <<<"$1" >/dev/null; }
 tag_count() { jq -r --arg f "$2" '[.[]|select(ascii_downcase|gsub("\\s+";"")|startswith($f))]|length' <<<"$1"; }
 
-# prime PLAYLIST : passe de réconciliation => première détection (les deux NON + message) ; attend qu'ils soient là
+# prime PLAYLIST : passe de réconciliation => première détection (les TROIS NON depuis v1.2.0 + message) ; attend qu'ils soient là
 prime() {
   run_pass || die "passe de réconciliation non terminée en 60 s"
   local i; for ((i=0; i<10; i++)); do
     local t; t=$(tags_of "$1")
-    if has_tag "$t" "$NON_RM" && has_tag "$t" "$NON_PR" && [[ -n $(overview_of "$1") ]]; then return 0; fi
+    if has_tag "$t" "$NON_RM" && has_tag "$t" "$NON_PR" && has_tag "$t" "$NON_AV" && [[ -n $(overview_of "$1") ]]; then return 0; fi
     nap 1
   done; return 1
 }
@@ -360,7 +361,8 @@ unmark() { api DELETE "/Users/$1/PlayedItems/$3" "" "$2" >/dev/null; }
 # scénario, contrairement à assert_baseline qui ne remet que le lu) : un bassin de médias partagé entre les 3
 # scripts ET entre invocations séparées (QUALIF) peut porter un résidu (lu, position) d'un run précédent — cause
 # racine confirmée d'I27/I28/I33/I34/I18.E/I18.G (qa-integration-v031-20260927-210414-verified.md) : la garde D-c
-# faisait alors exactement son travail (refuser de propager pour un compte déjà lu à l'instant de l'événement),
+# faisait alors exactement son travail (refuser de propager pour un compte déjà lu à l'instant de l'événement ;
+# garde SUPPRIMÉE en v1.2.0, #57 : le résidu ne bloque plus la position, mais reste un état de départ à normaliser),
 # ce n'était pas un défaut du plugin. DELETE PlayedItems remet Played=false (ne propage jamais, R6) ; un
 # aller-retour Playing/Stopped à ticks=0 remet la position à 0 SANS jamais franchir le seuil de 30 s (#45) :
 # TryExtract rejette l'événement avant même d'atteindre le moteur — aucune propagation ne peut être déclenchée
@@ -419,4 +421,18 @@ bg_call() { # ID TAG METHODE CHEMIN [CORPS] [TOKEN]
   ( CFG="$SCRATCH/bg.$id.cfg"; RESP="$SCRATCH/bg.$id.resp"; BODYF="$SCRATCH/bg.$id.body"
     tag=$1; shift; t0=$(now_ms); st=$(api "$@"); t1=$(now_ms)
     echo "$st" > "$SCRATCH/bg.$id.st"; echo $((t1-t0)) >> "$SCRATCH/ms.$tag"; echo $((t1-t0)) >> "$SCRATCH/ms.ALL" ) &
+}
+
+# --- v1.2.0 (#56, #57, D21) : trois familles indépendantes ------------------------------------------------------
+# enable_removal PLAYLIST [OWNER_UID] [OWNER_TOK] : active le retrait EFFECTIF = remove-si-lu=OUI ET propager-lu=OUI
+# (R4a subordonnée à propager-lu depuis v1.2.0 : remove-si-lu=OUI SEUL ne retire plus rien, S3b). Une seule édition.
+enable_removal() {
+  local pl=$1 ouid=${2:-$U1} otok=${3:-$T1}
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]" "__keep__" "$ouid" "$otok"
+}
+# enable_avancement PLAYLIST [OWNER_UID] [OWNER_TOK] : active la propagation de la position (propager-avancement=OUI),
+# sans toucher aux deux autres familles (avancement indépendant du lu).
+enable_avancement() {
+  local pl=$1 ouid=${2:-$U1} otok=${3:-$T1}
+  owner_edit "$pl" "[\"$OUI_AV\"]" "[\"$NON_AV\"]" "__keep__" "$ouid" "$otok"
 }

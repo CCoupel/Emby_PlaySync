@@ -3,15 +3,19 @@
 # (QUALIF UNIQUEMENT). À exécuter par qa après déploiement du plugin ; jamais depuis un poste sans avoir
 # vérifié la cible.
 #
-# Propage la POSITION de lecture (`PlaybackPositionTicks`) aux autres membres d'une playlist gérée, avec le
-# même marqueur que le lu (`propager-lu=OUI`), déclenchée par `ISessionManager.PlaybackProgress` (pause :
-# transition IsPaused false->true) et `.PlaybackStopped` (systématique) — PAS par UserDataSaved. Dernier écrit
-# gagne, aucun seuil de ratio (une position à 95-99 % non lue est propagée normalement) ; seule garde : l'état
-# lu CONNU à l'instant de l'événement (si déjà lu, aucune position n'est propagée, la règle du lu prend le relais).
+# Propage la POSITION de lecture (`PlaybackPositionTicks`) aux autres membres d'une playlist gérée, avec la famille
+# `propager-avancement` (v1.2.0, D21 ; jusqu'à v1.1.0 c'était `propager-lu`, qui ne couvre plus que le flag lu), déclenchée
+# par `ISessionManager.PlaybackProgress` (pause : transition IsPaused false->true) et `.PlaybackStopped` (systématique) — PAS
+# par UserDataSaved. Dernier écrit gagne, aucun seuil de ratio ; seuil minimal 30 s = POSITION ABSOLUE dans le média (pas une
+# durée de lecture). v1.2.0 (#57) : la garde « média déjà lu pour le déclencheur » (D-c, `trigger-already-played`) est
+# SUPPRIMÉE : la position est propagée quel que soit l'état lu (relecture d'un média lu comprise, I38) ; écriture BRUTE de la
+# position (jamais Played/PlayCount) ; le flux du lu (tableau A) et celui de l'avancement (tableau B) sont indépendants
+# (I32/I40). I39 mesure sur QUALIF le « lu » natif éventuel chez le membre (spike U14b) et vérifie qu'il ne déclenche AUCUN
+# retrait dans les autres listes (S6).
 #
 # Prérequis : tests/integration/00-setup-users.sh exécuté (test_u1 propriétaire, test_u2 Write, test_u3 Read) ;
-# >= 11 médias (>= 10 min, comme le reste de la suite). I36 (R8) crée puis nettoie LUI-MÊME test_u4 dans ce
-# même run (comme I20 en v0.3.0).
+# >= 11 médias (>= 10 min, comme le reste de la suite ; la bibliothèque de QUALIF en compte 13 : I38/I39/I40 repartent d'un
+# bassin remis à zéro, fresh_pool). I36 (R8) crée puis nettoie LUI-MÊME test_u4 dans ce même run (comme I20 en v0.3.0).
 # Usage : tests/integration/22-avancement.sh [I27 I33 …]   (sans liste : tous les scénarios)
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/int-lib.sh"
@@ -66,6 +70,11 @@ mapfile -t M < <(jq -r '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|.Id][0:
 reset_pool_full "${M[@]}"   # remise à zéro complète (lu+position) : un run précédent (même script, même invocation séparée) ne doit rien laisser
 echo "  [OK] bassin de ${#M[@]} médias remis à zéro (lu=false, position=0)"
 echo 0 > "$SCRATCH/next_m"
+fresh_pool() {   # I38-I40 (v1.2.0) : la bibliothèque de QUALIF (13 médias) est épuisée par I27-I37 ; on repart d'un bassin propre
+  drop_playlists                      # plus aucune playlist des scénarios précédents ne doit réagir aux événements suivants
+  reset_pool_full "${M[@]}"           # lu=false, position=0 pour tous les médias et comptes de test
+  echo 0 > "$SCRATCH/next_m"
+}
 next_media() {   # un média frais par sous-cas ; pas de recyclage (11 suffisent largement sur les 13 disponibles)
   local n; n=$(cat "$SCRATCH/next_m")
   [[ $n -lt ${#M[@]} ]] || die "next_media : plus de médias disponibles (>${#M[@]} demandés)"
@@ -84,7 +93,7 @@ i27() {
   local pl item p1t p2t sid pu1 pu2 j
   pl=$(shared_pl "SPIKE-I27" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
-  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-avancement oui
   p1t=$(ticks_at "$item" 20)   # ~ « 10 min » de l'énoncé (pourcentage de la durée réelle, portable quelle que soit sa longueur)
   jclear
   sid=$(play_start "$U1" "$T1" "$item")
@@ -110,14 +119,14 @@ i27() {
 }
 
 i29() {
-  echo "== I29 — quatre états du marqueur propager-lu (arrêt)"
+  echo "== I29 — quatre états du marqueur propager-avancement (arrêt) + propager-lu seul (BREAKING v1.2.0 : ne propage plus la position)"
   local -a ROWS=("A none false" "B non false" "C oui true" "D both false")
   local row id state expect pl item p pos
   for row in "${ROWS[@]}"; do
     read -r id state expect <<<"$row"
     pl=$(shared_pl "SPIKE-I29-$id" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
     prime "$pl" || true
-    set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu "$state"
+    set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-avancement "$state"
     p=$(ticks_at "$item" 40)
     jclear
     apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s","PlayMethod":"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
@@ -125,13 +134,23 @@ i29() {
     if [[ $expect == true ]]; then
       wait_position "$U1" "$T1" "$item" "$p" 10 || true   # attente active (#47) : positif, doit se produire
       pos=$(position_of "$U1" "$T1" "$item")
-      ck "I29.$id" "propager-lu=$state : propagation active => u1 reçoit la position ($p)" "{\"u1\":\"$pos\"}" test "$pos" = "$p"
+      ck "I29.$id" "propager-avancement=$state : propagation active => u1 reçoit la position ($p)" "{\"u1\":\"$pos\"}" test "$pos" = "$p"
     else
       nap 2   # négatif (rien ne doit se produire) : fenêtre fixe volontaire, pas d'attente active (cf. stays())
       pos=$(position_of "$U1" "$T1" "$item")
-      ck "I29.$id" "propager-lu=$state : inactif => aucune écriture (u1 reste à 0)" "{\"u1\":\"$pos\"}" test "$pos" = 0
+      ck "I29.$id" "propager-avancement=$state : inactif => aucune écriture (u1 reste à 0)" "{\"u1\":\"$pos\"}" test "$pos" = 0
     fi
   done
+  # E (v1.2.0, BREAKING) : propager-lu=OUI SEUL (propager-avancement=NON) n'active PAS la position — l'avancement n'est plus hérité du lu.
+  pl=$(shared_pl "SPIKE-I29-E" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
+  prime "$pl" || true
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui; set_marker_state "$pl" propager-avancement non
+  p=$(ticks_at "$item" 40)
+  jclear
+  apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"sE",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
+  apiok '2*' POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --argjson p "$p" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"sE",PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$T2"
+  nap 2
+  ck "I29.E" "propager-lu=OUI seul (avancement=NON) : la position N'EST PLUS propagée (u1 reste à 0)" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\"}" test "$(position_of "$U1" "$T1" "$item")" = 0
 }
 
 i30() {
@@ -139,7 +158,7 @@ i30() {
   local pl item p j
   pl=$(shared_pl "SPIKE-I30" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
-  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-avancement oui
   p=$((TICKS_30S - 50000000))   # 25 s : sous le seuil
   jclear
   apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s30",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
@@ -155,7 +174,7 @@ i31() {
   local pl item p j n1
   pl=$(shared_pl "SPIKE-I31" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
-  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-avancement oui
   p=$(ticks_at "$item" 35)
   jclear
   apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s31a",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
@@ -173,16 +192,16 @@ i31() {
 }
 
 i32() {
-  echo "== I32 — média devenu lu : aucune position propagée (règle du lu prioritaire, retrait/lu inchangés)"
+  echo "== I32 — média devenu lu (S9e) : le flux du lu (retrait + lu) est indépendant de l'avancement — aucune position écrite par le plugin (avancement=NON)"
   local pl item j
   pl=$(shared_pl "SPIKE-I32" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
-  set_marker_state "$pl" remove-si-lu oui; set_marker_state "$pl" propager-lu oui
+  set_marker_state "$pl" remove-si-lu oui; set_marker_state "$pl" propager-lu oui   # propager-avancement reste NON (posée par prime)
   jclear
   finish "$U2" "$T2" "$item"   # transition non lu -> lu (TogglePlayed), comme #12/#20
   ck I32.removed "retrait toujours actif (#12, régression)" "null" wait_count "$pl" "$item" 0 10   # attente active : retrait et propagation du lu partagent la même passe synchrone
   ck I32.propagatedplayed "flag lu toujours propagé (#20, régression)" "null" test "$(played_of "$U1" "$T1" "$item")" = true
-  ck I32.noposition "AUCUNE position propagée (u1 reste à 0)" "null" test "$(position_of "$U1" "$T1" "$item")" = 0
+  ck I32.noposition "AUCUNE position écrite par le plugin (avancement=NON ; propager-lu ne touche jamais la position, R4b)" "null" test "$(position_of "$U1" "$T1" "$item")" = 0
   j=$(journal "PositionPropagation")
   ck I32.nojournal "aucune entrée PositionPropagation" "$j" test "$(jcount "$j" "$pl" PositionPropagation)" = 0
 }
@@ -194,8 +213,8 @@ i33() {
   L1=$(new_pl "SPIKE-I33-L1" "$item"); share_pl_one "$L1" "$U2" Write   # L1 = {u1, u2 SEUL}
   L2=$(new_pl "SPIKE-I33-L2" "$item"); share_pl_one "$L2" "$U3" Write   # L2 = {u1, u3 SEUL}
   prime "$L1" || true; prime "$L2" || true
-  set_marker_state "$L1" remove-si-lu non; set_marker_state "$L1" propager-lu oui
-  set_marker_state "$L2" remove-si-lu non; set_marker_state "$L2" propager-lu oui
+  set_marker_state "$L1" remove-si-lu non; set_marker_state "$L1" propager-avancement oui
+  set_marker_state "$L2" remove-si-lu non; set_marker_state "$L2" propager-avancement oui
   p=$(ticks_at "$item" 30)
   jclear
   apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s33",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
@@ -209,30 +228,22 @@ i33() {
 }
 
 i37() {
-  echo "== I37 — garde D-c (S1 code-reviewer) : arrêt à ratio élevé (~96%) NON lu à l'instant -> position propagée normalement (pas de marge de ratio, décision v3)"
-  local pl item p pu1 u2played j n
+  echo "== I37 — D-c SUPPRIMÉE (#57, S9f) : arrêt à ratio élevé (~96%) => position propagée normalement, quel que soit l'état lu, aucun Skipped trigger-already-played"
+  local pl item p pu1 u2played j
   pl=$(shared_pl "SPIKE-I37" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
-  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-avancement oui
   p=$(ticks_at "$item" 96)
   jclear
   apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s37",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
   apiok '2*' POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --argjson p "$p" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s37",PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$T2"
   wait_position "$U1" "$T1" "$item" "$p" 10 || true
-  u2played=$(played_of "$U2" "$T2" "$item")
+  u2played=$(played_of "$U2" "$T2" "$item")   # informatif : Emby peut marquer lu u2 lui-même à cet arrêt ; SANS INFLUENCE sur la propagation depuis v1.2.0
   pu1=$(position_of "$U1" "$T1" "$item")
-  if [[ $pu1 == "$p" ]]; then
-    rec I37 OK "arrêt à 96% (u2Played=$u2played à l'issue) : position propagée normalement chez u1 — garde D-c respectée (pas de marge de ratio)" "{\"u2Played\":\"$u2played\",\"u1\":\"$pu1\"}"
-  elif [[ $u2played == true ]]; then
-    skip I37 "u2 est marqué lu (IsPlayed=true) à l'issue de cet arrêt à 96% : sur CE serveur, Emby semble avoir posé le lu avant que le moteur ne lise IsPlayed pour la garde D-c, qui a donc légitimement bloqué la propagation (le lu a gagné la course, comportement documenté par construction) — À CONFIRMER : rejouer à un ratio plus bas si besoin (I31 à 50% est déjà OK) et noter dans MANUAL.md le seuil exact où Sessions/Playing/Stopped marque seul le lu sur QUALIF" "{\"u2Played\":\"$u2played\",\"u1\":\"$pu1\",\"expected\":$p}"
-  else
-    j=$(journal "Error"); n=$(jcount "$j" "$pl" Error)
-    if [[ $n -gt 0 ]]; then
-      rec I37 KO "u2 n'est PAS marqué lu et pourtant une entrée Error a été journalisée" "$j"
-    else
-      rec I37 KO "u2 n'est PAS marqué lu (IsPlayed=false) mais la position n'a PAS été propagée chez u1 : violation de la garde D-c (aucune marge de ratio n'est censée s'appliquer)" "{\"u2Played\":\"$u2played\",\"u1\":\"$pu1\",\"expected\":$p}"
-    fi
-  fi
+  ck I37 "arrêt à 96% (u2Played=$u2played à l'issue) : position propagée chez u1 dans TOUS les cas (plus aucune garde sur l'état lu)" "{\"u2Played\":\"$u2played\",\"u1\":\"$pu1\",\"expected\":$p}" test "$pu1" = "$p"
+  j=$(journal "Skipped,Error")
+  ck I37.noguard "aucun Skipped trigger-already-played (la garde n'existe plus)" "$j" test "$(jcount "$j" "$pl" Skipped 'trigger-already-played')" = 0
+  ck I37.noerror "aucune entrée Error" "$j" test "$(jcount "$j" "$pl" Error)" = 0
   drop_item "$pl" "$item"
 }
 
@@ -241,7 +252,7 @@ i34() {
   local pl item p sid pu1 st1 st2
   pl=$(shared_pl "SPIKE-I34" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
-  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-avancement oui
   p=$(ticks_at "$item" 45)
   jclear
   sid=$(play_start "$U2" "$T2" "$item")
@@ -271,7 +282,7 @@ i35() {
   local pl item sid i
   pl=$(shared_pl "SPIKE-I35" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
-  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-avancement oui
   jclear
   sid=$(play_start "$U2" "$T2" "$item")
   for ((i=1; i<=10; i++)); do
@@ -290,7 +301,7 @@ i36() {
   pl=$(shared_pl "SPIKE-I36" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
   apiok 204 POST /Items/Access "$(jq -nc --arg p "$pl" --arg u "$U4" '{ItemIds:[$p],UserIds:[$u],ItemAccess:"Read"}')" "$T1"
-  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-avancement oui
   p=$(ticks_at "$item" 40)
   jclear
   apiok '2*' POST /Sessions/Playing "$(jq -nc --arg i "$item" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:"s36",PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$T2"
@@ -306,7 +317,97 @@ i36() {
   cleanup_restricted_user
 }
 
-ALL=(I27 I29 I30 I31 I32 I33 I37 I34 I35 I36)
+i38() {
+  echo "== I38 (smoke, critical) — S9d (#57) : relecture d'un média DÉJÀ LU => pause et arrêt propagés, flag lu intact, aucune transition"
+  fresh_pool
+  local pl item p20 p45 sid pu1 j
+  pl=$(shared_pl "SPIKE-I38" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
+  prime "$pl" || true
+  finish "$U1" "$T1" "$item"; finish "$U2" "$T2" "$item"      # F1 déjà lu par u1 ET u2 (familles encore à NON : aucun effet du moteur)
+  wait_played "$U1" "$T1" "$item" true 5 || true; wait_played "$U2" "$T2" "$item" true 5 || true
+  set_marker_state "$pl" propager-lu oui; set_marker_state "$pl" propager-avancement oui; set_marker_state "$pl" remove-si-lu non
+  p20=$(ticks_at "$item" 20); p45=$(ticks_at "$item" 45)
+  jclear
+  sid=$(play_start "$U2" "$T2" "$item")                        # u2 relit F1 (déjà lu)
+  play_progress "$U2" "$T2" "$item" "$sid" "$(ticks_at "$item" 10)" false >/dev/null
+  nap 1
+  play_progress "$U2" "$T2" "$item" "$sid" "$p20" true >/dev/null      # PAUSE à 20 %
+  wait_position "$U1" "$T1" "$item" "$p20" 10 || true
+  ck I38.pause "pause de u2 sur un média déjà lu : position propagée chez u1 (malgré l'état lu, la garde D-c n'existe plus)" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\",\"expected\":$p20}" test "$(position_of "$U1" "$T1" "$item")" = "$p20"
+  play_stop "$U2" "$T2" "$item" "$sid" "$p45" >/dev/null                # ARRÊT à 45 %
+  wait_position "$U1" "$T1" "$item" "$p45" 10 || true
+  pu1=$(position_of "$U1" "$T1" "$item")
+  ck I38.stop "arrêt à 45 % : position propagée chez u1" "{\"u1\":\"$pu1\",\"expected\":$p45}" test "$pu1" = "$p45"
+  ck I38.flags "le flag lu de u1 reste vrai (l'avancement ne touche jamais au lu, aucun PlayCount écrit)" "null" test "$(played_of "$U1" "$T1" "$item")" = true
+  ck I38.stays "aucune transition (R4c) : le média reste dans la playlist" "null" stays "$pl" "$item" 1 3
+  j=$(journal "PositionPropagation,Skipped,Removal,Propagation")
+  ck I38.journal "au moins 2 PositionPropagation (pause + arrêt)" "$j" test "$(jcount "$j" "$pl" PositionPropagation)" -ge 2
+  ck I38.noguard "aucun Skipped trigger-already-played" "$j" test "$(jcount "$j" "$pl" Skipped 'trigger-already-played')" = 0
+  ck I38.norm "aucun Removal ni Propagation du lu (relecture : pas de transition)" "$j" test "$(jcount "$j" "$pl" Removal)/$(jcount "$j" "$pl" Propagation)" = "0/0"
+}
+
+i39() {
+  echo "== I39 — S9f / spike U14b : arrêt à ~99,5 % avec propager-lu=NON ; le « lu » natif éventuel chez u1 est d'ORIGINE PLUGIN (aucun retrait, y compris dans une AUTRE liste de u1, S6)"
+  local L1 L2 item p pu1 p1played skb ska
+  item=$(next_media)
+  L1=$(new_pl "SPIKE-I39-L1" "$item"); share_pl_one "$L1" "$U2" Write   # L1 = {u1, u2}
+  L2=$(new_pl "SPIKE-I39-L2" "$item"); share_pl_one "$L2" "$U3" Write   # L2 = {u1, u3} : u1 est membre des DEUX
+  prime "$L1" || true; prime "$L2" || true
+  set_marker_state "$L1" remove-si-lu oui; set_marker_state "$L1" propager-lu non; set_marker_state "$L1" propager-avancement oui
+  set_marker_state "$L2" remove-si-lu oui; set_marker_state "$L2" propager-lu oui; set_marker_state "$L2" propager-avancement non
+  p=$(ticks_at "$item" 99); p=$((p + (p/100)/2))   # ~99,5 %
+  skb=$(state | jq -r '.skippedCounts["echo-consumed"] // 0')
+  jclear
+  local sid; sid=$(play_start "$U2" "$T2" "$item")
+  play_progress "$U2" "$T2" "$item" "$sid" "$(ticks_at "$item" 50)" false >/dev/null
+  play_stop "$U2" "$T2" "$item" "$sid" "$p" >/dev/null                  # u2 termine F1 : Emby peut poser Lu chez u2 (transition), position remise à 0 chez u2
+  wait_position "$U1" "$T1" "$item" "$p" 10 || true
+  nap 4                                                                  # laisse un éventuel événement « lu » natif se manifester chez u1
+  pu1=$(position_of "$U1" "$T1" "$item"); p1played=$(played_of "$U1" "$T1" "$item"); ska=$(state | jq -r '.skippedCounts["echo-consumed"] // 0')
+  ck I39.position "position brute écrite chez u1 (L1, avancement=OUI ; aucune règle de fin appliquée par le plugin)" "{\"u1\":\"$pu1\",\"expected\":$p}" test "$pu1" = "$p"
+  ck I39.l1_stays "L1 (propager-lu=NON) : aucun retrait (D21, S3b) — le média reste" "null" test "$(count_item "$L1" "$item")" = 1
+  ck I39.s6 "S6 : le « lu » natif éventuel de u1 (origine plugin) ne retire RIEN de L2 (remove-si-lu=OUI + propager-lu=OUI, u1 membre) — sinon violation de S6/R5, à BLOQUER" "{\"u1Played\":\"$p1played\"}" test "$(count_item "$L2" "$item")" = 1
+  ck I39.no_lu_chain "aucun lu propagé à u3 par cette écriture (pas de transitivité)" "null" test "$(played_of "$U3" "$T3" "$item")" = false
+  rec I39.u14b OK "OBSERVATION U14b (pas une assertion) : u1 Played=$p1played après une position brute à ~99,5 % ; echo-consumed +$((ska-skb)) ; attendu par la spec tant que non prouvé : Played=false (« Reprendre à 99 % »)" "{\"u1Played\":\"$p1played\",\"u1Position\":\"$pu1\",\"echoConsumedDelta\":$((ska-skb))}"
+  drop_item "$L1" "$item"; drop_item "$L2" "$item"
+}
+
+i40() {
+  echo "== I40 — S9e : flux indépendants — avancement sans lu, et lu sans avancement"
+  fresh_pool
+  local plA plB itemA itemB p pos
+  plA=$(shared_pl "SPIKE-I40-A" "$(next_media)"); itemA=$(entries "$plA" | jq -r '.[0].itemId')
+  plB=$(shared_pl "SPIKE-I40-B" "$(next_media)"); itemB=$(entries "$plB" | jq -r '.[0].itemId')
+  prime "$plA" || true; prime "$plB" || true
+  # A : propager-avancement=OUI SEULE => l'arrêt propage la position ; terminer le média ne pose AUCUN lu et ne retire rien
+  set_marker_state "$plA" remove-si-lu oui; set_marker_state "$plA" propager-lu non; set_marker_state "$plA" propager-avancement oui
+  p=$(ticks_at "$itemA" 30)
+  local sid; sid=$(play_start "$U2" "$T2" "$itemA")
+  play_progress "$U2" "$T2" "$itemA" "$sid" "$(ticks_at "$itemA" 15)" false >/dev/null
+  play_stop "$U2" "$T2" "$itemA" "$sid" "$p" >/dev/null
+  wait_position "$U1" "$T1" "$itemA" "$p" 10 || true
+  ck I40.A.position "A (avancement seul) : l'arrêt à 30 % propage la position chez u1" "null" test "$(position_of "$U1" "$T1" "$itemA")" = "$p"
+  finish "$U2" "$T2" "$itemA"   # u2 termine F1 (transition vers lu)
+  nap 3
+  ck I40.A.nolu "A : terminer le média ne propage PAS le lu (propager-lu=NON)" "null" test "$(played_of "$U1" "$T1" "$itemA")" = false
+  ck I40.A.stays "A : remove-si-lu=OUI sans propager-lu => aucun retrait (S3b)" "null" stays "$plA" "$itemA" 1 3
+  # B : propager-lu=OUI SEULE => le lu est propagé, aucune position n'est écrite par le plugin
+  set_marker_state "$plB" remove-si-lu non; set_marker_state "$plB" propager-lu oui; set_marker_state "$plB" propager-avancement non
+  p=$(ticks_at "$itemB" 30)
+  sid=$(play_start "$U2" "$T2" "$itemB")
+  play_progress "$U2" "$T2" "$itemB" "$sid" "$(ticks_at "$itemB" 15)" false >/dev/null
+  play_stop "$U2" "$T2" "$itemB" "$sid" "$p" >/dev/null
+  nap 2
+  ck I40.B.nopos "B (lu seul) : l'arrêt à 30 % n'écrit aucune position chez u1" "null" test "$(position_of "$U1" "$T1" "$itemB")" = 0
+  finish "$U2" "$T2" "$itemB"
+  wait_played "$U1" "$T1" "$itemB" true 10 || true
+  ck I40.B.lu "B : terminer le média pose le lu chez u1 (R4b)" "null" test "$(played_of "$U1" "$T1" "$itemB")" = true
+  pos=$(position_of "$U1" "$T1" "$itemB")
+  ck I40.B.stillnopos "B : la propagation du lu n'écrit toujours aucune position chez u1" "{\"u1\":\"$pos\"}" test "$pos" = 0
+  ck I40.B.stays "B : remove-si-lu=NON => le média reste" "null" stays "$plB" "$itemB" 1 3
+}
+
+ALL=(I27 I29 I30 I31 I32 I33 I37 I34 I35 I36 I38 I39 I40)
 if [[ ${#WANT[@]} -eq 0 ]]; then WANT=("${ALL[@]}"); fi
 for s in "${WANT[@]}"; do
   fn=$(tr 'A-Z' 'a-z' <<<"$s")

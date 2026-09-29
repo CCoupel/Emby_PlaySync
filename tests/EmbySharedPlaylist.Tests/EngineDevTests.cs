@@ -193,16 +193,18 @@ public class ReadRemovalEngineDevTests
     }
 
     [Fact]
-    public void ActiveMarker_RemovesTheMedia_AndJournalsMarkerSeenThenRemoval()
+    public void ActiveMarkers_RemoveTheMedia_AndJournalMarkerSeenThenRemoval()
     {
+        // v1.2.0 (D21, R4a subordonnée) : le retrait exige remove-si-lu=OUI ET propager-lu=OUI ; la propagation du lu a lieu aussi.
         var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=NON" }, "m1", "m2");
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1", "m2");
         var result = r.Engine.Handle("u", "m1");
 
         Assert.Equal(new[] { "m2" }, s.Items);
         Assert.Equal(new RemovalResult(1, 1, 1, 0, result.DurationMs), result);
-        Assert.Equal(new[] { "MarkerSeen", "Removal" }, r.Journal.Entries.Select(e => e.Kind));
-        Assert.Equal("family=remove-si-lu state=Oui", r.Journal.Of("MarkerSeen").Single().Detail);
+        Assert.Equal(new[] { "MarkerSeen", "MarkerSeen", "Removal", "Propagation" }, r.Journal.Entries.Select(e => e.Kind));
+        Assert.Contains("family=remove-si-lu state=Oui", r.Journal.Details("MarkerSeen"));
+        Assert.Contains("family=propager-lu state=Oui", r.Journal.Details("MarkerSeen"));
         var removal = r.Journal.Of("Removal").Single();
         Assert.Equal("u", removal.UserId);
         Assert.Equal("m1", removal.ItemId);
@@ -212,8 +214,10 @@ public class ReadRemovalEngineDevTests
 
     [Theory]
     [InlineData("remove-si-lu=NON")]
-    [InlineData("propager-lu=OUI")]                       // propager-lu n'a aucun effet sur le retrait
-    [InlineData("remove-si-lu=OUI", "remove-si-lu=NON")]  // NON l'emporte
+    [InlineData("remove-si-lu=OUI")]                                       // v1.2.0 (S3b) : sans propager-lu active, RIEN
+    [InlineData("remove-si-lu=OUI", "propager-lu=NON")]
+    [InlineData("remove-si-lu=OUI", "propager-lu=OUI", "propager-lu=NON")] // propager-lu Both = inactive
+    [InlineData("remove-si-lu=OUI", "remove-si-lu=NON")]                   // NON l'emporte
     [InlineData("remove-si-lu=oui ", "REMOVE-SI-LU=non")]
     public void InactiveStates_KeepTheMedia_AndJournalSkippedInactive(params string[] tags)
     {
@@ -228,20 +232,35 @@ public class ReadRemovalEngineDevTests
     }
 
     [Fact]
+    public void PropagerLuAlone_KeepsTheMedia_ButPropagatesTheFlag_RemovalInactive()
+    {
+        var r = new Rig();
+        var s = r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        r.Engine.Handle("u", "m1");
+        Assert.Equal(new[] { "m1" }, s.Items);
+        Assert.Equal(0, r.Gateway.RemoveCalls);
+        Assert.True(r.UserData.IsPlayed("v", "m1"));
+        Assert.Empty(r.Journal.Of("Removal"));
+        Assert.Single(r.Journal.Of("Propagation"));
+        Assert.Contains("inactive", r.Journal.Details("Skipped"));          // contrat : Skipped inactive si l'une des deux familles n'est pas Oui, même quand la propagation agit
+    }
+
+    [Fact]
     public void NoTagAtAll_OnAnAlreadySeenPlaylist_IsLegacy()
     {
         var r = new Rig();
         var s = r.Add("1", new string[0], "m1");
         r.Engine.Handle("u", "m1");
         Assert.Equal(new[] { "m1" }, s.Items);
-        Assert.Equal("family=remove-si-lu state=None", r.Journal.Of("MarkerSeen").Single().Detail);
+        Assert.Contains("family=remove-si-lu state=None", r.Journal.Details("MarkerSeen"));
+        Assert.Contains("family=propager-lu state=None", r.Journal.Details("MarkerSeen"));
     }
 
     [Fact]
     public void Duplicates_AreRemovedOneAtATime()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1", "m2", "m1", "m1");
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1", "m2", "m1", "m1");
         var result = r.Engine.Handle("u", "m1");
         Assert.Equal(new[] { "m2" }, s.Items);
         Assert.Equal(3, result.EntriesRemoved);
@@ -253,7 +272,7 @@ public class ReadRemovalEngineDevTests
     public void RemovalIsCappedAtFiftyEntries()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, Enumerable.Repeat("m1", 60).ToArray());
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, Enumerable.Repeat("m1", 60).ToArray());
         var result = r.Engine.Handle("u", "m1");
         Assert.Equal(50, result.EntriesRemoved);
         Assert.Equal(10, s.Items.Count);
@@ -263,7 +282,7 @@ public class ReadRemovalEngineDevTests
     public void AlreadyRemoved_IsSkipped_NeverBothRemovalAndSkipped()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
         // un autre acteur retire le média entre la découverte de la candidate et notre retrait
         r.Gateway.OnRemove = _ => s.Items.Clear();
         var result = r.Engine.Handle("u", "m1");
@@ -279,7 +298,7 @@ public class ReadRemovalEngineDevTests
     public void GlobalBudget_StopsTheProcessing_AndJournalsOneBudgetExceeded()
     {
         var r = new Rig();
-        for (var i = 1; i <= 10; i++) r.Add(i.ToString(), new[] { "remove-si-lu=OUI" }, "m1");
+        for (var i = 1; i <= 10; i++) r.Add(i.ToString(), new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
         r.Gateway.OnRemove = _ => Thread.Sleep(60);
         var defaults = new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2, null, TimeSpan.FromSeconds(5));
         var engine = new ReadRemovalEngine(r.Gateway, r.UserData, r.WriteTracker, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(150));
@@ -297,7 +316,7 @@ public class ReadRemovalEngineDevTests
     public void ZeroBudget_ProcessesNothing_NeverThrows()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
         var defaults = new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2);
         var engine = new ReadRemovalEngine(r.Gateway, r.UserData, r.WriteTracker, defaults, r.Seen, r.Locks, r.Journal, new FakeClock(), null, TimeSpan.Zero);
         var result = engine.Handle("u", "m1");
@@ -310,8 +329,8 @@ public class ReadRemovalEngineDevTests
     public void NonMemberAndPlaylistWithoutTheMedia_AreNotCandidates()
     {
         var r = new Rig();
-        r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
-        r.Add("2", new[] { "remove-si-lu=OUI" }, "m9");
+        r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
+        r.Add("2", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m9");
         var result = r.Engine.Handle("stranger", "m1");
         Assert.Equal(0, result.Candidates);
         result = r.Engine.Handle("u", "m1");
@@ -323,7 +342,7 @@ public class ReadRemovalEngineDevTests
     public void ReadOnlyMember_AlsoTriggersTheRemoval_Q3()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
         s.Members = new List<string> { "o", "readonly" };
         r.Engine.Handle("readonly", "m1");
         Assert.Empty(s.Items);
@@ -333,7 +352,7 @@ public class ReadRemovalEngineDevTests
     public void PublicPlaylistWithoutExplicitShare_IsNeverManaged()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
         s.Members = new List<string> { "o" };
         r.Engine.Handle("o", "m1");
         Assert.Equal(new[] { "m1" }, s.Items);
@@ -348,11 +367,13 @@ public class ReadRemovalEngineDevTests
         s.Items = new List<string> { "m1" };
         var result = r.Engine.Handle("u", "m1");
 
-        Assert.Equal(new[] { "remove-si-lu=NON", "propager-lu=NON" }, s.Tags);   // poses de la première détection
+        Assert.Equal(new[] { "remove-si-lu=NON", "propager-lu=NON", "propager-avancement=NON" }, s.Tags);   // poses de la première détection (3 familles, v1.2.0)
         Assert.Equal("AIDE", s.Overview);
         Assert.Equal(new[] { "m1" }, s.Items);                                    // NON posé : rien n'est retiré
-        Assert.Equal(new[] { "MarkerPosed", "MarkerPosed", "DescriptionWritten", "MarkerSeen", "Skipped" }, r.Journal.Entries.Select(e => e.Kind));
-        Assert.Equal("family=remove-si-lu state=Non", r.Journal.Of("MarkerSeen").Single().Detail);
+        var kinds = r.Journal.Entries.Select(e => e.Kind).ToList();
+        Assert.Equal(new[] { "MarkerPosed", "MarkerPosed", "MarkerPosed", "DescriptionWritten" }, kinds.Take(4));
+        Assert.Equal(new[] { "MarkerSeen", "MarkerSeen", "Skipped" }, kinds.Skip(4).OrderBy(k => k));
+        Assert.Contains("family=remove-si-lu state=Non", r.Journal.Details("MarkerSeen"));
         Assert.Equal(0, result.EntriesRemoved);
         Assert.True(r.Seen.IsSeen("1"));
     }
@@ -361,12 +382,13 @@ public class ReadRemovalEngineDevTests
     public void UnseenPlaylistWithOui_IsFirstDetectedThenRemoved()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "remove-si-lu=OUI");
+        var s = r.Gateway.Add("1", "remove-si-lu=OUI", "propager-lu=OUI");
         s.Members = new List<string> { "o", "u" };
         s.Items = new List<string> { "m1" };
         r.Engine.Handle("u", "m1");
-        Assert.Contains("propager-lu=NON", s.Tags);     // la famille absente est posée
-        Assert.Contains("remove-si-lu=OUI", s.Tags);    // l'existante est intacte
+        Assert.Contains("propager-avancement=NON", s.Tags);   // la famille absente est posée (sans héritage)
+        Assert.Contains("remove-si-lu=OUI", s.Tags);          // les existantes sont intactes
+        Assert.Contains("propager-lu=OUI", s.Tags);
         Assert.Empty(s.Items);
     }
 
@@ -374,16 +396,16 @@ public class ReadRemovalEngineDevTests
     public void TagsAreReadFreshAtTheEvent_OwnerChangedThemAfterTheDiscovery()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=NON" }, "m1");
+        var s = r.Add("1", new[] { "remove-si-lu=NON", "propager-lu=OUI" }, "m1");
         var engine = r.Engine;
         // le propriétaire passe à OUI entre la découverte et l'évaluation : la relecture fraîche le voit
         r.Gateway.OnRemove = null;
         var original = s.Tags;
-        s.Tags = new List<string> { "remove-si-lu=OUI" };
+        s.Tags = new List<string> { "remove-si-lu=OUI", "propager-lu=OUI" };
         engine.Handle("u", "m1");
         Assert.Empty(s.Items);
         s.Items.Add("m1");
-        s.Tags = new List<string> { "remove-si-lu=NON" };
+        s.Tags = new List<string> { "remove-si-lu=NON", "propager-lu=OUI" };
         engine.Handle("u", "m1");
         Assert.Equal(new[] { "m1" }, s.Items);
     }
@@ -392,8 +414,8 @@ public class ReadRemovalEngineDevTests
     public void AFailingPlaylist_DoesNotStopTheOthers_AndErrorsAreJournaledByTypeOnly()
     {
         var r = new Rig();
-        r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
-        var s2 = r.Add("2", new[] { "remove-si-lu=OUI" }, "m1");
+        r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
+        var s2 = r.Add("2", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
         r.Gateway.ThrowOnRemoveFor = id => id == "1";
         var result = r.Engine.Handle("u", "m1");
 
@@ -419,8 +441,8 @@ public class ReadRemovalEngineDevTests
     public void LockBusy_IsSkippedWithoutWriting_AndTheNextPlaylistIsStillHandled()
     {
         var r = new Rig();
-        var s1 = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
-        var s2 = r.Add("2", new[] { "remove-si-lu=OUI" }, "m1");
+        var s1 = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
+        var s2 = r.Add("2", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
         var held = new ManualResetEventSlim(); var release = new ManualResetEventSlim();
         var t = new Thread(() => { using var l = r.Locks.TryAcquire("1", TimeSpan.FromSeconds(5)); held.Set(); release.Wait(); });
         t.Start(); held.Wait();
@@ -439,8 +461,8 @@ public class ReadRemovalEngineDevTests
     public void OneLockAtATime_AndTheRemovalRunsUnderTheLockInAWriteScope()
     {
         var r = new Rig();
-        r.Add("1", new[] { "remove-si-lu=OUI" }, "m1");
-        r.Add("2", new[] { "remove-si-lu=OUI" }, "m1");
+        r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
+        r.Add("2", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
         var held = new List<string>();
         r.Gateway.OnRemove = id =>
         {
@@ -462,7 +484,7 @@ public class ReadRemovalEngineDevTests
         var engine = new ReadRemovalEngine(r.Gateway, r.UserData, r.WriteTracker,
             new DefaultsService(r.Gateway, r.Seen, r.Locks, r.Journal, "A", () => 2, null, TimeSpan.FromSeconds(5)),
             r.Seen, r.Locks, r.Journal, new FakeClock(), TimeSpan.FromSeconds(5));
-        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1", "m1", "m2");
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1", "m1", "m2");
         Parallel.For(0, 8, _ => engine.Handle("u", "m1"));
         Assert.Equal(new[] { "m2" }, s.Items);
         Assert.Equal(2, r.Journal.Of("Removal").Sum(e => int.Parse(e.Detail!.Split(' ')[0].Split('=')[1])));
@@ -484,6 +506,7 @@ public class ReadRemovalEngineDevTests
         public bool RemoveOneEntry(string playlistId, string itemId) => throw new InvalidOperationException("secret");
         public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<Marker.MarkerFamily> familiesToPose, OverviewChange? overview) => throw new InvalidOperationException("secret");
         public ReplaceFamilyResult ReplaceFamily(string playlistId, Marker.MarkerFamily family, bool enabled) => throw new InvalidOperationException("secret");
+        public string CreatePlaylist(string ownerId, string name) => throw new InvalidOperationException("secret");
     }
 }
 
@@ -553,14 +576,17 @@ public class PropagationDevTests
     }
 
     [Fact]
-    public void Matrix_RemoveOnly_RemovesButNeverPropagates()
+    public void Matrix_RemoveOnly_DoesNothing_S3b_D21()
     {
+        // v1.2.0 (BREAKING de comportement, CHANGELOG des contrats) : le « retrait seul » de v0.2.0-v1.1.0 n'existe plus.
         var r = new Rig();
         var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=NON" }, "m1");
         r.Engine.Handle("u", "m1");
-        Assert.Empty(s.Items);
+        Assert.Equal(new[] { "m1" }, s.Items);
         Assert.False(r.UserData.IsPlayed("v", "m1"));
         Assert.Empty(r.Journal.Of("Propagation"));
+        Assert.Empty(r.Journal.Of("Removal"));
+        Assert.Contains("inactive", r.Journal.Details("Skipped"));
     }
 
     [Fact]
@@ -600,12 +626,14 @@ public class PropagationDevTests
     }
 
     [Fact]
-    public void PropagerLu_IsNeverConsultedForTheRemovalDecision()
+    public void PropagerLu_IsRequiredForTheRemovalDecision_D21()
     {
+        // Inversion documentée v1.2.0 : la version précédente de ce test posait « propager-lu absent : sans effet sur le retrait ».
         var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1"); // propager-lu absent : sans effet sur le retrait
+        var s = r.Add("1", new[] { "remove-si-lu=OUI" }, "m1"); // propager-lu absent : plus de retrait
         r.Engine.Handle("u", "m1");
-        Assert.Empty(s.Items);
+        Assert.Equal(new[] { "m1" }, s.Items);
+        Assert.Equal(0, r.Gateway.RemoveCalls);
     }
 
     // ---- R6 : non lu jamais propagé -----------------------------------------------------------------------

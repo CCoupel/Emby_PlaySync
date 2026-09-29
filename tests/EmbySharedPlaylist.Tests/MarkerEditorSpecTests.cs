@@ -114,10 +114,55 @@ public class MarkerEditorSpecTests
     [InlineData(MarkerFamily.RemoveSiLu, false)]
     [InlineData(MarkerFamily.PropagerLu, true)]
     [InlineData(MarkerFamily.PropagerLu, false)]
+    [InlineData(MarkerFamily.PropagerAvancement, true)]    // v1.2.0 (D21)
+    [InlineData(MarkerFamily.PropagerAvancement, false)]
     public void Replace_AlwaysAddsExactlyOneCanonicalTag_ForTheRequestedFamily(MarkerFamily family, bool enabled)
     {
         var (tags, _) = MarkerEditor.Replace(new[] { "remove-si-lu=OUI", "propager-lu=NON" }, family, enabled);
         Assert.Equal(1, tags.Count(t => t == Canon(family, enabled)));
         Assert.Contains(Canon(family, enabled), tags);
+    }
+
+    // ---- v1.2.0 (D21) : troisième famille, ajout ADDITIF (aucun test existant modifié hors la table ci-dessus) ----------
+
+    [Fact]
+    public void Replace_PropagerAvancement_NonToOui_TouchesOnlyItsOwnFamily()
+    {
+        var input = new[] { "remove-si-lu=OUI", "propager-lu=NON", "propager-avancement=NON", "favori" };
+        var (tags, removed) = MarkerEditor.Replace(input, MarkerFamily.PropagerAvancement, enabled: true);
+        Assert.Equal(new[] { "remove-si-lu=OUI", "propager-lu=NON", "favori", "propager-avancement=OUI" }, tags);
+        Assert.Equal(1, removed);
+    }
+
+    [Fact]
+    public void Replace_ThreeFamiliesAreIndependent_DisablingPropagerLu_LeavesRemoveSiLuAndAvancementUntouched()
+    {
+        // D21 / question 2 du plan : désactiver « Propager le lu » laisse remove-si-lu=OUI en place (inerte), sans le basculer.
+        var input = new[] { "remove-si-lu=OUI", "propager-lu=OUI", "propager-avancement=OUI" };
+        var (tags, removed) = MarkerEditor.Replace(input, MarkerFamily.PropagerLu, enabled: false);
+        Assert.Equal(new[] { "remove-si-lu=OUI", "propager-avancement=OUI", "propager-lu=NON" }, tags);
+        Assert.Equal(1, removed);
+    }
+
+    [Theory]
+    [InlineData("propager-avancement=OUI")]
+    [InlineData("PROPAGER-AVANCEMENT = non")]
+    public void Replace_PropagerAvancement_RecognisesCaseAndSpaces(string existing)
+    {
+        var (tags, removed) = MarkerEditor.Replace(new[] { existing }, MarkerFamily.PropagerAvancement, enabled: true);
+        Assert.Equal(new[] { "propager-avancement=OUI" }, tags);
+        Assert.Equal(1, removed);
+    }
+
+    [Fact]
+    public void Replace_PropagerLu_NeverTouchesAPropagerAvancementTag_AndViceVersa()
+    {
+        // Les noms partagent le préfixe « propager- » : aucune famille ne doit reconnaître l'étiquette de l'autre.
+        var (a, ra) = MarkerEditor.Replace(new[] { "propager-avancement=OUI" }, MarkerFamily.PropagerLu, enabled: true);
+        Assert.Equal(new[] { "propager-avancement=OUI", "propager-lu=OUI" }, a);
+        Assert.Equal(0, ra);
+        var (b, rb) = MarkerEditor.Replace(new[] { "propager-lu=OUI" }, MarkerFamily.PropagerAvancement, enabled: true);
+        Assert.Equal(new[] { "propager-lu=OUI", "propager-avancement=OUI" }, b);
+        Assert.Equal(0, rb);
     }
 }

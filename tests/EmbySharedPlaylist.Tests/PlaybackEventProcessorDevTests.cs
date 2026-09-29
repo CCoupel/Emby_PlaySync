@@ -49,13 +49,49 @@ public class PlaybackEventProcessorDevTests
     }
 
     [Fact]
-    public void WriteScope_IgnoresOurOwnEvents_NotEvenTheTrackerMemory()
+    public void WriteScope_IgnoresOurOwnEvents_ButStillUpdatesTheTrackerMemory()
     {
+        // INVERSÉ (S9f, correctif dev-plugin) : l'événement ignoré par WriteScope n'appelle jamais le moteur, mais la mémoire de
+        // transition est mise à jour (un « lu » natif d'origine plugin doit être connu, sinon une relecture serait une transition).
         var r = new Rig();
         r.Scope = true;
         Assert.Equal(PlaybackEventOutcome.WriteScope, r.Processor.Process("u", "i", "TogglePlayed", true));
         Assert.Empty(r.Handled);
-        Assert.Equal(0, r.Tracker.Count);
+        Assert.Equal(0, r.Stats.Snapshot().Count);
+        Assert.Equal(1, r.Tracker.Count);
+    }
+
+    [Fact]
+    public void AfterAWriteScopeIgnoredNativePlayed_ANextReplayIsNoTransition()
+    {
+        var r = new Rig();
+        r.Scope = true;
+        Assert.Equal(PlaybackEventOutcome.WriteScope, r.Processor.Process("u", "i", "PlaybackProgress", true));   // lu natif, origine plugin
+        r.Scope = false;
+        Assert.Equal(PlaybackEventOutcome.NoTransition, r.Processor.Process("u", "i", "PlaybackFinished", true));
+        Assert.Empty(r.Handled);
+    }
+
+    [Fact]
+    public void AfterAWriteScopeIgnoredNativePlayed_ARealLaterUserTransitionIsStillClassifiedAndHandled()
+    {
+        var r = new Rig();
+        r.Scope = true;
+        r.Processor.Process("u", "i", "PlaybackProgress", true);                                                // ignoré, mémoire = lu
+        r.Scope = false;
+        Assert.Equal(PlaybackEventOutcome.NoTransition, r.Processor.Process("u", "i", "TogglePlayed", false));  // l'utilisateur décoche
+        Assert.Equal(PlaybackEventOutcome.Handled, r.Processor.Process("u", "i", "TogglePlayed", true));        // puis recoche : vraie transition
+        Assert.Equal(new[] { ("u", "i") }, r.Handled);
+    }
+
+    [Fact]
+    public void AfterAWriteScopeIgnoredNativePlayed_ATogglePlayedTrueIsStillACertainTransition()
+    {
+        var r = new Rig();
+        r.Scope = true;
+        r.Processor.Process("u", "i", "PlaybackProgress", true);
+        r.Scope = false;
+        Assert.Equal(PlaybackEventOutcome.Handled, r.Processor.Process("u", "i", "TogglePlayed", true));        // geste volontaire, même si la mémoire dit « lu »
     }
 
     [Fact]

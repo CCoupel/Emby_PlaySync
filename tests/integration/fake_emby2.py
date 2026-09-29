@@ -1,31 +1,37 @@
 #!/usr/bin/env python3
-"""Faux Emby + faux moteur v0.2.0 (hors ligne) pour tester le flux de 20-etiquettes-retrait.sh.
-Implémente les règles décrites par le plan (étiquettes à deux familles, première détection, grâce, retrait à la
-transition non lu -> lu, journal/état Diagnostics, tâche planifiée). Ce n'est PAS le plugin : c'est une spécification
-exécutable minimale qui vérifie que le script de test lit bien le contrat et enchaîne correctement les scénarios."""
+"""Faux Emby + faux moteur (hors ligne) pour tester le flux des scripts d'intégration (20 à 25).
+Implémente les règles décrites par le plan (étiquettes, première détection, grâce, retrait à la transition non lu -> lu,
+journal/état Diagnostics, tâche planifiée). v1.2.0 (#56, #57, D21) : TROIS familles (remove-si-lu, propager-lu,
+propager-avancement, sans héritage) ; tableau A (le retrait exige propager-lu=OUI ; propager-lu ne propage que le flag lu) et
+tableau B (la position ne dépend que de propager-avancement, AUCUNE garde sur l'état lu) indépendants ; HelpText V1/V2 -> V3.
+Ce n'est PAS le plugin : c'est une spécification exécutable minimale qui vérifie que le script de test lit bien le contrat et
+enchaîne correctement les scénarios. MODES (détection de défauts, tests hors ligne « moteur défaillant ») :
+ok | noremove | nopropagate (ni lu ni position) | noautoshare | repose | retraitseul (défaut v0.2.0-v1.1.0 : retrait SANS propager-lu) |
+dcguard (défaut : garde D-c « déclencheur déjà lu » de v0.3.1) | legacyavancement (défaut : propager-lu couvre la position) |
+nativeplayed (Emby pose le lu chez un membre après une position >= 90 %, origine plugin : bénin) |
+nativeleak (idem mais pris pour une action utilisateur : violation de S6)."""
 import sys, os, json, re, threading, http.server, urllib.parse, itertools, datetime
 
 def _load_help_texts():
     """Lit HelpText.cs sous REPO_ROOT (même mécanisme que I25, tests/integration/21-propagation.sh) :
-    V1 = la constante contenant encore « fonction à venir » ; V2 = la même, cette ligne remplacée."""
+    V1 = la constante contenant encore « fonction à venir » ; V2 = celle contenant « aussi propagé » ; V3 (v1.2.0) = celle
+    contenant « Trois étiquettes ». Une constante introuvable vaut None (V3 absent : #56 non livré dans la copie testée)."""
     root = os.environ.get("REPO_ROOT", os.getcwd())
     path = os.path.join(root, "src", "EmbySharedPlaylist", "Reconciliation", "HelpText.cs")
     if not os.path.exists(path):
-        return None, None
+        return None, None, None
     src = open(path, encoding="utf-8").read()
-    v1 = None
-    for m in re.finditer(r"public const string \w+\s*=\s*(.*?);", src, re.S):
+    found = {"fonction à venir": None, "aussi propagé": None, "Trois étiquettes": None}
+    # « ; » possible DANS un littéral (V2) : le corps d'une constante n'est fait que de littéraux, « + » et espaces
+    for m in re.finditer(r'public const string \w+\s*=\s*((?:"(?:[^"\\]|\\.)*"|\s|\+)+);', src, re.S):
         segs = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
         if not segs: continue
         text = "".join(segs).replace("\\n", "\n")
-        if "fonction à venir" in text:
-            v1 = text; break
-    if v1 is None:
-        return None, None
-    v2 = re.sub(r"(?m)^- propager-lu=OUI :.*$",
-                 "- propager-lu=OUI : quand un média est lu par un membre, le flag « lu » est posé chez les autres.", v1)
-    return v1, v2
-V1_TEXT, V2_TEXT = _load_help_texts()
+        for marker in found:
+            if found[marker] is None and marker in text: found[marker] = text
+    return found["fonction à venir"], found["aussi propagé"], found["Trois étiquettes"]
+V1_TEXT, V2_TEXT, V3_TEXT = _load_help_texts()
+FAMS = ("remove-si-lu", "propager-lu", "propager-avancement")   # v1.2.0 : trois familles (ordre de pose de DefaultsService)
 
 PORT = int(sys.argv[1]); MODE = sys.argv[2] if len(sys.argv) > 2 else "ok"   # ok | noremove | nopropagate | noautoshare (v0.4.0)
 GRACE = 2
@@ -76,7 +82,8 @@ def shared(p): return bool(p["shares"])
 
 def member(p, u): return u == p["owner"] or p["shares"].get(u, "None") != "None"
 
-HELP = "Playlist partagée gérée par Emby Shared Playlist.\n- remove-si-lu=OUI : retrait.\n- propager-lu=OUI : à venir."
+HELP = V3_TEXT or ("Playlist partagée gérée par Emby Shared Playlist.\n- propager-lu=OUI : lu.\n- remove-si-lu=OUI : retrait (seulement si propager-lu=OUI).\n"
+                   "- propager-avancement=OUI : position.")
 
 def write_defaults(pid, fams, ov, cause):
     global WRITING
@@ -91,19 +98,22 @@ def write_defaults(pid, fams, ov, cause):
         jr("Skipped", pid, detail="reentrant")            # écho de notre propre écriture (ItemUpdated)
     finally: WRITING = False
 
-def maybe_replace_help(pid):   # #51 : Overview == V1 EXACT -> V2 (à la première détection ET à chaque passe)
-    if V1_TEXT is None: return
+def maybe_replace_help(pid):   # #51 puis v1.2.0 : Overview == V1 ou V2 EXACT -> V3 (première détection ET chaque passe)
+    if V3_TEXT is None: return
     p = PL[pid]
-    if p["overview"] == V1_TEXT:
-        p["overview"] = V2_TEXT
-        jr("DescriptionWritten", pid, detail="cause=v1-to-v2")
+    if V1_TEXT is not None and p["overview"] == V1_TEXT:
+        p["overview"] = V3_TEXT
+        jr("DescriptionWritten", pid, detail="cause=v1-to-v3")
+    elif V2_TEXT is not None and p["overview"] == V2_TEXT:
+        p["overview"] = V3_TEXT
+        jr("DescriptionWritten", pid, detail="cause=v2-to-v3")
 
 def first_detection(pid):
     p = PL[pid]
     if pid in SEEN: jr("Skipped", pid, detail="already-seen"); return
     maybe_replace_help(pid)
     SEEN.add(pid)
-    fams = [f for f in ("remove-si-lu", "propager-lu") if state_of(p["tags"], f) == "None"]
+    fams = [f for f in FAMS if state_of(p["tags"], f) == "None"]
     ov = not p["overview"].strip()
     if not fams and not ov: jr("Skipped", pid, detail="marker-present"); return
     write_defaults(pid, fams, ov, "first-detection")
@@ -126,7 +136,7 @@ def do_pass():
         if pid not in SEEN: first_detection(pid); continue
         maybe_replace_help(pid)
         toposed = []; c = GRACEC.setdefault(pid, {})
-        for f in ("remove-si-lu", "propager-lu"):
+        for f in FAMS:
             if state_of(p["tags"], f) != "None": c[f] = 0; continue
             c[f] = c.get(f, 0) + 1
             if c[f] >= GRACE: toposed.append(f)
@@ -160,6 +170,14 @@ def do_pass():
 def mark_played(user, item):   # écriture PLUGIN (propagation) : distincte d'un set_played utilisateur (pas de ré-entrée)
     PLAYED.add((user, item)); PLAYDATA[(user, item)] = {"LastPlayedDate": datetime.datetime.utcnow().isoformat() + "Z", "PlayCount": 1}
 
+def native_played_on_position_write(m, item, ticks):
+    """Modes nativeplayed/nativeleak (spike U14b simulé) : après une position brute écrite par le PLUGIN à >= 90 % de la durée,
+    Emby poserait lui-même le « lu » chez le membre. nativeplayed : origine plugin (écho consommé, AUCUN effet moteur, S6
+    préservé) ; nativeleak : pris pour une action utilisateur (violation de S6 : le tableau A s'applique dans TOUTES les listes)."""
+    if MODE not in ("nativeplayed", "nativeleak") or ticks < 0.9 * RT: return
+    PLAYED.add((m, item))
+    if MODE == "nativeleak": transition(m, item)
+
 def transition(user, item):
     ms = 3
     for pid, p in list(PL.items()):
@@ -168,18 +186,21 @@ def transition(user, item):
         if not member(p, user): jr("Skipped", pid, user, item, "not-member"); continue
         if not shared(p): jr("Skipped", pid, user, item, "not-shared"); continue
         rm_st = state_of(p["tags"], "remove-si-lu"); jr("MarkerSeen", pid, user, item, f"family=remove-si-lu state={rm_st}")
-        if rm_st == "Oui" and MODE != "noremove":
+        pr_st = state_of(p["tags"], "propager-lu"); jr("MarkerSeen", pid, user, item, f"family=propager-lu state={pr_st}")
+        # Tableau A (v1.2.0, D21, R4a subordonnée) : retrait seulement si remove-si-lu ET propager-lu sont OUI (mode retraitseul :
+        # comportement défaillant v0.2.0-v1.1.0, remove-si-lu suffit).
+        removal_on = rm_st == "Oui" and (pr_st == "Oui" or MODE == "retraitseul") and MODE != "noremove"
+        if removal_on:
             n = 0
             while n < 50:                         # toutes les entrées du média, une à la fois
                 e = next((x for x in p["entries"] if x["item"] == item), None)
                 if e is None: break
                 p["entries"].remove(e); n += 1
             jr("Removal", pid, user, item, f"entries={n} durationMs={ms}"); jr("Skipped", pid, detail="already-seen")   # écho PlaylistItemsRemoved
-        else:
-            jr("Skipped", pid, user, item, "inactive")
+        elif pr_st != "Oui":
+            jr("Skipped", pid, user, item, "inactive")   # « inactive » seulement si la propagation du lu n'agit pas non plus
 
-        pr_st = state_of(p["tags"], "propager-lu")   # familles indépendantes : évaluée QUELLE QUE SOIT la décision remove-si-lu
-        if pr_st == "Oui" and MODE != "nopropagate":
+        if pr_st == "Oui" and MODE != "nopropagate":   # propagation du FLAG lu seul, indépendante de remove-si-lu (jamais de position)
             propagated = already = noaccess = 0
             for m in members(p):
                 if m == user: continue
@@ -195,19 +216,22 @@ def transition(user, item):
         HANDLER["Count"] += 1; HANDLER["LastMs"] = ms; HANDLER["MaxMs"] = max(HANDLER["MaxMs"], ms)
 
 def position_transition(user, item, ticks):
-    # D-c : seuil minimal (30 s) et garde du lu CONNU à l'instant de l'événement, aucune marge de ratio.
+    # Tableau B (v1.2.0, D21) : seuil minimal 30 s = POSITION ABSOLUE ; famille propager-avancement seule ; AUCUNE garde sur
+    # l'état lu (#57). Mode dcguard : garde D-c de v0.3.1 (déclencheur déjà lu => rien) ; legacyavancement : propager-lu suffit.
     if ticks < TICKS_30S: return
-    if (user, item) in PLAYED: return   # déjà lu pour le déclencheur : la règle du lu prend le relais, rien à propager
+    if MODE == "dcguard" and (user, item) in PLAYED: return
+    fam = "propager-lu" if MODE == "legacyavancement" else "propager-avancement"
     for pid, p in list(PL.items()):
         if user not in members(p) or item not in [e["item"] for e in p["entries"]]: continue
         if not shared(p): continue
-        if state_of(p["tags"], "propager-lu") != "Oui" or MODE == "nopropagate": continue
+        if state_of(p["tags"], fam) != "Oui" or MODE == "nopropagate": jr("Skipped", pid, user, item, "inactive"); continue
         propagated = already = noaccess = 0
         for m in members(p):
             if m == user: continue
             if not has_access(m, item): jr("Skipped", pid, m, item, "no-access"); noaccess += 1; continue
             if POSITION.get((m, item)) == ticks: jr("Skipped", pid, m, item, "same-position"); already += 1; continue
-            POSITION[(m, item)] = ticks; propagated += 1
+            POSITION[(m, item)] = ticks; propagated += 1        # position BRUTE : ni Played ni PlayCount
+            native_played_on_position_write(m, item, ticks)
         total = len(members(p)) - 1
         jr("PositionPropagation", pid, user, item, f"members={total} propagated={propagated} samePosition={already} noAccess={noaccess} durationMs=3")
 
@@ -323,10 +347,10 @@ class H(http.server.BaseHTTPRequestHandler):
         if p == "/Sessions/Playing/Stopped":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
             item = body["ItemId"]; ticks = body.get("PositionTicks", 0)
-            # D-c (v3, S1 code-reviewer) : IsPlayed lu AVANT le passage à lu causé par CET arrêt — pas de marge de ratio,
-            # un arrêt à 95-99% NON lu à l'instant DOIT propager (quitte à être écrasé par le lu dès qu'il arrive, #20).
-            # Bug corrigé ici : set_played AVANT position_transition aurait fait gagner le lu à tort sur tout arrêt >= 90%.
-            position_transition(user, item, ticks)   # systématique (D-b), la garde D-c filtre déjà-lu (pré-événement) à l'intérieur
+            # Deux flux INDÉPENDANTS, sans ordre garanti : la position (tableau B, aucune garde sur l'état lu depuis v1.2.0) puis,
+            # si Emby marque lu à cet arrêt (>= 90 %), la transition du lu (tableau A) — ici dans cet ordre, sans conséquence.
+            POSITION[(user, item)] = ticks           # la position du lecteur lui-même (donnée d'Emby, pas du plugin) : un arrêt à 0 la remet à 0
+            position_transition(user, item, ticks)   # systématique (D-b)
             if ticks >= 0.9 * RT: set_played(user, item, True)
             PAUSED.pop((user, item), None)
             return self.out(204)

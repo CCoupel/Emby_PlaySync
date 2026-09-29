@@ -36,13 +36,14 @@ public class PlaybackPositionEngineDevTests
         }
     }
 
-    // ---- Matrice des marqueurs (propager-lu seule active la propagation de position) ------------------------
+    // ---- Matrice des marqueurs (v1.2.0 : propager-avancement seule active la propagation de position) ------------------------
 
     [Theory]
-    [InlineData("propager-lu=OUI", true)]
-    [InlineData("propager-lu=NON", false)]
-    [InlineData("propager-lu=OUI", "propager-lu=NON", false)] // OUI+NON : NON l'emporte
-    public void OnlyPropagerLuOui_TriggersPropagation(params object[] args)
+    [InlineData("propager-avancement=OUI", true)]
+    [InlineData("propager-avancement=NON", false)]
+    [InlineData("propager-avancement=OUI", "propager-avancement=NON", false)] // OUI+NON : NON l'emporte
+    [InlineData("propager-lu=OUI", false)]                                     // v1.2.0 : propager-lu n'active PLUS la position
+    public void OnlyPropagerAvancementOui_TriggersPropagation(params object[] args)
     {
         var tags = args.TakeWhile(a => a is string).Cast<string>().ToArray();
         var expected = (bool)args[^1];
@@ -66,7 +67,7 @@ public class PlaybackPositionEngineDevTests
     public void RemoveSiLu_IsNeverConsulted()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1"); // remove-si-lu actif ou pas : sans effet ici
+        var s = r.Add("1", new[] { "remove-si-lu=OUI", "propager-avancement=OUI" }, "m1"); // remove-si-lu actif ou pas : sans effet ici
         r.Engine.Handle("u", "m1", 999);
         Assert.Equal(999L, r.UserData.GetPosition("v", "m1"));
         Assert.Equal(new[] { "m1" }, s.Items); // l'engine de position ne retire jamais rien
@@ -78,7 +79,7 @@ public class PlaybackPositionEngineDevTests
     public void Handle_RecordsItsDurationInHandlerStats_LikeThePlaybackProcessor()
     {
         var r = new Rig();
-        r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        r.Add("1", new[] { "propager-avancement=OUI" }, "m1");
         Assert.Equal(0, r.Handler.Snapshot().Count);
 
         r.Engine.Handle("u", "m1", 100);
@@ -104,7 +105,7 @@ public class PlaybackPositionEngineDevTests
     public void Handle_WithNoHandlerStatsProvided_NeverThrows()
     {
         var gateway = new FakeGateway();
-        gateway.Add("1", "propager-lu=OUI").Members = new List<string> { "o", "u", "v" };
+        gateway.Add("1", "propager-avancement=OUI").Members = new List<string> { "o", "u", "v" };
         var defaults = new DefaultsService(gateway, new SeenPlaylists(), new PlaylistLocks(), new ListJournal(), "A", () => 2);
         var engine = new PlaybackPositionEngine(gateway, new FakeUserDataGateway(), new PluginWriteTracker(), defaults,
             new SeenPlaylists(), new PlaylistLocks(), new ListJournal(), new FakeClock()); // handler omis (paramètre optionnel)
@@ -118,7 +119,7 @@ public class PlaybackPositionEngineDevTests
     public void ActiveMarker_PropagatesToOwnerAndOtherMember_JournalsOnce()
     {
         var r = new Rig();
-        r.Add("1", new[] { "propager-lu=OUI" }, "m1"); // membres par défaut : "o" (propriétaire) et "v"
+        r.Add("1", new[] { "propager-avancement=OUI" }, "m1"); // membres par défaut : "o" (propriétaire) et "v"
         var result = r.Engine.Handle("u", "m1", 42_000);
 
         Assert.Equal(42_000L, r.UserData.GetPosition("o", "m1"));
@@ -128,14 +129,15 @@ public class PlaybackPositionEngineDevTests
         var entry = r.Journal.Of("PositionPropagation").Single();
         Assert.Equal("u", entry.UserId);
         Assert.Equal("m1", entry.ItemId);
-        Assert.StartsWith("members=2 propagated=2 samePosition=0 noAccess=0 durationMs=", entry.Detail);
+        // Forme du contrat : members/propagated/samePosition/noAccess puis durationMs (v1.2.0 : un compteur lockBusy=<n> optionnel peut s'y intercaler, B7).
+        Assert.Matches(@"^members=2 propagated=2 samePosition=0 noAccess=0( lockBusy=0)? durationMs=\d+$", entry.Detail);
     }
 
     [Fact]
     public void R8_MemberWithoutAccess_IsSkipped_NoErrorNoWrite()
     {
         var r = new Rig();
-        r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        r.Add("1", new[] { "propager-avancement=OUI" }, "m1");
         r.UserData.DenyAccess("o", "m1");
         r.UserData.DenyAccess("v", "m1");
         var result = r.Engine.Handle("u", "m1", 1000);
@@ -154,7 +156,7 @@ public class PlaybackPositionEngineDevTests
         // EmbyUserDataGateway.HasAccess renverrait faux (GetUserById ne trouve plus l'utilisateur), simule ici par
         // DenyAccess (R8, meme chemin que n'importe quel membre).
         var r = new Rig();
-        r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        r.Add("1", new[] { "propager-avancement=OUI" }, "m1");
         r.UserData.DenyAccess("o", "m1"); // "o" = proprietaire supprime
         var ex = Record.Exception(() => r.Engine.Handle("u", "m1", 1000));
         Assert.Null(ex);
@@ -166,7 +168,7 @@ public class PlaybackPositionEngineDevTests
     public void ManagedPlaylistWithNoMedia_IsNeverACandidate_NoCrash()
     {
         var r = new Rig();
-        r.Add("1", new[] { "propager-lu=OUI" }); // aucun media (params vide)
+        r.Add("1", new[] { "propager-avancement=OUI" }); // aucun media (params vide)
         var ex = Record.Exception(() => r.Engine.Handle("u", "m1", 1000));
         Assert.Null(ex);
         Assert.Empty(r.Journal.Of("PositionPropagation"));
@@ -176,7 +178,7 @@ public class PlaybackPositionEngineDevTests
     public void SamePosition_ProducesNoWrite_AndIsCounted()
     {
         var r = new Rig();
-        r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        r.Add("1", new[] { "propager-avancement=OUI" }, "m1");
         r.UserData.SetPlayed("o", "m1", false); // sans effet, juste pour établir l'état
         r.UserData.SetPosition("o", "m1", 500); // déjà à cette position avant l'événement
         r.UserData.SetPosition("v", "m1", 500);
@@ -195,7 +197,7 @@ public class PlaybackPositionEngineDevTests
         // Revue A1 (v0.3.0) appliquée ici : ne jamais enregistrer une écriture qui ne surviendra pas (position déjà identique),
         // sinon l'entrée reste "pending" et pourrait mal classer une action réelle ultérieure du membre en écho.
         var r = new Rig();
-        r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        r.Add("1", new[] { "propager-avancement=OUI" }, "m1");
         r.UserData.SetPosition("o", "m1", 500); // "o" déjà à la position cible
 
         r.Engine.Handle("u", "m1", 500);
@@ -208,7 +210,7 @@ public class PlaybackPositionEngineDevTests
     public void ReadOnlyMember_PropagatesLikeAnyOtherMember_Q3()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        var s = r.Add("1", new[] { "propager-avancement=OUI" }, "m1");
         s.Members = new List<string> { "o", "u", "readonly" };
         r.Engine.Handle("u", "m1", 777);
         Assert.Equal(777L, r.UserData.GetPosition("readonly", "m1"));
@@ -218,7 +220,7 @@ public class PlaybackPositionEngineDevTests
     public void SourceUser_IsNeverWrittenByThisEngine()
     {
         var r = new Rig();
-        r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        r.Add("1", new[] { "propager-avancement=OUI" }, "m1");
         r.Engine.Handle("u", "m1", 111);
         Assert.DoesNotContain(("u", "m1", 111L), r.UserData.PositionsSet);
     }
@@ -229,7 +231,7 @@ public class PlaybackPositionEngineDevTests
     public void UnseenPlaylist_GetsFirstDetection_ThenPropagatesIfActive()
     {
         var r = new Rig();
-        var s = r.Gateway.Add("1", "propager-lu=OUI");
+        var s = r.Gateway.Add("1", "propager-avancement=OUI");
         s.Members = new List<string> { "o", "u" };
         s.Items = new List<string> { "m1" };
         r.Engine.Handle("u", "m1", 300);
@@ -242,9 +244,9 @@ public class PlaybackPositionEngineDevTests
     public void TwoPlaylists_APropagationOnOneDoesNotTouchTheOther()
     {
         var r = new Rig();
-        var s1 = r.Add("1", new[] { "propager-lu=OUI" }, "shared-media");
+        var s1 = r.Add("1", new[] { "propager-avancement=OUI" }, "shared-media");
         s1.Members = new List<string> { "o", "u", "member-of-1-only" };
-        var s2 = r.Add("2", new[] { "propager-lu=OUI" }, "other-media");
+        var s2 = r.Add("2", new[] { "propager-avancement=OUI" }, "other-media");
         s2.Members = new List<string> { "o", "u", "member-of-2-only" };
 
         r.Engine.Handle("u", "shared-media", 1000);
@@ -258,7 +260,7 @@ public class PlaybackPositionEngineDevTests
     public void LockBusy_IsSkippedWithoutWriting()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        var s = r.Add("1", new[] { "propager-avancement=OUI" }, "m1");
         var held = new ManualResetEventSlim(); var release = new ManualResetEventSlim();
         var t = new Thread(() => { using var l = r.Locks.TryAcquire("1", TimeSpan.FromSeconds(5)); held.Set(); release.Wait(); });
         t.Start(); held.Wait();
@@ -276,7 +278,7 @@ public class PlaybackPositionEngineDevTests
     public void AFailingSetPosition_IsIsolated_JournaledByTypeOnly_OtherMembersUnaffected()
     {
         var r = new Rig();
-        var s = r.Add("1", new[] { "propager-lu=OUI" }, "m1");
+        var s = r.Add("1", new[] { "propager-avancement=OUI" }, "m1");
         s.Members = new List<string> { "o", "u", "v", "w" };
         r.UserData.ThrowOnSetPositionFor = (uid, _) => uid == "v";
         var result = Record.Exception(() => r.Engine.Handle("u", "m1", 42));
@@ -297,8 +299,8 @@ public class PlaybackPositionEngineDevTests
     public void OneLockAtATime_AndTheWriteRunsUnderTheLock()
     {
         var r = new Rig();
-        r.Add("1", new[] { "propager-lu=OUI" }, "m1");
-        r.Add("2", new[] { "propager-lu=OUI" }, "m1");
+        r.Add("1", new[] { "propager-avancement=OUI" }, "m1");
+        r.Add("2", new[] { "propager-avancement=OUI" }, "m1");
         var held = new List<string>();
         r.UserData.ThrowOnSetPositionFor = null;
         r.Engine.Handle("u", "m1", 5);
@@ -314,5 +316,6 @@ public class PlaybackPositionEngineDevTests
         public bool RemoveOneEntry(string playlistId, string itemId) => throw new InvalidOperationException("secret");
         public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<Marker.MarkerFamily> familiesToPose, OverviewChange? overview) => throw new InvalidOperationException("secret");
         public ReplaceFamilyResult ReplaceFamily(string playlistId, Marker.MarkerFamily family, bool enabled) => throw new InvalidOperationException("secret");
+        public string CreatePlaylist(string ownerId, string name) => throw new InvalidOperationException("secret");
     }
 }

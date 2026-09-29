@@ -2,11 +2,14 @@
 # 20-etiquettes-retrait.sh — scénarios d'intégration I1–I17 de la v0.2.0 (issues #12 #18 #19 #22 #32 #50 #53) sur emby2
 # (QUALIF UNIQUEMENT). À exécuter par qa après déploiement du plugin ; jamais depuis un poste sans avoir vérifié la cible.
 #
-# Deux familles d'étiquettes indépendantes : `remove-si-lu` (retrait du média à la transition non lu -> lu ;
-# seule famille à effet en v0.2.0) et `propager-lu` (posée et lue en NON, sans effet). NON l'emporte ; le plugin ne
-# supprime jamais d'étiquette ; famille absente => NON reposée (première détection immédiate, sinon après GracePasses
-# passes consécutives, jamais sur ItemUpdated d'une playlist déjà vue) ; retrait seulement sur transition non lu -> lu
-# avec `remove-si-lu=OUI` seule, sur une playlist PARTAGÉE ; message d'aide seulement si la description est vide.
+# Étiquettes : `remove-si-lu` (retrait du média à la transition non lu -> lu), `propager-lu` (propagation du flag lu) et,
+# depuis v1.2.0, `propager-avancement` (position, hors périmètre de ce script). NON l'emporte ; le plugin ne supprime
+# jamais d'étiquette ; famille absente => NON reposée (première détection immédiate, sinon après GracePasses passes
+# consécutives, jamais sur ItemUpdated d'une playlist déjà vue) ; message d'aide seulement si la description est vide.
+# v1.2.0 (D21, R4a subordonnée, tableau A) : le retrait exige `remove-si-lu=OUI` ET `propager-lu=OUI` (chacune seule) sur une
+# playlist PARTAGÉE, sur transition non lu -> lu ; `remove-si-lu=OUI` SEUL ne retire plus rien (I2.solo) — les scénarios
+# historiques activent donc les DEUX familles (helper enable_removal / owner_edit OUI_RM+OUI_PR), et le lu est propagé aux
+# autres comptes dans ce cas (I3.others, I11.flags mis à jour).
 #
 # Prérequis : tests/integration/00-setup-users.sh exécuté (test_u1 propriétaire, test_u2 Write, test_u3 Read) ; >= 6 médias.
 # Usage : tests/integration/20-etiquettes-retrait.sh [--restart] [I1 I8 …]
@@ -113,15 +116,15 @@ i0() {
 }
 
 i1() {
-  echo "== I1 — playlist partagée sans étiquette : passe => deux NON + message ; F1 finie par u2 => reste"
+  echo "== I1 — playlist partagée sans étiquette : passe => trois NON + message ; F1 finie par u2 => reste"
   assert_baseline
   local pl t o e; pl=$(shared_pl "SPIKE-I1" "${M[0]},${M[1]}")
   prime "$pl" || true
   t=$(tags_of "$pl"); o=$(overview_of "$pl")
-  ck I1.tags "les deux étiquettes NON sont posées (casse exacte)" "$t" bash -c 'jq -e --arg a "$1" --arg b "$2" "index(\$a)!=null and index(\$b)!=null" <<<"$0" >/dev/null' "$t" "$NON_RM" "$NON_PR"
+  ck I1.tags "les TROIS étiquettes NON sont posées (casse exacte, v1.2.0 : + propager-avancement=NON, sans héritage)" "$t" bash -c 'jq -e --arg a "$1" --arg b "$2" --arg c "$3" "index(\$a)!=null and index(\$b)!=null and index(\$c)!=null" <<<"$0" >/dev/null' "$t" "$NON_RM" "$NON_PR" "$NON_AV"
   ck I1.help "message d'aide écrit (description vide au départ)" "{\"len\":${#o}}" bash -c '[[ $0 == *remove-si-lu=OUI* ]]' "$o"
   e=$(journal MarkerPosed)
-  ck I1.journal "MarkerPosed x2 (une par famille) pour cette playlist" "$e" test "$(jcount "$e" "$pl" MarkerPosed 'first-detection')" = 2
+  ck I1.journal "MarkerPosed x3 (une par famille) pour cette playlist" "$e" test "$(jcount "$e" "$pl" MarkerPosed 'first-detection')" = 3
   finish "$U2" "$T2" "${M[0]}"
   ck I1.f1 "F1 finie par u2 (sans remove-si-lu=OUI) : reste dans la playlist" "null" stays "$pl" "${M[0]}" 1 5
 }
@@ -142,15 +145,18 @@ i2_case() { # ID DESC AJOUTS RETRAITS ATTENDU(stays|removed) [ajouts multi-ligne
 i2() {
   # Règle décidée par l'utilisateur : casse ignorée, espaces tolérés autour de « = » => « Remove-Si-Lu = oui » est ACTIF.
   # (La mention « casse oui : F1 reste » du plan est une erreur du plan ; REMOVE-SI-LU=non, elle, reste inactive.)
-  echo "== I2 — états de remove-si-lu"
+  echo "== I2 — états de remove-si-lu (et dépendance à propager-lu, v1.2.0)"
   assert_baseline
   i2_case I2.non   "remove-si-lu=NON (défaut)" '[]' '[]' stays
   i2_case I2.both  "remove-si-lu=OUI + =NON ensemble (NON l'emporte)" "[\"$OUI_RM\"]" '[]' stays
   i2_case I2.case  "REMOVE-SI-LU=non (casse)" '["REMOVE-SI-LU=non"]' "[\"$NON_RM\"]" stays
   i2_case I2.prop  "propager-lu=OUI seul (remove-si-lu=NON)" "[\"$OUI_PR\"]" "[\"$NON_PR\"]" stays
-  i2_case I2.space "« Remove-Si-Lu = oui » (casse et espaces tolérés)" '["Remove-Si-Lu = oui"]' "[\"$NON_RM\"]" removed
+  # v1.2.0 (D21, S3b) : le retrait exige AUSSI propager-lu=OUI ; remove-si-lu=OUI SEUL (propager-lu=NON) => RIEN.
+  i2_case I2.solo  "remove-si-lu=OUI SEUL (propager-lu=NON) : plus aucun retrait (S3b, v1.2.0)" "[\"$OUI_RM\"]" "[\"$NON_RM\"]" stays
+  i2_case I2.prboth "remove-si-lu=OUI + propager-lu=OUI+NON ensemble (propager-lu inactive, NON l'emporte)" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\"]" stays
+  i2_case I2.space "« Remove-Si-Lu = oui » + « PROPAGER-LU = Oui » (casse et espaces tolérés)" '["Remove-Si-Lu = oui","PROPAGER-LU = Oui"]' "[\"$NON_RM\",\"$NON_PR\"]" removed
   local pl x
-  i2_case I2.oui "remove-si-lu=OUI seul" "[\"$OUI_RM\"]" "[\"$NON_RM\"]" removed; pl=$LAST_PL
+  i2_case I2.oui "remove-si-lu=OUI ET propager-lu=OUI (chacune seule)" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]" removed; pl=$LAST_PL
   x=$(for t in "$T1:$U1" "$T2:$U2" "$T3:$U3"; do api GET "/Playlists/$pl/Items?UserId=${t##*:}" "" "${t%%:*}" >/dev/null; jq -c --arg i "${M[0]}" '[.Items[]|select(.Id==$i)]|length' "$RESP"; done | jq -sc .)
   ck I2.oui.views "F1 absente pour u1, u2 et u3" "$x" test "$x" = "[0,0,0]"
 }
@@ -159,21 +165,21 @@ i3() {
   echo "== I3 — TogglePlayed par le propriétaire"
   assert_baseline
   local pl p2 p3; pl=$(shared_pl "SPIKE-I3" "${M[0]},${M[1]}"); prime "$pl" || true
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1
   finish "$U1" "$T1" "${M[0]}"
   ck I3.removed "u1 (propriétaire) passe F1 à lu : retirée" "null" wait_count "$pl" "${M[0]}" 0 10
   # évidence enrichie (KO isolé, non reproduit le 2026-09-27, cf. rapport qa) : valeurs réelles + ids pour diagnostic
   p2=$(played_of "$U2" "$T2" "${M[0]}"); p3=$(played_of "$U3" "$T3" "${M[0]}")
-  ck I3.others "le lu des autres comptes est inchangé (pas de propagation en v0.2.0)" \
+  ck I3.others "v1.2.0 : le retrait exige propager-lu=OUI, donc le lu EST propagé aux autres comptes (R4b, tableau A) — avant : inchangé" \
     "{\"u2\":\"$p2\",\"u3\":\"$p3\",\"media\":\"${M[0]}\",\"playlist\":\"$pl\"}" \
-    test "$p2/$p3" = "false/false"
+    test "$p2/$p3" = "true/true"
 }
 
 i4() {
   echo "== I4 — played=true sur PlaybackProgress"
   assert_baseline
   local pl; pl=$(shared_pl "SPIKE-I4" "${M[0]},${M[1]}"); prime "$pl" || true
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1
   play_to "$U2" "$T2" "${M[0]}" 99 progress-only
   nap 3
   local pl2; pl2=$(played_of "$U2" "$T2" "${M[0]}")
@@ -190,7 +196,7 @@ i5() {
   assert_baseline
   local pl j; pl=$(shared_pl "SPIKE-I5" "${M[0]},${M[1]}"); prime "$pl" || true
   add_item "$pl" "${M[0]}"
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1
   ck I5.dup "M0 présent 2 fois au départ" "null" test "$(count_item "$pl" "${M[0]}")" = 2
   jclear
   finish "$U2" "$T2" "${M[0]}"
@@ -207,14 +213,14 @@ i6() {
   assert_baseline
   local pl st tg
   pl=$(new_pl "SPIKE-I6-privee" "${M[0]},${M[1]}")
-  owner_edit "$pl" "[\"$OUI_RM\"]" '[]'
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" '[]'
   run_pass || true
   finish "$U1" "$T1" "${M[0]}"
-  ck I6.private "playlist privée avec remove-si-lu=OUI : F1 reste" "null" stays "$pl" "${M[0]}" 1 5
+  ck I6.private "playlist privée avec remove-si-lu=OUI + propager-lu=OUI : F1 reste" "null" stays "$pl" "${M[0]}" 1 5
   tg=$(tags_of "$pl")
-  ck I6.notag "aucune étiquette par défaut n'est posée sur une playlist non partagée" "$tg" test "$(tag_count "$tg" remove-si-lu)/$(tag_count "$tg" propager-lu)" = "1/0"
+  ck I6.notag "aucune étiquette par défaut n'est posée sur une playlist non partagée (ni propager-avancement)" "$tg" test "$(tag_count "$tg" remove-si-lu)/$(tag_count "$tg" propager-lu)/$(tag_count "$tg" propager-avancement)" = "1/1/0"
   pl=$(new_pl "SPIKE-I6-publique" "${M[2]},${M[3]}")
-  owner_edit "$pl" "[\"$OUI_RM\"]" '[]'
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" '[]'
   st=$(api POST "/Items/$pl/MakePublic" "" "$T1")
   if [[ $st != 2* ]]; then skip I6.public "MakePublic refusé (HTTP $st) : permission de partage absente"; return; fi
   run_pass || true
@@ -226,10 +232,10 @@ i7() {
   echo "== I7 — arrêt à 50 % : aucune transition"
   assert_baseline
   local pl j; pl=$(shared_pl "SPIKE-I7" "${M[0]},${M[1]}"); prime "$pl" || true
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1
   jclear
   play_to "$U2" "$T2" "${M[0]}" 50
-  ck I7.stays "arrêt à 50 % avec remove-si-lu=OUI : F1 reste" "null" stays "$pl" "${M[0]}" 1 5
+  ck I7.stays "arrêt à 50 % avec retrait effectif : F1 reste" "null" stays "$pl" "${M[0]}" 1 5
   j=$(journal Removal)
   ck I7.nojournal "aucune entrée Removal" "$j" test "$(jcount "$j" "$pl" Removal)" = 0
 }
@@ -250,7 +256,7 @@ i8() {
     gs=$(state | jq -r --arg p "$pl" "$DEFS"'.graceCounters|to_entries|map(select((.key|n)==($p|n)))|.[0].value["remove-si-lu"] // 0')
     ck I8a.grace1 "1re passe sans étiquette : compteur de grâce = 1, pas de pose" "{\"counter\":$gs}" test "$gs" = 1
   fi
-  owner_edit "$pl" "[\"$OUI_RM\"]" '[]'
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_PR\"]"     # retrait EFFECTIF (v1.2.0) : les deux familles
   run_pass || true
   wait_grace_counter "$pl" remove-si-lu 0 10 || true
   t=$(tags_of "$pl"); gs=$(state | jq -r --arg p "$pl" "$DEFS"'.graceCounters|to_entries|map(select((.key|n)==($p|n)))|.[0].value["remove-si-lu"] // 0')
@@ -260,7 +266,7 @@ i8() {
   ck I8a.active "remove-si-lu=OUI actif : F1 retirée" "null" wait_count "$pl" "${M[0]}" 0 10
   # (b) ajouter OUI puis retirer NON
   pl=$(shared_pl "SPIKE-I8b" "${M[0]},${M[1]}"); prime "$pl" || true
-  owner_edit "$pl" "[\"$OUI_RM\"]" '[]'; nap 2
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_PR\"]"; nap 2      # propager-lu=OUI seule ; remove-si-lu=OUI + NON (conflit)
   finish "$U2" "$T2" "${M[1]}"
   ck I8b.both "OUI + NON ensemble : NON l'emporte, M1 reste" "null" stays "$pl" "${M[1]}" 1 4
   owner_edit "$pl" '[]' "[\"$NON_RM\"]"; run_pass || true
@@ -333,22 +339,22 @@ i10() {
 }
 
 i11() {
-  echo "== I11 — membre Read finit F1 : retiré, flags des autres inchangés"
+  echo "== I11 — membre Read finit F1 : retiré, lu propagé aux autres (v1.2.0 : retrait exige propager-lu)"
   assert_baseline
   local pl; pl=$(shared_pl "SPIKE-I11" "${M[0]},${M[1]}"); prime "$pl" || true
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1
   finish "$U3" "$T3" "${M[0]}"
   ck I11.removed "u3 (Read) passe F1 à lu : le plugin la retire" "null" wait_count "$pl" "${M[0]}" 0 10
-  ck I11.flags "flags lu de u1 et u2 inchangés (false/false)" "null" test "$(played_of "$U1" "$T1" "${M[0]}")/$(played_of "$U2" "$T2" "${M[0]}")" = "false/false"
+  ck I11.flags "lu propagé à u1 et u2 (true/true, R4b)" "null" test "$(played_of "$U1" "$T1" "${M[0]}")/$(played_of "$U2" "$T2" "${M[0]}")" = "true/true"
 }
 
 i12() {
   echo "== I12 — relecture d'un média déjà lu : rien ; décocher/recocher : retire"
   assert_baseline
   local pl; pl=$(shared_pl "SPIKE-I12" "${M[0]},${M[1]}"); prime "$pl" || true
-  finish "$U2" "$T2" "${M[0]}"                      # déjà lu AVANT d'activer remove-si-lu (NON : reste)
+  finish "$U2" "$T2" "${M[0]}"                      # déjà lu AVANT d'activer le retrait (NON : reste)
   ck I12.pre "lu sous remove-si-lu=NON : reste" "null" stays "$pl" "${M[0]}" 1 3
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1
   play_to "$U2" "$T2" "${M[0]}" 98
   ck I12.reread "relecture jusqu'au bout d'un média déjà lu (aucune transition) : reste" "{\"played\":\"$(played_of "$U2" "$T2" "${M[0]}")\"}" stays "$pl" "${M[0]}" 1 5
   unmark "$U2" "$T2" "${M[0]}"; nap 1; finish "$U2" "$T2" "${M[0]}"
@@ -365,7 +371,7 @@ i13() {
   for ((i=0; i<10; i++)); do t=$(tags_of "$pl"); has_tag "$t" "$NON_RM" && break; nap 1; done
   after=$(state | jq -r '.lastPass.ts // ""')
   if [[ $before != "$after" ]]; then skip I13.action "une passe planifiée a eu lieu pendant le test : cause de pose ambiguë"; else
-    ck I13.action "ajout d'une entrée à une playlist non vue : les deux NON sont posés SANS passe" "$t" bash -c 'jq -e --arg a "$1" --arg b "$2" "index(\$a)!=null and index(\$b)!=null" <<<"$0" >/dev/null' "$t" "$NON_RM" "$NON_PR"
+    ck I13.action "ajout d'une entrée à une playlist non vue : les trois NON sont posés SANS passe" "$t" bash -c 'jq -e --arg a "$1" --arg b "$2" --arg c "$3" "index(\$a)!=null and index(\$b)!=null and index(\$c)!=null" <<<"$0" >/dev/null' "$t" "$NON_RM" "$NON_PR" "$NON_AV"
   fi
   e13a=$(echo_sum)
   owner_edit "$pl" '[]' "[\"$NON_PR\"]"
@@ -381,7 +387,7 @@ i14() {
   assert_baseline
   local pl j k i
   pl=$(shared_pl "SPIKE-I14" "$(IFS=,; echo "${M[*]}")"); prime "$pl" || true
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1; jclear
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1; jclear
   local -a U=("$U1" "$U2" "$U3") T=("$T1" "$T2" "$T3")
   rm -f "$SCRATCH"/ms.i14 "$SCRATCH"/bg.i14*.st
   for k in 0 1 2 3 4 5; do   # 3 comptes, médias différents, en parallèle
@@ -409,7 +415,7 @@ i15() {
   assert_baseline
   local pl id k t pidbg dup
   pl=$(shared_pl "SPIKE-I15" "$(IFS=,; echo "${M[*]}")"); prime "$pl" || true
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1
   id=$(task_id)
   ( CFG="$SCRATCH/bg.loop.cfg"; RESP="$SCRATCH/bg.loop.resp"; BODYF="$SCRATCH/bg.loop.body"
     while :; do api POST "/ScheduledTasks/Running/$id" >/dev/null; nap 1.5; done ) & pidbg=$!
@@ -423,7 +429,7 @@ i15() {
   t=$(tags_of "$pl"); dup=$(jq -r '[.[]|ascii_downcase]|group_by(.)|map(select(length>1))|length' <<<"$t")
   ck I15.removed "aucun retrait perdu : playlist vide" "$(entries "$pl")" test "$(entries "$pl" | jq length)" = 0
   ck I15.nodup "aucune étiquette dupliquée" "$t" test "$dup" = 0
-  ck I15.families "une seule étiquette par famille" "$t" test "$(tag_count "$t" remove-si-lu)/$(tag_count "$t" propager-lu)" = "1/1"
+  ck I15.families "une seule étiquette par famille" "$t" test "$(tag_count "$t" remove-si-lu)/$(tag_count "$t" propager-lu)/$(tag_count "$t" propager-avancement)" = "1/1/1"
   ck I15.slow "aucun appel de transition > 5 s" "null" bash -c '! awk "\$1>5000{f=1} END{exit !f}" "$0"' "$SCRATCH/ms.i15"
   harvest_removals
 }
@@ -432,14 +438,14 @@ i16() {
   echo "== I16 — ré-entrance : exactement un écho par écriture du plugin, aucune repose"
   assert_baseline
   local pl jp j1 j2 e16a e16b e16c e16d
-  # (a) écriture de pose : une seule écriture (ApplyDefaults) => un seul écho, deux étiquettes posées une fois
+  # (a) écriture de pose : une seule écriture (ApplyDefaults) => un seul écho, trois étiquettes posées une fois
   pl=$(shared_pl "SPIKE-I16" "${M[0]},${M[1]}"); jclear
   nap 2; e16a=$(echo_sum)
   prime "$pl" || true; nap 6; jp=$(journal); e16b=$(echo_sum)
-  ck I16.posed "MarkerPosed : exactement une pose par famille (2), pas de repose 6 s plus tard" "$jp" test "$(jcount "$jp" "$pl" MarkerPosed)" = 2
+  ck I16.posed "MarkerPosed : exactement une pose par famille (3), pas de repose 6 s plus tard" "$jp" test "$(jcount "$jp" "$pl" MarkerPosed)" = 3
   ck I16.echo.pose "un écho au plus (already-seen/reentrant) pour l'écriture de pose (+$((e16b-e16a)))" "{\"before\":$e16a,\"after\":$e16b}" test "$((e16b-e16a))" -le 1
   # (b) écriture de retrait
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1; jclear; e16c=$(echo_sum)
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1; jclear; e16c=$(echo_sum)
   finish "$U2" "$T2" "${M[0]}"; wait_count "$pl" "${M[0]}" 0 10 || true
   nap 3; j1=$(journal); nap 6; j2=$(journal); e16d=$(echo_sum)
   ck I16.removal "un seul Removal pour un retrait" "$j1" test "$(jcount "$j1" "$pl" Removal)" = 1
@@ -459,7 +465,7 @@ i17() {
   if [[ $n -lt 5 ]]; then skip I17.p95 "trop peu de Removal observés ($n) : lancer I3/I14/I15 dans la même exécution"
   else ck I17.p95 "p95 des Removal.durationMs <= 300 ms" "$(stats_json "$REMOVAL_MS")" test "$p95" -le 300; fi
   pl=$(shared_pl "SPIKE-I17" "${M[0]},${M[1]}"); prime "$pl" || true
-  owner_edit "$pl" "[\"$OUI_RM\"]" "[\"$NON_RM\"]"; nap 1
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1
   before=$(state | jq -r '.handler.count // 0')
   for ((i=0; i<20; i++)); do play_to "$U2" "$T2" "${M[1]}" 30 progress-only; done
   nap 2; after=$(state | jq -r '.handler.count // 0')
