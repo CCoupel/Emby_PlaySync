@@ -61,4 +61,11 @@ public interface IPlaylistGateway
     /// automatique du moteur/réconciliation — <see cref="ApplyDefaults"/> n'en supprime jamais).
     /// </summary>
     ReplaceFamilyResult ReplaceFamily(string playlistId, MarkerFamily family, bool enabled);
+
+    /// <summary>
+    /// v1.2.0 (#55, D22) : crée une playlist VIDE, de type Vidéo, dont <paramref name="ownerId"/> est propriétaire (Emby pose
+    /// la ligne <c>ManageDelete</c> du créateur immédiatement, spike U14). <paramref name="name"/> est DÉJÀ normalisé et validé
+    /// par <c>UserPlaylistService</c>. Renvoie l'identifiant (entier interne, en chaîne). Lève si la création échoue.
+    /// </summary>
+    string CreatePlaylist(string ownerId, string name);
 }

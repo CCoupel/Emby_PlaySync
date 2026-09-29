@@ -19,6 +19,13 @@ public class UserPlaylists : IReturn<List<UserPagePlaylistDto>>
 {
 }
 
+[Route("/SharedPlaylist/User/Playlists", "POST")]
+[Authenticated]
+public class UserCreatePlaylist : IReturn<UserPagePlaylistDto>
+{
+    public string? Name { get; set; }
+}
+
 [Route("/SharedPlaylist/User/Users", "GET")]
 [Authenticated]
 public class UserUsers : IReturn<List<UserPageSelectableDto>>

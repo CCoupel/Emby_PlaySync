@@ -41,6 +41,8 @@ public class UserPageService : IService, IRequiresRequest
 
     public object Get(UserPlaylists request) => Respond(Service.ListOwned(RequesterId()));
 
+    public object Post(UserCreatePlaylist request) => Respond(Service.CreatePlaylist(RequesterId(), request.Name));
+
     public object Get(UserUsers request) => Respond(Service.ListSelectableUsers(RequesterId()));
 
     public object Post(UserAddOrUpdateMember request) =>
@@ -84,6 +86,9 @@ public class UserPageService : IService, IRequiresRequest
         UserPageErrors.Self => 400,
         UserPageErrors.InvalidUser => 400,
         UserPageErrors.InvalidFamily => 400,
+        UserPageErrors.InvalidName => 400,
+        UserPageErrors.NameExists => 409,
+        UserPageErrors.LimitReached => 409,
         UserPageErrors.NotShared => 409,
         UserPageErrors.Busy => 409,
         _ => 500 // UserPageErrors.Internal et tout code non anticipé : jamais de détail, cohérent avec le garde-fou de UserPlaylistService.
