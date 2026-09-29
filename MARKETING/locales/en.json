@@ -26,13 +26,21 @@
   "solutions.c1.title": "Native sharing, no friction",
   "solutions.c1.text": "Sharing goes through Emby's standard menu. The permission the owner needs is granted automatically to every account.",
   "solutions.c2.title": "Automatic removal on watched",
-  "solutions.c2.text": "The <code>remove-si-lu</code> tag: once a member finishes a title, it disappears from the list for everyone.",
-  "solutions.c3.title": "Shared progress",
-  "solutions.c3.text": "The <code>propager-lu</code> tag: the watched flag and playback position are copied to other members — start on one account, continue on another.",
+  "solutions.c2.text": "The <code>remove-si-lu</code> tag: once a member finishes a title, it disappears from the list for everyone (requires “Propagate watched”).",
+  "solutions.c3.title": "Shared watched state",
+  "solutions.c3.text": "The <code>propager-lu</code> tag: the watched flag is copied to other members. Playback position now has its own option.",
   "solutions.c4.title": "Built-in diagnostics",
   "solutions.c4.text": "Decision log and in-memory state available to an admin; behaviour verified at scale (10+ playlists, 5+ concurrent members, sub-1s latency).",
   "solutions.c5.title": "Dedicated user page",
   "solutions.c5.text": "A “PlaySync” page in Emby's user menu (Avatar → PlaySync) to manage members and sharing options without touching tags: add, set Read/Write level, remove, toggle switches — in French and English.",
+
+  "solutions.c6.title": "Propagate progress, separately",
+
+  "solutions.c6.text": "The <code>propager-avancement</code> tag: playback position is copied on pause or stop, independently of the watched flag — including when re-watching an already watched title.",
+
+  "solutions.c7.title": "Create a playlist from PlaySync",
+
+  "solutions.c7.text": "A “New playlist” button on the PlaySync page: empty playlist, unique name per owner, up to 10 owned playlists.",
 
   "architecture.eyebrow": "Under the hood",
   "architecture.title": "One plugin, no extra service",
@@ -58,8 +66,9 @@
   "deployment.config.th_default": "Default",
   "deployment.config.th_role": "Role",
   "deployment.config.row1": "Automatically grants the sharing permission to every account",
-  "deployment.config.row2": "Playlist tag — removes a watched item for all members",
-  "deployment.config.row3": "Playlist tag — propagates the watched flag and playback position",
+  "deployment.config.row2": "Playlist tag — removes a watched item for all members (only effective with propager-lu)",
+  "deployment.config.row3": "Playlist tag — propagates the watched flag",
+  "deployment.config.row3b": "Playlist tag — propagates playback position (pause, stop)",
   "deployment.config.row4": "Enables the log and state available to an admin",
 
   "footer.tagline": "PlaySync — community plugin for Emby, not affiliated with Emby.",

@@ -16,7 +16,7 @@
     <div class="brand">
       <span>PlaySync</span>
       <span class="for-emby">for Emby</span>
-      <span class="version-pill">v1.1.0</span>
+      <span class="version-pill">v1.2.0</span>
     </div>
     <nav>
       <a href="#problems" data-i18n="nav.problems">Problématiques</a>
@@ -82,12 +82,12 @@
     <div class="card">
       <span class="icon">✅</span>
       <h3><span data-i18n="solutions.c2.title">Retrait automatique du média lu</span> <span class="badge badge-orange" data-badge-version="v1.0.0">Nouveau v1.0.0</span></h3>
-      <p data-i18n="solutions.c2.text">Étiquette <code>remove-si-lu</code> : quand un membre termine un média, il disparaît de la liste pour tout le monde.</p>
+      <p data-i18n="solutions.c2.text">Étiquette <code>remove-si-lu</code> : quand un membre termine un média, il disparaît de la liste pour tout le monde (nécessite « Propager le lu »).</p>
     </div>
     <div class="card">
       <span class="icon">🔄</span>
       <h3><span data-i18n="solutions.c3.title">Progression partagée</span> <span class="badge badge-orange" data-badge-version="v1.0.0">Nouveau v1.0.0</span></h3>
-      <p data-i18n="solutions.c3.text">Étiquette <code>propager-lu</code> : le flag lu et la position de lecture sont copiés chez les autres membres — commencez sur un compte, poursuivez sur l'autre.</p>
+      <p data-i18n="solutions.c3.text">Étiquette <code>propager-lu</code> : le flag lu est copié chez les autres membres. La position de lecture a désormais sa propre option.</p>
     </div>
     <div class="card">
       <span class="icon">📊</span>
@@ -98,6 +98,16 @@
       <span class="icon">👤</span>
       <h3><span data-i18n="solutions.c5.title">Page utilisateur dédiée</span> <span class="badge badge-orange" data-badge-version="v1.1.0">Nouveau v1.1.0</span></h3>
       <p data-i18n="solutions.c5.text">Une page « PlaySync » dans le menu Emby (Avatar → PlaySync) pour gérer membres et options de partage sans toucher aux étiquettes : ajout, niveau Lecture/Écriture, retrait, interrupteurs — en français et en anglais.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🎚️</span>
+      <h3><span data-i18n="solutions.c6.title">Propager l'avancement, à part</span> <span class="badge badge-orange" data-badge-version="v1.2.0">Nouveau v1.2.0</span></h3>
+      <p data-i18n="solutions.c6.text">Étiquette <code>propager-avancement</code> : la position de lecture est copiée à la pause ou à l'arrêt, indépendamment du flag lu — y compris en relisant un média déjà vu.</p>
+    </div>
+    <div class="card">
+      <span class="icon">➕</span>
+      <h3><span data-i18n="solutions.c7.title">Créer une playlist depuis PlaySync</span> <span class="badge badge-orange" data-badge-version="v1.2.0">Nouveau v1.2.0</span></h3>
+      <p data-i18n="solutions.c7.text">Un bouton « Nouvelle playlist » dans la page PlaySync : playlist vide, nom unique par propriétaire, jusqu'à 10 playlists possédées.</p>
     </div>
   </div>
 </section>
@@ -186,8 +196,9 @@ cp dist/EmbySharedPlaylist.dll /config/plugins/
       <thead><tr><th data-i18n="deployment.config.th_key">Paramètre</th><th data-i18n="deployment.config.th_default">Défaut</th><th data-i18n="deployment.config.th_role">Rôle</th></tr></thead>
       <tbody>
         <tr><td><code>AutoEnableSharing</code></td><td>false</td><td data-i18n="deployment.config.row1">Accorde automatiquement la permission de partage à tous les comptes</td></tr>
-        <tr><td><code>remove-si-lu</code></td><td>NON</td><td data-i18n="deployment.config.row2">Étiquette de playlist — retire un média lu pour tous les membres</td></tr>
-        <tr><td><code>propager-lu</code></td><td>NON</td><td data-i18n="deployment.config.row3">Étiquette de playlist — propage le flag lu et la position de lecture</td></tr>
+        <tr><td><code>remove-si-lu</code></td><td>NON</td><td data-i18n="deployment.config.row2">Étiquette de playlist — retire un média lu pour tous les membres (actif seulement avec propager-lu)</td></tr>
+        <tr><td><code>propager-lu</code></td><td>NON</td><td data-i18n="deployment.config.row3">Étiquette de playlist — propage le flag lu</td></tr>
+        <tr><td><code>propager-avancement</code></td><td>NON</td><td data-i18n="deployment.config.row3b">Étiquette de playlist — propage la position de lecture (pause, arrêt)</td></tr>
         <tr><td><code>EnableDiagnostics</code></td><td>true</td><td data-i18n="deployment.config.row4">Active le journal et l'état consultables par un administrateur</td></tr>
       </tbody>
     </table>

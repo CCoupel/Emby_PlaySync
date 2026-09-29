@@ -44,3 +44,8 @@
   `Nouveau v1.1.0` posé (première apparition). Version affichée dans le header mise à jour
   (`v1.1.0`) ; correction en passant de la valeur par défaut affichée d'`AutoEnableSharing`
   (`true` → `false`, obsolète depuis la décision de sécurité v1.0.0, non liée à cette release).
+- **v1.2.0** (préparé le 2026-09-29, en attente de publication) : version affichée `v1.2.0` ; carte
+  Lu partagé recadrée (le flag seul) ; deux nouvelles cartes en section Solutions — « Propager
+  l'avancement, à part » et « Créer une playlist depuis PlaySync » — avec badge `Nouveau v1.2.0`
+  (première apparition). `current-major` reste `1`. Tableau de configuration : ajout de
+  `propager-avancement`, précisions sur `remove-si-lu` (dépend de `propager-lu`) et `propager-lu`.
