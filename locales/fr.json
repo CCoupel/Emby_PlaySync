@@ -26,13 +26,21 @@
   "solutions.c1.title": "Partage natif, sans friction",
   "solutions.c1.text": "Le partage passe par le menu Emby standard. La permission nécessaire côté propriétaire est accordée automatiquement à tous les comptes.",
   "solutions.c2.title": "Retrait automatique du média lu",
-  "solutions.c2.text": "Étiquette <code>remove-si-lu</code> : quand un membre termine un média, il disparaît de la liste pour tout le monde.",
-  "solutions.c3.title": "Progression partagée",
-  "solutions.c3.text": "Étiquette <code>propager-lu</code> : le flag lu et la position de lecture sont copiés chez les autres membres — commencez sur un compte, poursuivez sur l'autre.",
+  "solutions.c2.text": "Étiquette <code>remove-si-lu</code> : quand un membre termine un média, il disparaît de la liste pour tout le monde (nécessite « Propager le lu »).",
+  "solutions.c3.title": "Lu partagé",
+  "solutions.c3.text": "Étiquette <code>propager-lu</code> : le flag lu est copié chez les autres membres. La position de lecture a désormais sa propre option.",
   "solutions.c4.title": "Diagnostics intégrés",
   "solutions.c4.text": "Journal des décisions et état en mémoire consultables par un administrateur ; comportement vérifié à l'échelle (10+ playlists, 5+ membres simultanés, latence sous 1 s).",
   "solutions.c5.title": "Page utilisateur dédiée",
   "solutions.c5.text": "Une page « PlaySync » dans le menu Emby (Avatar → PlaySync) pour gérer membres et options de partage sans toucher aux étiquettes : ajout, niveau Lecture/Écriture, retrait, interrupteurs — en français et en anglais.",
+
+  "solutions.c6.title": "Propager l'avancement, à part",
+
+  "solutions.c6.text": "Étiquette <code>propager-avancement</code> : la position de lecture est copiée à la pause ou à l'arrêt, indépendamment du flag lu — y compris en relisant un média déjà vu.",
+
+  "solutions.c7.title": "Créer une playlist depuis PlaySync",
+
+  "solutions.c7.text": "Un bouton « Nouvelle playlist » dans la page PlaySync : playlist vide, nom unique par propriétaire, jusqu'à 10 playlists possédées.",
 
   "architecture.eyebrow": "Sous le capot",
   "architecture.title": "Un plugin, sans service additionnel",
@@ -58,8 +66,9 @@
   "deployment.config.th_default": "Défaut",
   "deployment.config.th_role": "Rôle",
   "deployment.config.row1": "Accorde automatiquement la permission de partage à tous les comptes",
-  "deployment.config.row2": "Étiquette de playlist — retire un média lu pour tous les membres",
-  "deployment.config.row3": "Étiquette de playlist — propage le flag lu et la position de lecture",
+  "deployment.config.row2": "Étiquette de playlist — retire un média lu pour tous les membres (actif seulement avec propager-lu)",
+  "deployment.config.row3": "Étiquette de playlist — propage le flag lu",
+  "deployment.config.row3b": "Étiquette de playlist — propage la position de lecture (pause, arrêt)",
   "deployment.config.row4": "Active le journal et l'état consultables par un administrateur",
 
   "footer.tagline": "PlaySync — plugin communautaire pour Emby, non affilié à Emby.",
