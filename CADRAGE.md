@@ -38,3 +38,9 @@
   réelle actée : merge main, tag `v1.0.0`, déploiement confirmé) : lancement initial du site.
   Badges `Nouveau v1.0.0` posés sur les 4 fonctionnalités phares de la section Solutions (partage
   natif, retrait automatique, propagation, diagnostics) — première apparition de chacune.
+- **v1.1.0** (préparé le 2026-09-29, en attente de validation/publication) : ajout de la carte
+  « Page utilisateur dédiée » (section Solutions) — nouvelle interface dans le menu Emby
+  permettant au propriétaire de gérer membres et options sans éditer les étiquettes. Badge
+  `Nouveau v1.1.0` posé (première apparition). Version affichée dans le header mise à jour
+  (`v1.1.0`) ; correction en passant de la valeur par défaut affichée d'`AutoEnableSharing`
+  (`true` → `false`, obsolète depuis la décision de sécurité v1.0.0, non liée à cette release).

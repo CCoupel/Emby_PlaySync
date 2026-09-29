@@ -31,6 +31,8 @@
   "solutions.c3.text": "The <code>propager-lu</code> tag: the watched flag and playback position are copied to other members — start on one account, continue on another.",
   "solutions.c4.title": "Built-in diagnostics",
   "solutions.c4.text": "Decision log and in-memory state available to an admin; behaviour verified at scale (10+ playlists, 5+ concurrent members, sub-1s latency).",
+  "solutions.c5.title": "Dedicated user page",
+  "solutions.c5.text": "A “PlaySync” page in Emby's user menu (Avatar → PlaySync) to manage members and sharing options without touching tags: add, set Read/Write level, remove, toggle switches — in French and English.",
 
   "architecture.eyebrow": "Under the hood",
   "architecture.title": "One plugin, no extra service",
