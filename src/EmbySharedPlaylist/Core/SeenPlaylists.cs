@@ -2,7 +2,7 @@ namespace EmbySharedPlaylist.Core;
 
 /// <summary>
 /// Mémoire (aucune persistance) des playlists ayant subi la première détection depuis le démarrage, et compteurs de grâce
-/// par playlist et par clé (<c>remove-si-lu</c>, <c>propager-lu</c>, <c>description</c>). Thread-safe, bornée :
+/// par playlist et par clé (<c>remove-si-lu</c>, <c>propager-lu</c>, <c>propager-avancement</c>, <c>description</c>). Thread-safe, bornée :
 /// au-delà de <c>capacity</c>, la playlist vue la plus anciennement ajoutée est oubliée (avec ses compteurs) —
 /// elle subira alors une nouvelle première détection, sans conséquence (le plugin ne pose que ce qui manque).
 /// </summary>

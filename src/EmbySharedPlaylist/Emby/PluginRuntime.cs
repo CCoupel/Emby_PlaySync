@@ -21,6 +21,8 @@ public static class PluginRuntime
 
     public static EventJournal JournalStore { get; } = new();
     public static PluginWriteTracker Tracker { get; } = new();
+    /// <summary>v1.2.0 (D21, B7) : verrou (utilisateur, média) partagé par les deux moteurs (le lu et l'avancement).</summary>
+    public static UserItemLocks UserItemLocks { get; } = new();
     public static PlaylistLocks Locks { get; } = new();
     public static SeenPlaylists Seen { get; } = new();
     public static PlayedTransitionTracker PlayedTransitions { get; } = new();
@@ -60,7 +62,7 @@ public static class PluginRuntime
             var clock = new SystemClock();
             var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager, journal: journal);
             var userData = new EmbyUserDataGateway(userManager, libraryManager, userDataManager);
-            var defaults = new DefaultsService(gateway, Seen, Locks, journal, HelpText.Message,
+            var defaults = new DefaultsService(gateway, Seen, Locks, journal, HelpText.V3,
                 () => Plugin.Instance?.Configuration.EffectiveGracePasses ?? 2, clock);
 
             Log = log;
@@ -70,14 +72,14 @@ public static class PluginRuntime
             Defaults = defaults;
             Reconciliation = new ReconciliationService(gateway, defaults, Seen, Locks, journal, clock);
             FirstDetection = new FirstDetectionCoordinator(gateway, defaults, Seen, journal, clock);
-            RemovalEngine = new ReadRemovalEngine(gateway, userData, Tracker, defaults, Seen, Locks, journal, clock, budget: ReadRemovalEngine.DefaultBudget);
+            RemovalEngine = new ReadRemovalEngine(gateway, userData, Tracker, defaults, Seen, Locks, journal, clock, budget: ReadRemovalEngine.DefaultBudget, userItemLocks: UserItemLocks);
             var engine = RemovalEngine;
             PlaybackProcessor = new PlaybackEventProcessor(PlayedTransitions, Tracker, (u, i) => engine!.Handle(u, i), Handler);
             // Cousin de RemovalEngine, flux d'événements séparé (ISessionManager, pas UserDataSaved) : même verrou/budget par
             // playlist (constante partagée), branché depuis PlaybackSessionListener, jamais depuis PlaybackListener (#45).
             // Revue C1 : même HandlerStats partagée que PlaybackProcessor, pour que Diagnostics/State.Handler confonde les deux flux.
             PositionEngine = new PlaybackPositionEngine(gateway, userData, Tracker, defaults, Seen, Locks, journal, clock,
-                budget: ReadRemovalEngine.DefaultBudget, handler: Handler);
+                budget: ReadRemovalEngine.DefaultBudget, handler: Handler, userItemLocks: UserItemLocks);
             // #26 : port/service indépendants des playlists (aucun verrou/budget partagé, voir AutoSharingService).
             var policyGateway = new EmbyUserPolicyGateway(userManager);
             PolicyGateway = policyGateway;

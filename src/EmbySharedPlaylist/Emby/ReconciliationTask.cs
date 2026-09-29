@@ -26,7 +26,7 @@ public sealed class ReconciliationTask : IScheduledTask, IConfigurableScheduledT
 
     public string Name => "Emby Shared Playlist — réconciliation";
     public string Key => "EmbySharedPlaylistReconciliation";
-    public string Description => "Pose les étiquettes remove-si-lu=NON et propager-lu=NON et le message d'aide sur les playlists partagées qui n'en ont pas.";
+    public string Description => "Pose les étiquettes remove-si-lu=NON, propager-lu=NON et propager-avancement=NON et le message d'aide sur les playlists partagées qui n'en ont pas.";
     public string Category => "Emby Shared Playlist";
 
     public bool IsHidden => false;

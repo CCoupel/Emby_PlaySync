@@ -10,7 +10,7 @@ public sealed record DefaultsOutcome(int MarkersPosed, bool DescriptionWritten, 
 }
 
 /// <summary>
-/// Pose des étiquettes par défaut (<c>remove-si-lu=NON</c>, <c>propager-lu=NON</c>) et du message d'aide pour une playlist gérée.
+/// Pose des étiquettes par défaut (<c>remove-si-lu=NON</c>, <c>propager-lu=NON</c>, <c>propager-avancement=NON</c> depuis v1.2.0, toujours NON, sans héritage) et du message d'aide pour une playlist gérée.
 /// <list type="bullet">
 /// <item><b>Première détection</b> (id absent de la mémoire) : la playlist est marquée « vue » <b>avant</b> toute écriture (atomique),
 /// puis pose immédiate de chaque famille absente et du message si la description est vide.</item>
@@ -18,7 +18,7 @@ public sealed record DefaultsOutcome(int MarkersPosed, bool DescriptionWritten, 
 /// consécutives, pose et remise à zéro (idem pour la description vide) ; famille présente : compteur remis à zéro.</item>
 /// <item><b>Message v0.2.0 → v0.3.0 (#51)</b> : à CHAQUE appel (première détection et chaque passe, sans grâce, aucun état
 /// mémorisé), si la description est encore identique caractère pour caractère à <see cref="HelpText.V1"/>, elle est remplacée
-/// par <see cref="HelpText.V2"/>. Idempotent naturellement : une fois remplacée, elle ne vaut plus <see cref="HelpText.V1"/>.</item>
+/// par <see cref="HelpText.V3"/> (v1.2.0 : idem pour <see cref="HelpText.V2"/>). Idempotent naturellement : une fois remplacée, elle ne vaut plus V1 ni V2.</item>
 /// </list>
 /// Tout se fait sous le verrou de la playlist, dans un <see cref="WriteScope"/>, en UNE lecture-écriture
 /// (<see cref="IPlaylistGateway.ApplyDefaults"/> re-vérifie à l'écriture). Jamais de suppression d'étiquette. Une écriture
@@ -26,7 +26,7 @@ public sealed record DefaultsOutcome(int MarkersPosed, bool DescriptionWritten, 
 /// </summary>
 public sealed class DefaultsService
 {
-    private static readonly MarkerFamily[] Families = { MarkerFamily.RemoveSiLu, MarkerFamily.PropagerLu };
+    private static readonly MarkerFamily[] Families = { MarkerFamily.RemoveSiLu, MarkerFamily.PropagerLu, MarkerFamily.PropagerAvancement };
     public const string DescriptionKey = "description";
 
     private readonly IPlaylistGateway _gateway;
@@ -68,8 +68,8 @@ public sealed class DefaultsService
         var families = Families.Where(f => MarkerEvaluator.Evaluate(p.Tags, f) == MarkerState.None).ToList();
         var overview = OverviewFor(p.Overview, _helpText);
         // Deux causes distinctes : les MarkerPosed sont TOUJOURS "first-detection" ici, la description peut être
-        // "first-detection" (pose, vide) OU "v1-to-v2" (remplacement, #51) — jamais confondues (revue, I10.cause).
-        var descriptionCause = overview?.RequiredCurrent == null ? "first-detection" : "v1-to-v2";
+        // "first-detection" (pose, vide) OU "v1-to-v3"/"v2-to-v3" (remplacement, #51, D15) — jamais confondues (revue, I10.cause).
+        var descriptionCause = overview?.RequiredCurrent == null ? "first-detection" : ReplaceCause(overview.RequiredCurrent);
         if (families.Count == 0 && overview == null) return Skip(p.Id, "marker-present");
 
         return Write(p, families, overview, "first-detection", descriptionCause, pending: 0);
@@ -97,19 +97,19 @@ public sealed class DefaultsService
             if (_seen.Bump(p.Id, key) >= grace) toPose.Add(f); else pending++;
         }
 
-        // Cause des MarkerPosed ("grace-elapsed", cette méthode) et de DescriptionWritten (peut différer : "v1-to-v2"
-        // n'est jamais posé par grâce) tenues séparément, pour ne jamais étiqueter à tort un marqueur (revue, I10.cause).
+        // Cause des MarkerPosed ("grace-elapsed", cette méthode) et de DescriptionWritten (peut différer : "v1-to-v3"/"v2-to-v3"
+        // ne sont jamais posés par grâce) tenues séparément, pour ne jamais étiqueter à tort un marqueur (revue, I10.cause).
         OverviewChange? overview = null;
         var descriptionCause = "grace-elapsed";
         if (string.IsNullOrWhiteSpace(p.Overview))
         {
             if (_seen.Bump(p.Id, DescriptionKey) >= grace) overview = new OverviewChange(null, _helpText); else pending++;
         }
-        else if (string.Equals(p.Overview, HelpText.V1, StringComparison.Ordinal))
+        else if (string.Equals(p.Overview, HelpText.V1, StringComparison.Ordinal) || string.Equals(p.Overview, HelpText.V2, StringComparison.Ordinal))
         {
-            // #51 : remplacement immédiat, à CHAQUE passe, sans grâce (aucun état mémorisé pour ce cas).
-            overview = new OverviewChange(HelpText.V1, HelpText.V2);
-            descriptionCause = "v1-to-v2";
+            // #51 / v1.2.0 : remplacement immédiat par V3, à CHAQUE passe, sans grâce (aucun état mémorisé pour ce cas).
+            overview = new OverviewChange(p.Overview, HelpText.V3);
+            descriptionCause = ReplaceCause(p.Overview);
             _seen.Reset(p.Id, DescriptionKey);
         }
         else _seen.Reset(p.Id, DescriptionKey);
@@ -118,11 +118,17 @@ public sealed class DefaultsService
         return Write(p, toPose, overview, "grace-elapsed", descriptionCause, pending);
     }
 
-    /// <summary>Pose <see cref="HelpText.V1"/> si vide (v0.2.0) ; le remplace par <see cref="HelpText.V2"/> s'il vaut encore exactement V1 (#51, immédiat, sans grâce).</summary>
+    /// <summary>Cause journalisée du remplacement d'une description historique : <c>v1-to-v3</c> ou <c>v2-to-v3</c>.</summary>
+    private static string ReplaceCause(string current) =>
+        string.Equals(current, HelpText.V1, StringComparison.Ordinal) ? "v1-to-v3" : "v2-to-v3";
+
+    /// <summary>Pose le message injecté (V3) si vide ; remplace V1 ou V2 par <see cref="HelpText.V3"/> s'il leur est encore identique (D15, immédiat, sans grâce).</summary>
     private OverviewChange? OverviewFor(string? currentOverview, string helpTextForEmpty)
     {
         if (string.IsNullOrWhiteSpace(currentOverview)) return new OverviewChange(null, helpTextForEmpty);
-        if (string.Equals(currentOverview, HelpText.V1, StringComparison.Ordinal)) return new OverviewChange(HelpText.V1, HelpText.V2);
+        if (string.Equals(currentOverview, HelpText.V1, StringComparison.Ordinal)
+            || string.Equals(currentOverview, HelpText.V2, StringComparison.Ordinal))
+            return new OverviewChange(currentOverview, HelpText.V3);
         return null;
     }
 
