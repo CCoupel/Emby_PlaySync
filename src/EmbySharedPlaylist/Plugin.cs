@@ -16,6 +16,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbIm
     /// <summary>Nom du contrôleur JS de la page (référencé par data-controller="__plugin/…").</summary>
     public const string ConfigScriptName = "EmbySharedPlaylistConfigScript";
 
+    /// <summary>v1.1.0 (#39, D20) : nom de la page « PlaySync » du menu UTILISATEUR (EnableInUserMenu).</summary>
+    public const string UserPageName = "PlaySyncUserPage";
+
+    /// <summary>v1.1.0 (#39, D20) : nom du contrôleur JS de la page utilisateur.</summary>
+    public const string UserScriptName = "PlaySyncUserScript";
+
     public static Plugin? Instance { get; private set; }
 
     public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
@@ -34,7 +40,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbIm
         PluginRuntime.Log?.Info(LogFormat.ConfigSaved());
     }
 
-    public override string Name => "Emby Shared Playlist";
+    // v1.1.0 (#39) : renommage produit (dépôt CCoupel/Emby_PlaySync, marque/site déjà "PlaySync", entrée de menu
+    // utilisateur déjà "PlaySync" depuis ce même lot) — décision initiale du plan de ne pas y toucher, remplacée
+    // par une demande explicite de l'utilisateur. Ne renomme QUE ce qui est visible côté admin (Name, page de
+    // config) : ni les classes/namespaces C#, ni AssemblyName/RootNamespace (EmbySharedPlaylist.dll inchangé),
+    // ni le nom de la tâche planifiée, ni le message d'aide écrit dans les playlists (HelpText — un changement
+    // de texte y déclencherait un remplacement V2→V3 sur toutes les playlists, hors périmètre de cette demande).
+    public override string Name => "PlaySync";
 
     public override string Description => "Playlists « À voir » partagées : un média lu est retiré de la liste et marqué lu pour les membres du groupe.";
 
@@ -53,7 +65,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbIm
                 Name                 = ConfigPageName,
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
                 EnableInMainMenu     = true,
-                DisplayName          = "Emby Shared Playlist",
+                DisplayName          = "Paramètres PlaySync", // différencié de la page utilisateur ("PlaySync" seul, #39) sur demande utilisateur
                 MenuSection          = "server",
                 MenuIcon             = "playlist_play"
             },
@@ -61,6 +73,26 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbIm
             {
                 Name                 = ConfigScriptName,
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configScript.js"
+            },
+            // v1.1.0 (#39, D20) : page « PlaySync » du menu UTILISATEUR — jamais EnableInMainMenu (ça, c'est la page
+            // admin ci-dessus). Entrée visible pour TOUS les comptes (Q6b, GATE U13 : aucun masquage natif par
+            // permission trouvé, spike U13 question b) ; la page elle-même détecte l'absence de permission
+            // (403 sharing-disabled) et affiche un message dédié. MenuSection="user" : hypothèse du spike U13
+            // (confirmé servi à un compte non-admin sans 404, placement visuel dans le menu non vérifié à l'œil —
+            // _work/reports/spike-u13-verification-20260928-151423.md, point a1).
+            new PluginPageInfo
+            {
+                Name                 = UserPageName,
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.userPage.html",
+                EnableInUserMenu     = true,
+                DisplayName          = "PlaySync",
+                MenuSection          = "user",
+                MenuIcon             = "group"
+            },
+            new PluginPageInfo
+            {
+                Name                 = UserScriptName,
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.userScript.js"
             }
         };
     }

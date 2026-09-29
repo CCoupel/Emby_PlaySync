@@ -160,6 +160,39 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         }
     }
 
+    /// <summary>
+    /// D19 (v1.1.0, #39) : implémenté par avance sur la Phase 2 du plan (tâche 6) — pur remplacement d'étiquettes,
+    /// aucune dépendance aux constats du spike U13 (partages/propriété), contrairement aux futurs
+    /// <c>EmbyShareGateway</c>/<c>EmbyUserDirectory</c>. Même verrou (<c>_writeGate</c>) et même patron que
+    /// <see cref="ApplyDefaults"/> : lecture fraîche, écriture, relecture. Contrairement à <see cref="ApplyDefaults"/>
+    /// (ajout seul, <see cref="WriteVerifier"/> exige avant+ajouts ⊆ après), <see cref="MarkerEditor.Replace"/>
+    /// SUPPRIME des étiquettes par conception (D19) : <see cref="WriteVerifier"/> ne s'applique pas (il rejetterait
+    /// toute suppression légitime). La relecture sert de source de vérité pour la valeur RETOURNÉE (jamais la valeur
+    /// calculée), pas de garde bloquante : un échec de relecture (cas théorique, item disparu entre-temps) retombe
+    /// sur la valeur calculée plutôt que de perdre le résultat de l'écriture déjà effectuée.
+    /// </summary>
+    public ReplaceFamilyResult ReplaceFamily(string playlistId, MarkerFamily family, bool enabled)
+    {
+        lock (_writeGate)
+        {
+            var playlist = FindPlaylist(playlistId);
+            if (playlist == null) return new ReplaceFamilyResult(Array.Empty<string>(), 0);
+
+            var current = (playlist.Tags ?? Array.Empty<string>()).ToList();
+            var (newTags, removed) = MarkerEditor.Replace(current, family, enabled);
+
+            using (WriteScope.Enter())
+            {
+                playlist.SetTags(newTags);
+                playlist.UpdateToRepository(ItemUpdateType.MetadataEdit);
+            }
+
+            var check = FindPlaylist(playlistId);
+            var finalTags = check?.Tags ?? newTags.ToArray();
+            return new ReplaceFamilyResult(finalTags, removed);
+        }
+    }
+
     // ---- Aides -------------------------------------------------------------------------------------------
 
     private static bool ContainsItem(EntryReadResult read, long item) =>

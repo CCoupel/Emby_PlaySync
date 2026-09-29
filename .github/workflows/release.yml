@@ -37,6 +37,6 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "EmbySharedPlaylist v${{ steps.version.outputs.VERSION }}"
+          name: "PlaySync v${{ steps.version.outputs.VERSION }}"
           files: dist/EmbySharedPlaylist.dll
           generate_release_notes: true

@@ -67,5 +67,62 @@ Couvert automatiquement par `tests/integration/23-permission.sh` (I36-I41) : dé
 | Décocher manuellement cette case pour `test_u2` (Tableau de bord > Utilisateurs) | à la passe suivante (au plus 5 min, ou déclenchée à la main), la case est **recochée automatiquement** | **Comportement VOULU (D-e)**, pas un défaut : le plugin ne mémorise aucun décochage individuel. Seul l'interrupteur global `AutoEnableSharing` (page de config, §5) empêche cela, pour **tous** les comptes à la fois |
 | Décocher `AutoEnableSharing` dans la page de config | aucun compte n'est plus retouché à la passe suivante ; un compte déjà coché **le reste** (aucune révocation) | |
 
+## 5quinquies. Page utilisateur « PlaySync » (v1.1.0, #39, D19/D20/S10)
+
+**Status QUALIF** : VALIDATED WITH RESERVATIONS (qa-20260928-162052.md) — tous les tests automatisés passent (62/62 P1-P23 OK, P-busy 1 SKIP attendu), mais contrôle visuel n'a pas pu être exécuté en raison d'une session navigateur persistante sur le profil Chrome partagé. Fortement corroboré par vérification API brute et revue du code ; comportement serveur confirmé sans ambiguïté. À couvrir visuellement avant GATE PROD.
+
+Couvert automatiquement par `tests/integration/25-page-utilisateur.sh` (P1-P23 : autorisation, IDOR/404, niveaux
+interdits, premier partage, bascule d'option D19, retrait du dernier membre, chaîne moteur complète). Vérification
+manuelle complémentaire (client web ; TV/mobile notés non bloquants comme U8) — noter le **client utilisé** (web,
+TV, mobile, version) sur chaque ligne.
+
+**RÉSERVE — À vérifier avant la transition en production** :
+- Entrée de menu PlaySync visible pour un compte avec permission, absente ou en 403 pour un compte sans.
+- Rendu effectif de la page (formulaires, interrupteurs, dialogue de confirmation natif).
+- Dialogue de confirmation natif Emby (jamais `window.confirm()` du navigateur) au retrait d'un membre.
+- Toasts d'erreur natifs traduits (jamais de code brut d'erreur, jamais d'`alert()`).
+- Rendu FR/EN complet (libellés et messages d'erreur).
+- TV/mobile (non bloquant, comme U8, à noter si accessible).
+
+### Entrée de menu (visible/masquée selon la permission)
+
+| Étape | Attendu | OK ? |
+|---|---|---|
+| Se connecter avec `test_u1` (permission de partage accordée, §5quater) puis ouvrir le menu utilisateur (avatar, en haut à droite) | une entrée « PlaySync » est visible | |
+| Ouvrir « PlaySync » | la page s'ouvre (pas de 404, pas d'écran blanc) ; playlists dont `test_u1` est propriétaire (partagées ou non) | |
+| Se connecter avec un compte SANS la permission (`Policy.AllowSharingPersonalItems=false` — Tableau de bord > Utilisateurs > Profil, décocher) puis ouvrir le menu utilisateur | selon la décision GATE U13-b (repli éventuel, voir Notes du plan) : soit l'entrée est absente, soit elle est visible mais la page affiche un état « sans permission » clair (jamais une erreur brute/écran blanc) | |
+| Tenter d'appeler un endpoint `User/*` directement (ex. `<EMBY_URL>/emby/SharedPlaylist/User/Playlists` avec le token de ce compte) | 403, jamais de fuite de données | |
+
+### Gestion d'une playlist (client web, `test_u1`)
+
+| Étape | Attendu | OK ? |
+|---|---|---|
+| Créer une nouvelle playlist « À voir » (hors PlaySync, comme d'habitude), NE PAS la partager, puis ouvrir PlaySync | la playlist apparaît, marquée non partagée, options grisées/désactivées, bouton pour ajouter un premier membre | |
+| Ajouter `test_u2` en Écriture depuis PlaySync | la playlist devient « partagée » IMMÉDIATEMENT (pas d'attente de 5 min) ; retrouvée dans le menu natif « … » > « Gérer la collaboration » avec `test_u2` en Écriture | |
+| Ouvrir « Modifier les métadonnées » (natif) de cette playlist | `remove-si-lu=NON` et `propager-lu=NON` déjà posées, message d'aide déjà écrit (première détection immédiate, comme §1) | |
+| Changer le niveau de `test_u2` en Lecture depuis PlaySync, puis retour Écriture | le changement se reflète dans « Gérer la collaboration » natif dans les deux sens | |
+| Ajouter `test_u3` en Lecture, puis (avec le compte `test_u3`) tenter d'ajouter un média à la playlist | refusé (403, comportement natif Emby, pas un message du plugin) | |
+| Depuis PlaySync, activer l'option « retirer si lu » (`remove-si-lu`) | bascule immédiate (toggle/switch **natif Emby**, jamais une case à cocher HTML brute) ; `test_u2` finit un film de la playlist : il est retiré pour tous | |
+| Retirer un membre (`test_u3`) depuis PlaySync | une **boîte de dialogue de confirmation Emby native** apparaît avant le retrait effectif (jamais un `window.confirm()` du navigateur — reconnaissable : bouton natif Emby, pas le style du navigateur) ; après confirmation, `test_u3` n'apparaît plus, ni côté PlaySync ni côté « Gérer la collaboration » natif | |
+| Retirer le dernier membre restant (`test_u2`) | confirmation demandée de la même façon ; la playlist redevient « non partagée » dans PlaySync ; les étiquettes restent en place mais inertes (vérifiable via « Modifier les métadonnées ») | |
+
+### Erreurs et toasts
+
+| Étape | Attendu | OK ? |
+|---|---|---|
+| Provoquer une erreur (ex. rouvrir un onglet PlaySync périmé pointant vers une playlist supprimée entre-temps, puis tenter une action) | un **toast/notification Emby natif** apparaît avec un message **traduit** et compréhensible (jamais un code brut du type `not-found`, jamais une `alert()` du navigateur) | |
+| Reproduire dans le navigateur en anglais (langue du compte/`navigator.language` réglée hors `fr*`) | tous les libellés de la page ET le message d'erreur repassent en anglais | |
+
+### Rendu FR/EN
+
+| Étape | Attendu | OK ? |
+|---|---|---|
+| Ouvrir PlaySync avec un client/navigateur en français | libellés, boutons, dialogue de confirmation en français | |
+| Changer la langue du client Emby (ou `navigator.language`) vers une langue hors français (ex. anglais, espagnol) | repli sur l'anglais (jamais de clé de traduction brute affichée, ex. `addMember`) | |
+
+### Clients TV / mobile (comme U8, #28) — NON BLOQUANT
+
+Ouvrir PlaySync (ou noter si l'entrée de menu est absente) sur TV et mobile ; noter le rendu et si les actions (ajout/retrait/bascule) sont utilisables. Comme pour U8 (§4), ce point ne bloque aucun milestone.
+
 ## 6. Nettoyage
 `tests/integration/90-cleanup.sh` (option `--delete-users` pour supprimer aussi les comptes `test_*`). Consigner les résultats dans le rapport de recette (U8, Q7).
