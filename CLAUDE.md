@@ -28,6 +28,15 @@
 | Build | `dotnet build src/EmbySharedPlaylist/EmbySharedPlaylist.csproj --configuration Release --output dist/` |
 | Tests | `dotnet test tests/EmbySharedPlaylist.Tests/` |
 
+### Build local (WSL)
+
+Le SDK .NET 6.0.428 est installé en mode utilisateur Windows et **ne figure pas dans le PATH de WSL**. Agents et dev doivent utiliser le chemin complet :
+
+- **WSL** : `/mnt/c/Users/cyril/AppData/Local/Microsoft/dotnet/dotnet.exe build …`
+- **Windows** : `C:\Users\cyril\AppData\Local\Microsoft\dotnet\dotnet.exe` (ou alias `dotnet.exe`)
+
+⚠️ `dotnet` seul et les runtimes de `C:\Program Files\dotnet` ne suffisent pas.
+
 ---
 
 ## Agents Disponibles
