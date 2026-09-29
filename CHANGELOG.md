@@ -5,15 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] — 2026-09-29
+
+**Status**: VALIDATED WITH RESERVATIONS (QA: 897/897 tests pass; coverage 63.6% global; manual UI and platform verification pending)
 
 ### Added
 
+- **Création de playlist depuis PlaySync** (#55) : nouveau bouton « Nouvelle playlist » dans la page utilisateur permettant de créer une playlist vide, non partagée, avec un nom unique par propriétaire (insensible à la casse). Noms de 1 à 100 caractères, quota de 10 playlists possédées par utilisateur. Messages d'erreur stables : `invalid-name` (400), `name-exists` (409), `limit-reached` (409).
+- **Trois interrupteurs de partage** dans la page PlaySync : « Retirer si lu », « Propager le lu », « Propager l'avancement ». Le premier reste grisé et inactif tant que le second n'est pas activé (dépendance D21).
+- **Étiquette `propager-avancement`** : nouvelle famille d'étiquettes (`=NON` par défaut) activant la propagation de la position de lecture (pause, arrêt) indépendamment du flag lu. Posée à la première détection de toute playlist partagée, sans héritage de v1.1.0.
+- **Relecture avec propagation** (#57) : la position est maintenant propagée à chaque pause/arrêt (≥ 30 s) d'un média **déjà lu**, permettant à l'autre membre de reprendre où on a laissé sans marquer de nouveau lu.
+- **Message d'aide V3** : mise à jour du message dans la description vide des playlists, mentionnant les trois options et leur dépendance (« Retirer si lu » nécessite « Propager le lu »). Messages V1 et V2 détectés et remplacés ; les textes personnalisés ne sont jamais écrasés.
+- **Journal et diagnostics** : nouvelles raisons `Skipped` (`lock-busy` par membre, accès au verrou utilisateur/média partagé). Kind `PlaylistCreated` pour tracer les créations. Compteurs mis à jour pour les trois familles.
+
 ### Changed
+
+- **Dépendance entre étiquettes** (D21) : `remove-si-lu` n'a plus d'effet que si `propager-lu` est aussi active. Une playlist avec `remove-si-lu=OUI` + `propager-lu=NON` ne retire plus aucun média. **Changement de comportement : retrait perdu sur les playlists existantes** jusqu'à activation explicite de « Propager le lu ». Aucune étiquette n'est modifiée automatiquement par le plugin.
+- **Propagation du lu** : ne propage plus la position de lecture (ce rôle passe à `propager-avancement`). **Changement de comportement : avancement perdu sur les playlists existantes** jusqu'à activation explicite de « Propager l'avancement ».
+- **Avancement** : position écrite brute sans appliquer les règles de fin de lecture (pas d'`UpdatePlayState`). Un arrêt proche de la fin (~99 %) ne marque pas automatiquement le média lu chez le membre (c'est le rôle de `propager-lu` si activé). Flux d'événements indépendant du flag lu (pas de verrou common, mais verrou partagé par couple utilisateur/média).
+- **Bloc BREAKING — récapitulatif** : [Unreleased] d'un projet avec des playlists actives (v0.3.1–v1.1.0) verra :
+  1. Une playlist en `propager-lu=OUI` cesse de propager l'avancement → pour retrouver cette fonction, activer « Propager l'avancement ».
+  2. Une playlist en `remove-si-lu=OUI` + `propager-lu=NON` ne retire plus rien → activer « Propager le lu » pour restaurer.
+  3. Une position ~100 % écrite par le plugin ne marque pas le média lu chez les autres → activer « Propager le lu » pour ça.
+  4. Aucune migration : toutes les étiquettes restent en place, inertes ou réduites à leur nouveau périmètre.
 
 ### Fixed
 
+- **Perte d'écritures concurrentes** : verrou par couple (utilisateur, média) étendu à la propagation du lu (R4b) et de l'avancement (R10), garantissant qu'aucune mise à jour n'écrase l'autre lors d'écritures parallèles.
+- **Relecture supprimée du journal diagnostics** : la garde « média déjà lu pour le déclencheur » (`trigger-already-played`) supprimée — pas de fausse alerte sur la propagation d'avancement lors de relecture.
+
 ### Security
+
+- **Audit sécurité complet** (issue #55, `_work/reports/security-20260929-145841.md`) : création de playlist audité pour anti-IDOR (propriétaire = session), validation du nom, verrou d'unicité, quota de création, absence de journalisation du nom. Score 88/100 — deux points MOYENNE (quota implémenté, test des noms hostiles passé) sans blocage critique.
+
+### Notes
+
+- **Réserves QA** (§5 du rapport QA) : (R1) couverture globale 63,6 % < seuil 70 % (adaptateurs Emby non testables en unitaire) ; (R2) test 25 défaillant en enchaînement (quota du script, non du produit) ; (R3) tests manuels/UI (pause réelle, relecture sur client réel, trois interrupteurs, créationde playlist sur client) non exécutés ; (R4) flaky isolé I23.S6a non reproduit.
+- **À vérifier manuellement par l'utilisateur** (MANUAL.md §5ter–§5septies) : pause réelle, relecture S9d/S9f, affichage des trois interrupteurs (grisage de « Retirer si lu »), bouton et champ « Nouvelle playlist », messages d'erreur FR/EN, clients TV/mobile (non bloquant).
+- Couverture de tests : 63,6 % lignes global ; Core 98,4 %, Engine 97,6 %, Marker 96,1 %, Reconciliation 95,7 %, UserPage 98,9 % — logique pure bien couverte, lacune structurelle dans les adaptateurs Emby.
 
 ## [1.1.0] — 2026-09-28
 

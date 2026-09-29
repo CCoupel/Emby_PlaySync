@@ -6,7 +6,9 @@
 # Donne effet à l'étiquette `propager-lu` (posée/lue en NON depuis v0.2.0, sans effet jusqu'ici) : sur la même
 # transition non lu -> lu qui déclenche déjà le retrait (`remove-si-lu`), si `propager-lu=OUI` est actif, le
 # plugin pose le flag lu chez les autres membres de CETTE playlist qui ne l'ont pas déjà et ont accès au média.
-# Les deux familles sont indépendantes (matrice 2×2, docs/chronogrammes.md §2).
+# v1.2.0 (D21, tableau A, docs/chronogrammes.md §2) : `propager-lu` ne propage plus que le FLAG lu (jamais la position :
+# `propager-avancement`, 22-avancement.sh) et `remove-si-lu` n'a d'effet que si `propager-lu=OUI` est aussi actif — la
+# matrice I18 est donc mise à jour (le « retrait seul » E/F/G ne retire plus rien, S3b) ; I25 vérifie V1/V2 -> V3.
 #
 # Prérequis : tests/integration/00-setup-users.sh exécuté (test_u1 propriétaire, test_u2 Write, test_u3 Read) ;
 # >= 13 médias (seuil abaissé le 2026-09-27, décision utilisateur : la bibliothèque de QUALIF n'en a que 13 ;
@@ -116,11 +118,11 @@ echo "  [OK] GracePasses=$GRACE"
 
 # ---------------------------------------------------------------- scénarios
 i18() {
-  echo "== I18 — matrice 2×2 intégrale (remove-si-lu × propager-lu, chacun dans {absente, NON, OUI, OUI+NON})"
+  echo "== I18 — tableau A intégral (remove-si-lu × propager-lu, chacun dans {absente, NON, OUI, OUI+NON}) ; retrait seulement si les DEUX sont OUI (v1.2.0)"
   # 7 lignes utiles (RM=OUI,PR=OUI compte une seule fois) : chaque famille testée dans ses 4 états face à l'autre = OUI.
   local -a ROWS=(
     "A none oui false true"    "B non  oui false true"    "C oui  oui true  true"    "D both oui false true"
-    "E oui  none true  false"  "F oui  non  true  false"  "G oui  both true  false"
+    "E oui  none false false"  "F oui  non  false false"  "G oui  both false false"   # v1.2.0 (S3b) : remove-si-lu=OUI SANS propager-lu active => RIEN
   )
   local row id rm pr removed propagated pl item j n p1 p3
   for row in "${ROWS[@]}"; do
@@ -255,6 +257,7 @@ i23() {
   finish "$U2" "$T2" "$item"
   ck I23.S6a.L1removed "L1 : F1 retiré" "null" wait_count "$L1" "$item" 0 10   # attente active : retrait et propagation (même playlist) partagent la passe
   ck I23.S6a.L2untouched "L2 : F1 TOUJOURS présent (aucune transitivité)" "null" test "$(count_item "$L2" "$item")" = 1
+  wait_played "$U1" "$T1" "$item" true 10 || true   # attente active (#47, comme I3.others) : la propagation suit le retrait dans la même passe, pas de lecture immédiate
   p1=$(played_of "$U1" "$T1" "$item"); p3=$(played_of "$U3" "$T3" "$item")
   ck I23.S6a.propagation "propriétaire (membre des deux) propagé ; U3 (L2 seule) jamais touché" "{\"u1\":\"$p1\",\"u3\":\"$p3\"}" test "$p1/$p3" = "true/false"
   nap 3   # laisser le temps à un éventuel écho (origine plugin, U1) de se propager à tort avant de vérifier L2
@@ -273,6 +276,7 @@ i23() {
   finish "$U1" "$T1" "$F2"
   wait_count "$L1b" "$F2" 0 10 || true; wait_count "$L2b" "$F2" 0 10 || true
   ck I23.S6b.bothremoved "les DEUX listes perdent F2" "null" test "$(count_item "$L1b" "$F2")/$(count_item "$L2b" "$F2")" = "0/0"
+  wait_played "$U2" "$T2" "$F2" true 10 || true; wait_played "$U3" "$T3" "$F2" true 10 || true   # attente active avant lecture
   p2=$(played_of "$U2" "$T2" "$F2"); p3b=$(played_of "$U3" "$T3" "$F2")
   ck I23.S6b.bothpropagated "les DEUX cotés propagés (membre de L1 et membre de L2)" "{\"u2\":\"$p2\",\"u3\":\"$p3b\"}" test "$p2/$p3b" = "true/true"
 
@@ -314,42 +318,54 @@ i24() {
 }
 
 i25() {
-  echo "== I25 — #51 : remplacement conditionnel du message d'aide"
-  # V1 extrait à l'exécution de src/EmbySharedPlaylist/Reconciliation/HelpText.cs (le seul texte contenant encore
-  # « fonction à venir », quel que soit le nom de la constante) : byte-exact, jamais recopié à la main.
-  local hf V1 pl_a pl_b pl_c ov j
+  echo "== I25 — #51 puis v1.2.0 : remplacement conditionnel du message d'aide (V1 et V2 -> V3)"
+  # V1, V2 et V3 extraits à l'exécution de src/EmbySharedPlaylist/Reconciliation/HelpText.cs, byte-exacts, jamais recopiés à la
+  # main : V1 = la constante contenant « fonction à venir » ; V2 = celle contenant « aussi propagé » ; V3 = « Trois étiquettes ».
+  local hf V1 V2 V3 pl_a pl_a2 pl_b pl_c ov ov2 j
   hf="$ROOT/src/EmbySharedPlaylist/Reconciliation/HelpText.cs"
   [[ -f $hf ]] || die "HelpText.cs introuvable ($hf)"
-  V1=$(python3 - "$hf" <<'PY'
+  help_const() { # MARQUEUR -> texte de la constante HelpText qui le contient
+    python3 - "$hf" "$1" <<'PY'
 import re, sys
 src = open(sys.argv[1], encoding='utf-8').read()
-# chaque bloc "public const string X = "a" + "b" + ... ;" -> concatène les segments entre guillemets
-for m in re.finditer(r'public const string \w+\s*=\s*(.*?);', src, re.S):
-    body = m.group(1)
-    segs = re.findall(r'"((?:[^"\\]|\\.)*)"', body)
+# un « ; » peut figurer DANS un littéral (V2) : le corps de la constante n'est fait que de littéraux, « + » et espaces
+for m in re.finditer(r'public const string \w+\s*=\s*((?:"(?:[^"\\]|\\.)*"|\s|\+)+);', src, re.S):
+    segs = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
     if not segs:
         continue
     text = ''.join(segs).replace('\\n', '\n')
-    if 'fonction à venir' in text:
+    if sys.argv[2] in text:
         print(text, end='')
         break
 else:
-    sys.exit("V1 introuvable (aucune constante ne contient « fonction à venir »)")
+    sys.exit("constante introuvable (marqueur : %s)" % sys.argv[2])
 PY
-) || die "extraction de V1 échouée"
-  [[ -n $V1 ]] || die "V1 vide : vérifier HelpText.cs"
+  }
+  V1=$(help_const 'fonction à venir') || die "extraction de V1 échouée"
+  V2=$(help_const 'aussi propagé') || die "extraction de V2 échouée"
+  V3=$(help_const 'Trois étiquettes') || die "extraction de V3 échouée (HelpText.V3 absent : #56 non livré ?)"
+  [[ -n $V1 && -n $V2 && -n $V3 ]] || die "V1/V2/V3 vide : vérifier HelpText.cs"
 
   pl_a=$(shared_pl "SPIKE-I25a" "$(next_media)")
   owner_edit "$pl_a" '[]' '[]' "$(jq -Rn --arg v "$V1" '$v')"
   run_pass || true
   ov=$(overview_of "$pl_a")
-  ck I25.replaced "description == V1 exacte => remplacée (une passe suffit)" "{\"len\":${#ov}}" test "$ov" != "$V1"
-  j=$(journal "DescriptionWritten"); ck I25.journal "DescriptionWritten cause=v1-to-v2 journalisé pour cette playlist" "$j" test "$(jcount "$j" "$pl_a" DescriptionWritten 'v1-to-v2')" -ge 1
-  ck I25.stillhelp "le nouveau texte reste un message d'aide (mentionne toujours les deux étiquettes)" "{\"ov\":$(jq -Rn --arg v "$ov" '$v')}" \
-    bash -c '[[ $0 == *remove-si-lu=OUI* && $0 == *propager-lu=OUI* ]]' "$ov"
-  ck I25.novenir "« fonction à venir » n'apparaît plus (le texte a bien changé, pas seulement une variante)" "null" bash -c '[[ $0 != *"fonction à venir"* ]]' "$ov"
+  ck I25.replaced "description == V1 exacte => remplacée par V3 (une passe suffit)" "{\"len\":${#ov}}" test "$ov" = "$V3"
+  j=$(journal "DescriptionWritten")
+  ck I25.journal "DescriptionWritten cause=v1-to-v3 journalisé pour cette playlist" "$j" test "$(jcount "$j" "$pl_a" DescriptionWritten 'v1-to-v3')" -ge 1
+  ck I25.nov1v2 "v1-to-v2 n'est plus jamais émis (CHANGELOG v1.2.0)" "$j" test "$(jcount "$j" "$pl_a" DescriptionWritten 'v1-to-v2')" = 0
+  ck I25.stillhelp "V3 mentionne les TROIS étiquettes" "{\"ov\":$(jq -Rn --arg v "$ov" '$v')}" \
+    bash -c '[[ $0 == *remove-si-lu=OUI* && $0 == *propager-lu=OUI* && $0 == *propager-avancement=OUI* ]]' "$ov"
+  ck I25.novenir "« fonction à venir » n'apparaît plus" "null" bash -c '[[ $0 != *"fonction à venir"* ]]' "$ov"
   run_pass || true
   ck I25.idempotent "une 2e passe ne change plus rien (pas de boucle)" "null" test "$(overview_of "$pl_a")" = "$ov"
+
+  pl_a2=$(shared_pl "SPIKE-I25a2" "$(next_media)")
+  owner_edit "$pl_a2" '[]' '[]' "$(jq -Rn --arg v "$V2" '$v')"
+  run_pass || true
+  ov2=$(overview_of "$pl_a2")
+  ck I25.v2replaced "description == V2 exacte (v0.3.0-v1.1.0) => remplacée par V3" "null" test "$ov2" = "$V3"
+  j=$(journal "DescriptionWritten"); ck I25.v2journal "DescriptionWritten cause=v2-to-v3 journalisé pour cette playlist" "$j" test "$(jcount "$j" "$pl_a2" DescriptionWritten 'v2-to-v3')" -ge 1
 
   pl_b=$(shared_pl "SPIKE-I25b" "$(next_media)")
   owner_edit "$pl_b" '[]' '[]' '"Ma description personnelle, différente de V1"'
@@ -357,13 +373,13 @@ PY
   ck I25.untouched "description modifiée par le propriétaire : jamais touchée" "null" test "$(overview_of "$pl_b")" = "Ma description personnelle, différente de V1"
 
   pl_c=$(shared_pl "SPIKE-I25c" "$(next_media)")
-  owner_edit "$pl_c" '[]' '[]' "$(jq -Rn --arg v "$ov" '$v')"   # déjà le nouveau texte (observé ci-dessus)
+  owner_edit "$pl_c" '[]' '[]' "$(jq -Rn --arg v "$V3" '$v')"   # déjà le nouveau texte
   run_pass || true
-  ck I25.alreadyV2 "description déjà égale au nouveau texte : inchangée" "null" test "$(overview_of "$pl_c")" = "$ov"
+  ck I25.alreadyV3 "description déjà égale à V3 : inchangée" "null" test "$(overview_of "$pl_c")" = "$V3"
 }
 
 i26() {
-  echo "== I26 — régression complète I0-I17 (retrait seul, v0.2.0) : ne doit pas casser"
+  echo "== I26 — régression complète I0-I17 (retrait, propager-lu requis depuis v1.2.0) : ne doit pas casser"
   local script="$INT_DIR/20-etiquettes-retrait.sh"
   [[ -x $script ]] || die "20-etiquettes-retrait.sh introuvable ou non exécutable"
   if bash "$script"; then

@@ -1,0 +1,388 @@
+<!doctype html>
+<!--
+  composant : user-page (page PlaySync du menu utilisateur Emby)
+  feature   : v1.2.0 — trois options indépendantes (#56, #57) + création de playlist (#55)
+  version   : v1.2.0
+  type      : ui
+  issue     : #55, #56 (#57 sans effet visuel)
+  complete  : aucune (composant présenté en entier ; parties inchangées reprises
+              telles que LIVRÉES en v1.1.0 après GATE 4 — grille membres 50 % | 10 % | 40 %, niveau par interrupteur
+              Lecture/Écriture, propriétaire absent de la liste, entrée de menu visible pour tous)
+  remplace  : docs/mockup/v1.1.0/ui/user-page__b39.html — OBSOLÈTE : elle montre le niveau en liste déroulante, le
+              propriétaire dans la liste des membres et aucune création ; elle ne reflète plus le visuel livré. Cette
+              maquette-ci devient la seule référence active du composant (rendu v1.1.0 livré + nouveautés v1.2.0).
+  Révision 2 (retour utilisateur GATE 2) : bouton « + Nouvelle playlist » agrandi en tête de page (état nominal) ;
+  niveau Lecture/Écriture = interrupteur (emby-toggle atomique, cloneToggleWidget) sur chaque ligne membre ET sur la
+  ligne d'ajout, jamais une liste déroulante (la seule liste déroulante est le choix du COMPTE à ajouter, comme livré
+  en v1.1.0) ; glyphes décoratifs non rendus retirés.
+  Spécification : docs/chronogrammes.md D21, D22, S10b, S11 ; contrats : contracts/http-endpoints.md (POST User/Playlists, Options).
+  Décisions appliquées (GATE 2, 2026-09-29) : libellés « Retirer si lu » / « Propager le lu » / « Propager l'avancement »,
+  dans cet ordre ; « Retirer si lu » grisé + mention quand « Propager le lu » est désactivé (jamais masqué) ; désactiver
+  « Propager le lu » laisse « Retirer si lu » coché (inerte) ; création = nom seul, playlist vide non partagée, vidéo ;
+  unicité du nom par propriétaire (trim, NFC, casse ignorée, accents significatifs) ; erreurs invalid-name / name-exists.
+  DECISIONS.md : aucune contrainte enregistrée pour ce composant.
+  Contraintes techniques rappelées (MEMORY) : composants natifs Emby (emby-toggle, emby-input, emby-button, emby-select)
+  chargés par require() explicite ; interrupteur cloné comme widget atomique.
+  Maquette statique : la barre rouge du haut sert seulement à parcourir les états (absente du produit).
+-->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PlaySync v1.2.0 (maquette)</title>
+<style>
+  :root { --bg:#101010; --panel:#1c1c1c; --panel2:#262626; --line:#333; --text:#eee; --muted:#9a9a9a;
+          --accent:#52b54b; --warn:#e0a526; --danger:#d9534f; --new:#3a8fd6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 "Segoe UI",Roboto,sans-serif; }
+  .mock-bar { background:#402; color:#fcc; padding:6px 16px; font-size:13px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .mock-bar button { background:#633; color:#fff; border:0; padding:4px 10px; border-radius:3px; cursor:pointer; }
+  .mock-bar button.on { background:#c55; }
+  .layout { display:flex; min-height:calc(100vh - 34px); }
+  nav { width:230px; background:#161616; border-right:1px solid var(--line); padding:12px 0; flex-shrink:0; }
+  nav h4 { margin:14px 16px 6px; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+  nav a { display:flex; gap:10px; padding:8px 16px; color:var(--text); text-decoration:none; }
+  nav a.active { background:#2a3a29; color:var(--accent); border-left:3px solid var(--accent); padding-left:13px; }
+  main { flex:1; padding:24px 32px; max-width:1000px; min-width:0; }
+  .title-row { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  h1 { font-size:26px; font-weight:400; margin:0; flex:1; }
+  .intro { color:var(--muted); margin:6px 0 20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:6px; margin-bottom:18px; overflow:hidden; }
+  .card.fresh { border-color:var(--new); }
+  .card-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .card-head h2 { font-size:22px; font-weight:600; margin:0; }
+  .muted { color:var(--muted); font-size:13px; }
+  .section { padding:14px 16px; border-bottom:1px solid var(--line); }
+  .section:last-child { border-bottom:0; }
+  .section h3 { margin:0 0 6px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-weight:500; }
+  .opt { display:flex; align-items:flex-start; gap:12px; padding:10px 0; }
+  .opt.dependent { padding-left:0; }
+  .switch { width:40px; height:22px; border-radius:11px; background:#555; position:relative; flex-shrink:0; margin-top:2px; cursor:pointer; }
+  .switch::after { content:""; position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:#ddd; transition:.15s; }
+  .switch.on { background:var(--accent); } .switch.on::after { left:21px; }
+  .switch.disabled { opacity:.35; cursor:not-allowed; }
+  .opt-title { font-weight:500; } .opt.off-dep .opt-title { opacity:.55; }
+  .opt-desc { opacity:.75; font-size:.9em; margin-top:4px; }
+  .opt-dep { font-size:.9em; margin-top:4px; color:var(--warn); }
+  .conflict { color:var(--warn); font-size:.9em; margin-top:4px; }
+  .grid-wrap { width:80%; }
+  .mrow { display:grid; grid-template-columns:50% 10% 40%; align-items:center; padding:6px 0; }
+  .mrow.head { opacity:.7; font-size:13px; white-space:nowrap; }
+  .mrow > :nth-child(2) { justify-self:center; }
+  .mrow > :nth-child(3) { justify-self:center; }
+  select, input[type=text], .btn { background:var(--panel2); color:var(--text); border:1px solid #444; border-radius:4px; padding:7px 10px; font:inherit; }
+  .btn { cursor:pointer; } .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.big { font-size:16px; padding:9px 18px; font-weight:600; }
+  .btn.icon { background:none; border:0; color:var(--text); font-size:16px; }
+  .hint { color:var(--muted); font-size:13px; margin:6px 0 0; }
+  .newbox { background:var(--panel); border:1px solid var(--new); border-radius:6px; padding:14px 16px; margin-bottom:18px; }
+  .newbox label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
+  .newbox .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .newbox input[type=text] { flex:1; min-width:220px; }
+  .newbox input.bad { border-color:var(--danger); }
+  .field-err { color:var(--danger); font-size:13px; margin-top:6px; }
+  .note-new { display:inline-block; background:#1d3246; color:#9cc9f0; font-size:11px; padding:1px 7px; border-radius:9px; margin-left:6px; vertical-align:middle; }
+  .toast { position:fixed; right:24px; bottom:24px; background:#333; border-left:4px solid var(--danger); padding:12px 16px; border-radius:4px; max-width:360px; }
+  .empty, .denied { text-align:center; color:var(--muted); padding:50px 20px; }
+  .dialog-back { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
+  .dialog { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:20px; width:420px; max-width:90vw; }
+  .dialog h3 { margin-top:0; font-weight:500; } .dialog .actions { margin-top:16px; display:flex; gap:8px; justify-content:flex-end; }
+  .annot { border:1px dashed #666; color:#bbb; font-size:12px; padding:8px 10px; margin:0 0 18px; border-radius:4px; }
+  [data-lang] { display:none; } html[lang=fr] [data-lang=fr], html[lang=en] [data-lang=en] { display:inline; }
+  .st { display:none; } .st.show { display:block; }
+  @media (max-width:700px) { nav { display:none; } main { padding:16px; } .grid-wrap { width:100%; } }
+</style>
+</head>
+<body>
+
+<div class="mock-bar">
+  <b>MAQUETTE v1.2.0</b>
+  <span>État :</span>
+  <button class="on" data-s="normal">Nominal (3 options)</button>
+  <button data-s="create">Nouvelle playlist</button>
+  <button data-s="invalid">Erreur : nom invalide</button>
+  <button data-s="exists">Erreur : nom existant</button>
+  <button data-s="created">Après création</button>
+  <button data-s="empty">Aucune playlist</button>
+  <button data-s="confirm">Confirmation retrait</button>
+  <button data-s="busy">Erreur (toast)</button>
+  <button data-s="denied">Sans permission</button>
+  <span>Langue :</span>
+  <button data-l="fr">FR</button>
+  <button data-l="en">EN</button>
+</div>
+
+<div class="layout">
+  <nav>
+    <a href="#"><span data-lang="fr">Accueil</span><span data-lang="en">Home</span></a>
+    <a href="#"><span data-lang="fr">Films</span><span data-lang="en">Movies</span></a>
+    <a href="#">Playlists</a>
+    <h4><span data-lang="fr">Utilisateur</span><span data-lang="en">User</span></h4>
+    <a href="#"><span data-lang="fr">Paramètres</span><span data-lang="en">Settings</span></a>
+    <a href="#" class="active">PlaySync</a>
+  </nav>
+
+  <main>
+    <div class="title-row">
+      <h1>PlaySync</h1>
+      <!-- NOUVEAU (#55) : bouton en tête de page, masqué dans l'état « Sans permission ». -->
+      <button class="btn primary big" id="btnNew">+ <span data-lang="fr">Nouvelle playlist</span><span data-lang="en">New playlist</span></button>
+    </div>
+    <p class="intro">
+      <span data-lang="fr">Vos playlists — partagez-les avec d'autres comptes et réglez leur comportement. Seules les playlists dont vous êtes propriétaire apparaissent ici.</span>
+      <span data-lang="en">Your playlists — share them with other accounts and choose how they behave. Only playlists you own are listed here.</span>
+    </p>
+
+    <!-- ============ Formulaire de création (#55, D22) : panneau en ligne, jamais une fenêtre du navigateur ============ -->
+    <div class="newbox st" id="newbox">
+      <label for="newName"><span data-lang="fr">Nom de la nouvelle playlist</span><span data-lang="en">New playlist name</span></label>
+      <div class="row">
+        <input type="text" id="newName" maxlength="100" value="Films du dimanche">
+        <button class="btn primary"><span data-lang="fr">Créer</span><span data-lang="en">Create</span></button>
+        <button class="btn"><span data-lang="fr">Annuler</span><span data-lang="en">Cancel</span></button>
+      </div>
+      <div class="field-err st" id="errInvalid">
+        <span data-lang="fr">Saisissez un nom de 1 à 100 caractères.</span>
+        <span data-lang="en">Enter a name between 1 and 100 characters.</span>
+      </div>
+      <div class="field-err st" id="errExists">
+        <span data-lang="fr">Vous avez déjà une playlist portant ce nom.</span>
+        <span data-lang="en">You already have a playlist with this name.</span>
+      </div>
+      <p class="hint">
+        <span data-lang="fr">La playlist est créée vide et non partagée. Ajoutez-y des vidéos depuis Emby (« Ajouter à une playlist ») et des membres ci-dessous.</span>
+        <span data-lang="en">The playlist is created empty and not shared. Add videos from Emby ("Add to playlist") and members below.</span>
+      </p>
+    </div>
+
+    <!-- ===================================== NOMINAL ===================================== -->
+    <div class="st show" id="list">
+
+      <!-- Carte créée (visible dans l'état « Après création ») : insérée à sa place dans le tri par nom. -->
+      <div class="card fresh st" id="cardCreated">
+        <div class="card-head">
+          <h2>Films du dimanche</h2>
+          <span><span data-lang="fr">Non partagée</span><span data-lang="en">Not shared</span></span>
+          <span class="muted">0 <span data-lang="fr">médias</span><span data-lang="en">items</span></span>
+          <span class="note-new"><span data-lang="fr">créée</span><span data-lang="en">created</span></span>
+        </div>
+        <div class="section">
+          <h3>Options</h3>
+          <div class="opt"><div class="switch disabled"></div><div><div class="opt-title"><span data-lang="fr">Retirer si lu</span><span data-lang="en">Remove when played</span></div><div class="opt-desc"><span data-lang="fr">Disponibles une fois la playlist partagée.</span><span data-lang="en">Available once the playlist is shared.</span></div></div></div>
+          <div class="opt"><div class="switch disabled"></div><div><div class="opt-title"><span data-lang="fr">Propager le lu</span><span data-lang="en">Sync played status</span></div><div class="opt-desc"><span data-lang="fr">Disponibles une fois la playlist partagée.</span><span data-lang="en">Available once the playlist is shared.</span></div></div></div>
+          <div class="opt"><div class="switch disabled"></div><div><div class="opt-title"><span data-lang="fr">Propager l'avancement</span><span data-lang="en">Sync playback position</span></div><div class="opt-desc"><span data-lang="fr">Disponibles une fois la playlist partagée.</span><span data-lang="en">Available once the playlist is shared.</span></div></div></div>
+        </div>
+        <div class="section">
+          <h3><span data-lang="fr">Membres</span><span data-lang="en">Members</span></h3>
+          <p class="hint" style="margin-top:0"><span data-lang="fr">Vous seul. Ajoutez un compte pour partager cette playlist.</span><span data-lang="en">Only you. Add an account to share this playlist.</span></p>
+          <div class="grid-wrap"><div class="mrow">
+            <select><option>— Ajouter un compte / Add an account —</option><option>marie</option><option>léo</option></select>
+            <div class="switch on" title="Lecture / Écriture"></div>
+            <button class="btn primary"><span data-lang="fr">Partager</span><span data-lang="en">Share</span></button>
+          </div></div>
+        </div>
+      </div>
+
+      <!-- Carte 1 : les trois options actives -->
+      <div class="card">
+        <div class="card-head">
+          <h2>À voir</h2>
+          <span><span data-lang="fr">Partagée</span><span data-lang="en">Shared</span></span>
+          <span class="muted">14 <span data-lang="fr">médias</span><span data-lang="en">items</span></span>
+        </div>
+        <div class="section">
+          <h3>Options</h3>
+          <div class="opt">
+            <div class="switch on"></div>
+            <div><div class="opt-title"><span data-lang="fr">Retirer si lu</span><span data-lang="en">Remove when played</span></div>
+              <div class="opt-desc"><span data-lang="fr">Quand un membre passe un média à « lu », il est retiré de la playlist pour tous. Nécessite « Propager le lu ».</span><span data-lang="en">When a member marks an item as played, it is removed from the playlist for everyone. Requires "Sync played status".</span></div></div>
+          </div>
+          <div class="opt">
+            <div class="switch on"></div>
+            <div><div class="opt-title"><span data-lang="fr">Propager le lu</span><span data-lang="en">Sync played status</span></div>
+              <div class="opt-desc"><span data-lang="fr">Quand un membre passe un média à « lu », il est aussi marqué « lu » chez les autres membres. La position de lecture n'est pas touchée.</span><span data-lang="en">When a member marks an item as played, it is marked as played for the other members too. Playback position is not changed.</span></div></div>
+          </div>
+          <div class="opt">
+            <div class="switch on"></div>
+            <div><div class="opt-title"><span data-lang="fr">Propager l'avancement</span><span data-lang="en">Sync playback position</span></div>
+              <div class="opt-desc"><span data-lang="fr">La position de lecture (pause, arrêt) est recopiée chez les autres membres, même pour un média déjà vu. Ne marque jamais un média comme « lu ».</span><span data-lang="en">The playback position (pause, stop) is copied to the other members, even for an item already watched. Never marks an item as played.</span></div></div>
+          </div>
+        </div>
+        <div class="section">
+          <h3><span data-lang="fr">Membres</span><span data-lang="en">Members</span></h3>
+          <div class="grid-wrap">
+            <div class="mrow head"><div><span data-lang="fr">Compte</span><span data-lang="en">Account</span></div><div><span data-lang="fr">Lecture / Écriture</span><span data-lang="en">Read / Write</span></div><div></div></div>
+            <div class="mrow"><div>marie</div><div class="switch on"></div><button class="btn icon" title="Retirer">✕</button></div>
+            <div class="mrow"><div>léo</div><div class="switch"></div><button class="btn icon" title="Retirer">✕</button></div>
+            <div class="mrow" style="margin-top:12px">
+              <select><option>— Ajouter un compte / Add an account —</option><option>paul</option><option>sophie</option></select>
+              <div class="switch on"></div>
+              <button class="btn primary"><span data-lang="fr">Ajouter</span><span data-lang="en">Add</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Carte 2 : « Propager le lu » désactivé alors que « Retirer si lu » était coché (S10b t=3) + conflit sur l'avancement -->
+      <div class="card">
+        <div class="card-head">
+          <h2>Séries en cours</h2>
+          <span><span data-lang="fr">Partagée</span><span data-lang="en">Shared</span></span>
+          <span class="muted">5 <span data-lang="fr">médias</span><span data-lang="en">items</span></span>
+        </div>
+        <div class="section">
+          <h3>Options</h3>
+          <div class="opt off-dep">
+            <div class="switch on disabled"></div>
+            <div><div class="opt-title"><span data-lang="fr">Retirer si lu</span><span data-lang="en">Remove when played</span></div>
+              <div class="opt-desc"><span data-lang="fr">Quand un membre passe un média à « lu », il est retiré de la playlist pour tous. Nécessite « Propager le lu ».</span><span data-lang="en">When a member marks an item as played, it is removed from the playlist for everyone. Requires "Sync played status".</span></div>
+              <div class="opt-dep"><span data-lang="fr">Inactif tant que « Propager le lu » est désactivé.</span><span data-lang="en">Inactive while "Sync played status" is off.</span></div></div>
+          </div>
+          <div class="opt">
+            <div class="switch"></div>
+            <div><div class="opt-title"><span data-lang="fr">Propager le lu</span><span data-lang="en">Sync played status</span></div>
+              <div class="opt-desc"><span data-lang="fr">Quand un membre passe un média à « lu », il est aussi marqué « lu » chez les autres membres. La position de lecture n'est pas touchée.</span><span data-lang="en">When a member marks an item as played, it is marked as played for the other members too. Playback position is not changed.</span></div></div>
+          </div>
+          <div class="opt">
+            <div class="switch"></div>
+            <div><div class="opt-title"><span data-lang="fr">Propager l'avancement</span><span data-lang="en">Sync playback position</span></div>
+              <div class="opt-desc"><span data-lang="fr">La position de lecture (pause, arrêt) est recopiée chez les autres membres, même pour un média déjà vu. Ne marque jamais un média comme « lu ».</span><span data-lang="en">The playback position (pause, stop) is copied to the other members, even for an item already watched. Never marks an item as played.</span></div>
+              <div class="conflict">⚠ <span data-lang="fr">Étiquettes en conflit, option inactive. Le prochain changement corrige l'incohérence.</span><span data-lang="en">Conflicting tags, option inactive. The next change fixes the inconsistency.</span></div></div>
+          </div>
+        </div>
+        <div class="section">
+          <h3><span data-lang="fr">Membres</span><span data-lang="en">Members</span></h3>
+          <div class="grid-wrap">
+            <div class="mrow head"><div><span data-lang="fr">Compte</span><span data-lang="en">Account</span></div><div><span data-lang="fr">Lecture / Écriture</span><span data-lang="en">Read / Write</span></div><div></div></div>
+            <div class="mrow"><div>paul</div><div class="switch on"></div><button class="btn icon" title="Retirer">✕</button></div>
+            <div class="mrow" style="margin-top:12px">
+              <select><option>— Ajouter un compte / Add an account —</option><option>marie</option></select>
+              <div class="switch on"></div>
+              <button class="btn primary"><span data-lang="fr">Ajouter</span><span data-lang="en">Add</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Carte 3 : nouvelle playlist partagée, trois options à NON (S10b t=0) : « Retirer si lu » grisé, décoché -->
+      <div class="card">
+        <div class="card-head">
+          <h2>Soirées ciné</h2>
+          <span><span data-lang="fr">Partagée</span><span data-lang="en">Shared</span></span>
+          <span class="muted">6 <span data-lang="fr">médias</span><span data-lang="en">items</span></span>
+        </div>
+        <div class="section">
+          <h3>Options</h3>
+          <div class="opt off-dep">
+            <div class="switch disabled"></div>
+            <div><div class="opt-title"><span data-lang="fr">Retirer si lu</span><span data-lang="en">Remove when played</span></div>
+              <div class="opt-desc"><span data-lang="fr">Quand un membre passe un média à « lu », il est retiré de la playlist pour tous. Nécessite « Propager le lu ».</span><span data-lang="en">When a member marks an item as played, it is removed from the playlist for everyone. Requires "Sync played status".</span></div>
+              <div class="opt-dep"><span data-lang="fr">Nécessite « Propager le lu ».</span><span data-lang="en">Requires "Sync played status".</span></div></div>
+          </div>
+          <div class="opt">
+            <div class="switch"></div>
+            <div><div class="opt-title"><span data-lang="fr">Propager le lu</span><span data-lang="en">Sync played status</span></div>
+              <div class="opt-desc"><span data-lang="fr">Quand un membre passe un média à « lu », il est aussi marqué « lu » chez les autres membres. La position de lecture n'est pas touchée.</span><span data-lang="en">When a member marks an item as played, it is marked as played for the other members too. Playback position is not changed.</span></div></div>
+          </div>
+          <div class="opt">
+            <div class="switch"></div>
+            <div><div class="opt-title"><span data-lang="fr">Propager l'avancement</span><span data-lang="en">Sync playback position</span></div>
+              <div class="opt-desc"><span data-lang="fr">La position de lecture (pause, arrêt) est recopiée chez les autres membres, même pour un média déjà vu. Ne marque jamais un média comme « lu ».</span><span data-lang="en">The playback position (pause, stop) is copied to the other members, even for an item already watched. Never marks an item as played.</span></div></div>
+          </div>
+        </div>
+        <div class="section">
+          <h3><span data-lang="fr">Membres</span><span data-lang="en">Members</span></h3>
+          <div class="grid-wrap">
+            <div class="mrow head"><div><span data-lang="fr">Compte</span><span data-lang="en">Account</span></div><div><span data-lang="fr">Lecture / Écriture</span><span data-lang="en">Read / Write</span></div><div></div></div>
+            <div class="mrow"><div>sophie</div><div class="switch"></div><button class="btn icon" title="Retirer">✕</button></div>
+            <div class="mrow" style="margin-top:12px">
+              <select><option>— Ajouter un compte / Add an account —</option><option>paul</option></select>
+              <div class="switch on"></div>
+              <button class="btn primary"><span data-lang="fr">Ajouter</span><span data-lang="en">Add</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="annot">
+        Notes de maquette (hors produit) : (1) « Retirer si lu » est rendu non cliquable (<code>input.disabled</code>) tant que
+        « Propager le lu » n'est pas « Oui » ; son état coché reflète l'étiquette (<code>Options["remove-si-lu"]</code>), jamais son effet.
+        Réactiver « Propager le lu » le rend à nouveau actif sans autre action (S10b t=4). (2) Les deux mentions (« Nécessite… » si décoché,
+        « Inactif tant que… » si coché) remplacent l'ancienne phrase unique ; la description courte reste affichée.
+        (3) Le conflit (OUI+NON) s'affiche sur n'importe laquelle des trois options, comme en v1.1.0.
+        (4) Changement de libellés par rapport à v1.1.0 : « Retirer un média dès qu'il est lu » → « Retirer si lu » ;
+        « Partager l'état de lecture » → « Propager le lu » (+ nouvelle « Propager l'avancement »).
+      </p>
+    </div>
+
+    <!-- ===================================== AUCUNE PLAYLIST ===================================== -->
+    <div class="st" id="empty">
+      <div class="empty">
+        <span data-lang="fr">Vous ne possédez aucune playlist. Créez-en une avec « Nouvelle playlist », puis ajoutez-y des vidéos et des membres.</span>
+        <span data-lang="en">You don't own any playlist. Create one with "New playlist", then add videos and members to it.</span>
+      </div>
+    </div>
+
+    <!-- ===================================== SANS PERMISSION ===================================== -->
+    <div class="st" id="denied">
+      <div class="denied">
+        <span data-lang="fr">Le partage de contenus personnels n'est pas activé pour votre compte. Contactez l'administrateur du serveur.</span>
+        <span data-lang="en">Sharing personal content is not enabled for your account. Contact the server administrator.</span>
+        <p class="hint"><span data-lang="fr">(Bouton « Nouvelle playlist » absent dans cet état : la création exige la même permission.)</span><span data-lang="en">("New playlist" button hidden in this state: creating requires the same permission.)</span></p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Confirmation de retrait d'un membre (inchangée, dialogue natif Emby) -->
+<div class="dialog-back" id="confirm">
+  <div class="dialog">
+    <h3><span data-lang="fr">Retirer ce membre ?</span><span data-lang="en">Remove this member?</span></h3>
+    <span data-lang="fr">Ce compte n'aura plus accès à cette playlist.</span>
+    <span data-lang="en">This account will no longer have access to this playlist.</span>
+    <div class="actions"><button class="btn"><span data-lang="fr">Annuler</span><span data-lang="en">Cancel</span></button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)"><span data-lang="fr">Retirer</span><span data-lang="en">Remove</span></button></div>
+  </div>
+</div>
+
+<!-- Toast d'erreur (inchangé) : codes serveur traduits côté client. invalid-name / name-exists s'affichent SOUS le champ, pas en toast. -->
+<div class="toast" id="toast" style="display:none">
+  <span data-lang="fr">La playlist est en cours de modification, réessayez dans quelques secondes.</span>
+  <span data-lang="en">The playlist is being updated, please retry in a few seconds.</span>
+  <div class="hint">(code <code>busy</code> · autres : <code>not-found</code>, <code>invalid-user</code>, <code>invalid-family</code>, <code>sharing-disabled</code>, <code>internal</code>)</div>
+</div>
+
+<script>
+(function () {
+  function $(id) { return document.getElementById(id); }
+  function toggle(id, on) { $(id).classList.toggle('show', !!on); }
+  function show(s) {
+    var creating = s === 'create' || s === 'invalid' || s === 'exists';
+    toggle('newbox', creating);
+    toggle('errInvalid', s === 'invalid');
+    toggle('errExists', s === 'exists');
+    $('newName').classList.toggle('bad', s === 'invalid' || s === 'exists');
+    $('newName').value = s === 'invalid' ? '   ' : (s === 'exists' ? ' à VOIR ' : 'Films du dimanche');
+    toggle('list', ['normal', 'create', 'invalid', 'exists', 'created', 'confirm', 'busy'].indexOf(s) >= 0);
+    toggle('cardCreated', s === 'created');
+    toggle('empty', s === 'empty');
+    toggle('denied', s === 'denied');
+    $('btnNew').style.display = s === 'denied' ? 'none' : '';
+    $('confirm').style.display = s === 'confirm' ? 'flex' : 'none';
+    $('toast').style.display = s === 'busy' ? 'block' : 'none';
+  }
+  document.querySelectorAll('.mock-bar button[data-s]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.mock-bar button[data-s]').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      show(b.getAttribute('data-s'));
+    });
+  });
+  document.querySelectorAll('.mock-bar button[data-l]').forEach(function (b) {
+    b.addEventListener('click', function () { document.documentElement.lang = b.getAttribute('data-l'); });
+  });
+  $('btnNew').addEventListener('click', function () { show('create'); });
+  show('normal');
+})();
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 25-page-utilisateur.sh — scénarios d'intégration P1-P23 de la v1.1.0 (issue #39) sur emby2
+# 25-page-utilisateur.sh — scénarios d'intégration P1-P23 de la v1.1.0 (issue #39) puis P24-P26 (#56, D21) et P27-P32 (#55, D22, S11 : création de playlist) de la v1.2.0 sur emby2
 # (QUALIF UNIQUEMENT). À exécuter par qa après déploiement du plugin ; jamais depuis un poste sans avoir
 # vérifié la cible. Écrit AVANT le code (plan `_work/reports/plan-20260928-143007.md`, contrats
 # `contracts/http-endpoints.md` « Page utilisateur », spec `docs/chronogrammes.md` D19/D20/S10).
@@ -51,6 +51,7 @@ write_out() { # PARTIAL
 on_exit() {
   local rc=$?; set +e
   cleanup_test_accounts
+  purge_created
   cleanup_registered_playlists
   if [[ $DONE == 0 && -s $RES ]]; then write_out true; echo "  (trap) preuves partielles : $OUT_FILE" >&2; fi
   rm -rf "$SCRATCH"; exit $rc
@@ -186,6 +187,10 @@ p11() {
   ck P11.non_rm "remove-si-lu=NON posée (1re détection IMMÉDIATE, CA4, sans attendre la passe)" "$t" \
     has_tag "$t" "$NON_RM"
   ck P11.non_pr "propager-lu=NON posée" "$t" has_tag "$t" "$NON_PR"
+  ck P11.non_av "propager-avancement=NON posée (v1.2.0, D21 : 3e famille, jamais héritée)" "$t" has_tag "$t" "$NON_AV"
+  api GET "$UP/Playlists" "" "$T1" >/dev/null
+  ck P11.options3 "GET User/Playlists : Options = EXACTEMENT trois clés (remove-si-lu, propager-lu, propager-avancement), toutes à Non (v1.2.0)" "$(cat "$RESP")" \
+    bash -c "jq -e --arg p \"\$0\" '.[]|select(.playlistId==\$p)|(.options|keys|sort)==[\"propager-avancement\",\"propager-lu\",\"remove-si-lu\"] and ([.options[]]|unique)==[\"Non\"]' '$RESP' >/dev/null" "$PL"
   ck P11.help "message d'aide écrit (description non vide)" "\"$o\"" test -n "$o"
   local j n
   j=$(journal ShareChanged)
@@ -247,7 +252,9 @@ p16() {
 }
 
 p17() {
-  echo "== P17 — chaîne complète : remove-si-lu=OUI actif + transition non-lu -> lu = retrait effectif"
+  echo "== P17 — chaîne complète : remove-si-lu=OUI ET propager-lu=OUI (v1.2.0, D21) + transition non-lu -> lu = retrait effectif"
+  ck P17.enable_pr "POST Options {propager-lu,true} -> 200 (le retrait exige propager-lu depuis v1.2.0 ; remove-si-lu=OUI posée en P15)" "null" \
+    st_ok 200 POST "$UP/Playlists/$PL/Options" "$(body_option propager-lu true)" "$T1"
   ck P17.baseline "\$ITEM1 présent avant la transition" "null" test "$(count_item "$PL" "$ITEM1")" -ge 1
   finish "$U2" "$T2" "$ITEM1"   # test_u2 (membre) marque ITEM1 lu -> transition non lu -> lu
   ck P17 "\$ITEM1 retiré de la playlist (moteur, chaîne réelle)" "null" wait_count "$PL" "$ITEM1" 0 15
@@ -330,12 +337,241 @@ p23() {
     st_ok 200 POST "$UP/Playlists/$pl3/Members" "$(body_member "$U2" Write)" "$T1"
 }
 
+p24() {
+  echo "== P24 (v1.2.0, S10b/D19/D21) — trois familles : POST Options propager-avancement, remplacement atomique, autres familles intactes, journal MarkerSet"
+  local pl4 t j n
+  pl4=$(new_pl "SPIKE PS-Trois" "$ITEM1,$ITEM2")
+  ck P24.share "POST Members {u2,Write} -> 200 (premier partage : trois NON posées immédiatement)" "null" st_ok 200 POST "$UP/Playlists/$pl4/Members" "$(body_member "$U2" Write)" "$T1"
+  PL4=$pl4
+  local st; st=$(api GET "$UP/Playlists" "" "$T1")
+  ck P24.list_http "GET User/Playlists -> 2xx" "null" is2xx "$st"
+  ck P24.list "trois clés Options, toutes Non" "$(cat "$RESP")" \
+    bash -c "jq -e --arg p \"\$0\" '.[]|select(.playlistId==\$p)|(.options|keys|sort)==[\"propager-avancement\",\"propager-lu\",\"remove-si-lu\"] and ([.options[]]|unique)==[\"Non\"]' '$RESP' >/dev/null" "$pl4"
+  ck P24 "POST Options {propager-avancement,true} -> 200" "null" st_ok 200 POST "$UP/Playlists/$pl4/Options" "$(body_option propager-avancement true)" "$T1"
+  ck P24.dto "options.propager-avancement==Oui, les deux autres familles inchangées (Non)" "$(cat "$RESP")" \
+    bash -c "jq -e '.options[\"propager-avancement\"]==\"Oui\" and .options[\"propager-lu\"]==\"Non\" and .options[\"remove-si-lu\"]==\"Non\"' '$RESP' >/dev/null"
+  t=$(tags_of "$pl4")
+  ck P24.single_tag "une seule étiquette propager-avancement, canonique OUI ; NON retirée" "$t" test "$(tag_count "$t" propager-avancement)/$(has_tag "$t" "$OUI_AV" && echo y || echo n)" = "1/y"
+  ck P24.others_intact "remove-si-lu=NON et propager-lu=NON toujours présentes (D19 : chaque bascule ne touche que sa famille)" "$t" has_both_tags "$t" "$NON_RM" "$NON_PR"
+  j=$(journal MarkerSet); n=$(jcount "$j" "$pl4" MarkerSet 'family=propager-avancement value=OUI removed=1')
+  ck P24.journal "MarkerSet journalisé (family=propager-avancement value=OUI removed=1)" "$j" test "$n" -ge 1
+  ck P24.invalid_variant "Family « Propager-Avancement » (casse) refusée : 400 invalid-family (comparaison exacte)" "null" \
+    st_err 400 invalid-family POST "$UP/Playlists/$pl4/Options" "$(body_option Propager-Avancement true)" "$T1"
+}
+
+p25() {
+  echo "== P25 (v1.2.0, S10b/D21) — désactiver « Propager le lu » conserve remove-si-lu=OUI (inerte) ; l'API accepte remove-si-lu sans propager-lu ; aucun retrait"
+  local pl4=${PL4:-} t item
+  [[ -n $pl4 ]] || { skip P25 "P24 non exécuté (playlist PS-Trois absente) : jouer P24 d'abord"; return; }
+  item=$ITEM2
+  ck P25.rm_alone "POST Options {remove-si-lu,true} alors que propager-lu=NON -> 200 (l'API accepte : la dépendance est appliquée par le moteur et signalée par la page)" "null" \
+    st_ok 200 POST "$UP/Playlists/$pl4/Options" "$(body_option remove-si-lu true)" "$T1"
+  ck P25.rm_alone_dto "options.remove-si-lu==Oui et propager-lu==Non (état, pas effet)" "$(cat "$RESP")" \
+    bash -c "jq -e '.options[\"remove-si-lu\"]==\"Oui\" and .options[\"propager-lu\"]==\"Non\"' '$RESP' >/dev/null"
+  # S3b : transition non lu -> lu sous remove-si-lu=OUI + propager-lu=NON : AUCUN retrait, AUCUN flag propagé
+  jclear
+  finish "$U2" "$T2" "$item"
+  ck P25.s3b_stays "S3b : média conservé malgré remove-si-lu=OUI (propager-lu=NON)" "null" stays "$pl4" "$item" 1 5
+  ck P25.s3b_noflag "S3b : aucun flag lu propagé à u1" "null" test "$(played_of "$U1" "$T1" "$item")" = false
+  ck P25.s3b_journal "S3b : Skipped inactive journalisé, aucune entrée Removal" "$(journal "Skipped,Removal")" \
+    test "$(jcount "$(journal "Skipped,Removal")" "$pl4" Skipped 'inactive')/$(jcount "$(journal "Skipped,Removal")" "$pl4" Removal)" = "1/0"
+  # activer puis désactiver « Propager le lu » : remove-si-lu=OUI conservé
+  ck P25.pr_on "POST Options {propager-lu,true} -> 200" "null" st_ok 200 POST "$UP/Playlists/$pl4/Options" "$(body_option propager-lu true)" "$T1"
+  ck P25.pr_off "POST Options {propager-lu,false} -> 200" "null" st_ok 200 POST "$UP/Playlists/$pl4/Options" "$(body_option propager-lu false)" "$T1"
+  ck P25.rm_kept "après désactivation de propager-lu : remove-si-lu=OUI CONSERVÉ (D19 : pas de bascule automatique), propager-lu=NON" "$(cat "$RESP")" \
+    bash -c "jq -e '.options[\"remove-si-lu\"]==\"Oui\" and .options[\"propager-lu\"]==\"Non\" and .options[\"propager-avancement\"]==\"Oui\"' '$RESP' >/dev/null"
+  t=$(tags_of "$pl4")
+  ck P25.tag_kept "étiquette remove-si-lu=OUI toujours posée" "$t" has_tag "$t" "$OUI_RM"
+}
+
+p26() {
+  echo "== P26 (v1.2.0, D21) — chaîne complète de l'avancement : propager-avancement=OUI (posée en P24), arrêt de u2 => position chez u1, sans lu"
+  local pl4=${PL4:-} item p pu1
+  [[ -n $pl4 ]] || { skip P26 "P24 non exécuté (playlist PS-Trois absente)"; return; }
+  item=$ITEM1
+  unmark "$U1" "$T1" "$item"; unmark "$U2" "$T2" "$item"
+  p=$(ticks_at "$item" 40)
+  jclear
+  local sid; sid=$(play_start "$U2" "$T2" "$item")
+  play_progress "$U2" "$T2" "$item" "$sid" "$((p/2))" false >/dev/null
+  play_stop "$U2" "$T2" "$item" "$sid" "$p" >/dev/null
+  wait_position "$U1" "$T1" "$item" "$p" 10 || true
+  pu1=$(position_of "$U1" "$T1" "$item")
+  ck P26.position "u1 reçoit la position de l'arrêt de u2 (avancement seul, propager-lu=NON)" "{\"u1\":\"$pu1\",\"expected\":$p}" test "$pu1" = "$p"
+  ck P26.notplayed "aucun flag lu posé (l'avancement ne touche jamais au lu)" "null" test "$(played_of "$U1" "$T1" "$item")" = false
+}
+
+# --- v1.2.0 (#55, D22, S11) : création d'une playlist depuis la page --------------------------------------------------
+body_name() { jq -nc --arg n "$1" '{Name:$n}'; }
+created_id() { jq -r '.playlistId // empty' "$RESP"; }
+# track_created ID : playlist créée PAR CE SCRIPT via la page (noms libres, non préfixés SPIKE) : enregistrée pour le nettoyage ET
+# suivie pour purge_created (le garde SPIKE* de cleanup_registered_playlists reste inchangé : il ne supprime jamais un nom libre).
+track_created() { [[ -n ${1:-} ]] || return 0; register_playlist "$1"; echo "$1" >> "$SCRATCH/created.ids"; }
+# purge_created [KEEP_ID] : supprime (admin) les playlists suivies, sauf KEEP_ID — évite d'épuiser le quota de 10 de test_u1 (M1)
+# entre P27-P33 et P34, et ne laisse aucune playlist « À voir », « Été », ../x… après le run.
+purge_created() {
+  local keep=${1:-} id; [[ -s $SCRATCH/created.ids ]] || return 0
+  while IFS= read -r id; do
+    [[ -n $id && $id != "$keep" ]] || continue
+    api DELETE "/Items/$id" >/dev/null || true
+  done < "$SCRATCH/created.ids"
+  if [[ -n $keep ]]; then echo "$keep" > "$SCRATCH/created.ids"; else : > "$SCRATCH/created.ids"; fi
+}
+
+p27() {
+  echo "== P27 (smoke, critical) — S11 : POST User/Playlists {Name} -> 200, playlist vide, NON partagée, NON gérée (aucune étiquette, aucun message d'aide)"
+  local id t o j
+  jclear
+  ck P27 "POST User/Playlists {\"Films du dimanche\"} -> 200" "null" st_ok 200 POST "$UP/Playlists" "$(body_name "  Films du dimanche ")" "$T1"
+  id=$(created_id); CREATED_PL=$id
+  [[ -n $id ]] && track_created "$id"
+  ck P27.id "réponse : playlistId renseigné" "$(cat "$RESP")" test -n "$id"
+  ck P27.shape "réponse : isShared=false, members=[], itemCount=0, name normalisé (trim), trois options à None" "$(cat "$RESP")" \
+    bash -c "jq -e '.isShared==false and (.members|length)==0 and .itemCount==0 and .name==\"Films du dimanche\" and (.options|keys|sort)==[\"propager-avancement\",\"propager-lu\",\"remove-si-lu\"] and ([.options[]]|unique)==[\"None\"]' '$RESP' >/dev/null"
+  t=$(tags_of "$id"); o=$(overview_of "$id")
+  ck P27.native "la playlist existe côté Emby, propriétaire test_u1 (visible via GET /Items/{id} par u1)" "null" test "$(api GET "/Users/$U1/Items/$id" "" "$T1")" = 200
+  ck P27.notags "aucune étiquette de gestion (playlist non partagée, D6)" "$t" test "$(tag_count "$t" remove-si-lu)/$(tag_count "$t" propager-lu)/$(tag_count "$t" propager-avancement)" = "0/0/0"
+  ck P27.nohelp "aucun message d'aide écrit" "\"$o\"" test -z "$o"
+  j=$(journal PlaylistCreated)
+  local jn; jn=$(jq -r --arg p "$id" --arg u "$U1" '[.[]|select((.playlistId|tostring)==$p and .userId==$u and ((.detail//"")|length)==0)]|length' <<<"$j")
+  ck P27.journal "PlaylistCreated journalisé (ids seulement, UserId=test_u1, Detail vide : jamais le nom)" "$j" test "$jn" = 1
+  ck P27.nomarkerposed "aucun MarkerPosed (pas de première détection à la création)" "$(journal MarkerPosed)" test "$(jcount "$(journal MarkerPosed)" "$id" MarkerPosed)" = 0
+  api GET "$UP/Playlists" "" "$T1" >/dev/null
+  ck P27.list "présente dans GET User/Playlists avec isShared=false" "$(cat "$RESP")" \
+    bash -c "jq -e --arg p \"\$0\" '.[]|select(.playlistId==\$p)|.isShared==false' '$RESP' >/dev/null" "$id"
+}
+
+p28() {
+  echo "== P28 — S11 lignes 2-3 : doublon (trim, casse, NFC) -> 409 name-exists ; nom invalide -> 400 invalid-name"
+  ck P28.dup_exact "même nom -> 409 name-exists" "null" st_err 409 name-exists POST "$UP/Playlists" "$(body_name "Films du dimanche")" "$T1"
+  ck P28.dup_variant "« films du DIMANCHE » avec espaces de bord (trim + casse) -> 409 name-exists" "null" st_err 409 name-exists POST "$UP/Playlists" "$(body_name $'  films du DIMANCHE ')" "$T1"
+  ck P28.empty "nom vide -> 400 invalid-name" "null" st_err 400 invalid-name POST "$UP/Playlists" "$(body_name "")" "$T1"
+  ck P28.blank "nom blanc -> 400 invalid-name" "null" st_err 400 invalid-name POST "$UP/Playlists" "$(body_name "   ")" "$T1"
+  ck P28.long "nom de 101 caractères -> 400 invalid-name" "null" st_err 400 invalid-name POST "$UP/Playlists" "$(body_name "$(printf 'x%.0s' {1..101})")" "$T1"
+  ck P28.control "nom avec caractère de contrôle -> 400 invalid-name" "null" st_err 400 invalid-name POST "$UP/Playlists" "$(jq -nc '{Name:"a\u0001b"}')" "$T1"
+  ck P28.null "corps sans Name -> 400 invalid-name" "null" st_err 400 invalid-name POST "$UP/Playlists" '{}' "$T1"
+  ck P28.nojournal "aucun PlaylistCreated pour les refus (un seul depuis P27)" "null" test "$(journal PlaylistCreated | jq 'length')" = 1
+}
+
+p29() {
+  echo "== P29 — accents et espaces internes SIGNIFICATIFS ; 100 caractères acceptés"
+  local a b c
+  ck P29.accent1 "« Été » -> 200" "null" st_ok 200 POST "$UP/Playlists" "$(body_name "Été")" "$T1"; a=$(created_id); [[ -n $a ]] && track_created "$a"
+  ck P29.accent2 "« Ete » (sans accents) est un AUTRE nom -> 200" "null" st_ok 200 POST "$UP/Playlists" "$(body_name "Ete")" "$T1"; b=$(created_id); [[ -n $b ]] && track_created "$b"
+  ck P29.nfc "« Été » décomposé (NFC) -> 409 name-exists" "null" st_err 409 name-exists POST "$UP/Playlists" "$(jq -nc '{Name:"E\u0301te\u0301"}')" "$T1"
+  ck P29.space1 "« À  voir » (deux espaces) -> 200" "null" st_ok 200 POST "$UP/Playlists" "$(body_name "À  voir")" "$T1"; c=$(created_id); [[ -n $c ]] && track_created "$c"
+  ck P29.space2 "« À voir » (un espace) est un AUTRE nom -> 200" "null" st_ok 200 POST "$UP/Playlists" "$(body_name "À voir")" "$T1"; c=$(created_id); [[ -n $c ]] && track_created "$c"
+  ck P29.len100 "un nom de 100 caractères -> 200" "null" st_ok 200 POST "$UP/Playlists" "$(body_name "$(printf 'y%.0s' {1..100})")" "$T1"; c=$(created_id); [[ -n $c ]] && track_created "$c"
+  purge_created "${CREATED_PL:-}"   # quota (M1) : ne garder que la playlist de P27 (nécessaire à P31)
+}
+
+p30() {
+  echo "== P30 — S11 ligne 4 : l'unicité est PAR PROPRIÉTAIRE ; ligne 5 : sans permission -> 403 sharing-disabled ; propriétaire = session"
+  local id2 tok2 st
+  read -r id2 tok2 < <(create_and_login_test_account "SPIKE-P-owner2")
+  set_sharing "$id2" true; wait_sharing "$id2" true 10 || die "AllowSharingPersonalItems non posé sur le second propriétaire"
+  ck P30.other_owner "un autre compte (avec permission) crée « Films du dimanche » alors que test_u1 le possède : 200 (unicité par propriétaire)" "null" \
+    st_ok 200 POST "$UP/Playlists" "$(body_name "Films du dimanche")" "$tok2"
+  st=$(created_id); [[ -n $st ]] && track_created "$st"
+  ck P30.not_listed_for_u1 "GET User/Playlists de test_u1 ne contient PAS la playlist du second compte" "$(cat "$RESP")" \
+    bash -c "! jq -e --arg p \"\$0\" '.[]|select(.playlistId==\$p)' '$RESP' >/dev/null" "$st"
+  ck P30.nopermission "compte SANS permission de partage -> 403 sharing-disabled (avant toute validation du nom)" "null" \
+    st_err 403 sharing-disabled POST "$UP/Playlists" "$(body_name "")" "$TNP"
+}
+
+p31() {
+  echo "== P31 (critical) — S11 -> S10 : ajouter un premier membre à la playlist créée = premier partage, première détection, TROIS étiquettes NON"
+  local id t
+  id=${CREATED_PL:-}
+  [[ -n $id ]] || { skip P31 "P27 non exécuté"; return; }
+  ck P31.share "POST Members {u2,Write} sur la playlist créée -> 200" "null" st_ok 200 POST "$UP/Playlists/$id/Members" "$(body_member "$U2" Write)" "$T1"
+  ck P31.shared "isShared=true" "$(cat "$RESP")" bash -c "jq -e '.isShared==true' '$RESP' >/dev/null"
+  t=$(tags_of "$id")
+  has_tag "$t" "$NON_RM" && has_tag "$t" "$NON_PR" && has_tag "$t" "$NON_AV" && rec P31.tags OK "trois NON posées" "$t" || rec P31.tags KO "trois NON attendues" "$t"
+  ck P31.help "message d'aide écrit" "null" test -n "$(overview_of "$id")"
+  purge_created   # quota (M1) : P32-P34 repartent de zéro playlist créée par la page
+}
+
+p32() {
+  echo "== P32 — course : deux créations simultanées du même nom -> une seule réussit (verrou de création par propriétaire)"
+  local i ok=0 ko=0 st
+  rm -f "$SCRATCH"/race.*
+  for i in 1 2; do
+    ( CFG="$SCRATCH/race.$i.cfg"; RESP="$SCRATCH/race.$i.resp"; BODYF="$SCRATCH/race.$i.body"
+      st=$(api POST "$UP/Playlists" "$(body_name "SPIKE-course-$$")" "$T1"); echo "$st" > "$SCRATCH/race.$i.st"
+      jq -r '.playlistId // empty' "$RESP" > "$SCRATCH/race.$i.id" ) &
+  done
+  wait
+  for i in 1 2; do
+    st=$(cat "$SCRATCH/race.$i.st"); [[ $st == 200 ]] && ok=$((ok+1)); [[ $st == 409 ]] && ko=$((ko+1))
+    [[ -s "$SCRATCH/race.$i.id" ]] && track_created "$(cat "$SCRATCH/race.$i.id")"
+  done
+  ck P32 "exactement une création 200 et un refus 409 (name-exists)" "{\"ok\":$ok,\"conflict\":$ko}" test "$ok/$ko" = "1/1"
+  api GET "$UP/Playlists" "" "$T1" >/dev/null
+  ck P32.single "une seule playlist portant ce nom dans la liste" "$(cat "$RESP")" \
+    bash -c "[[ \$(jq -r --arg n 'SPIKE-course-$$' '[.[]|select(.name==\$n)]|length' '$RESP') == 1 ]]"
+  purge_created
+}
+
+
+p33() {
+  echo "== P33 (QUALIF, F2) — noms hostiles : ce que le plugin refuse (400 invalid-name) et ce qu'Emby stocke/renvoie tel quel pour les noms acceptés"
+  local n id name
+  # refusés par le plugin : contrôle, Cf (U+200B, U+202E), séparateur de ligne (U+2028), NUL
+  ck P33.zwsp "U+200B seul -> 400 invalid-name" "null" st_err 400 invalid-name POST "$UP/Playlists" "$(jq -nc '{Name:"\u200b"}')" "$T1"
+  ck P33.rlo "U+202E (RIGHT-TO-LEFT OVERRIDE) -> 400 invalid-name" "null" st_err 400 invalid-name POST "$UP/Playlists" "$(jq -nc '{Name:"Films\u202etxt"}')" "$T1"
+  ck P33.nul "NUL -> 400 invalid-name" "null" st_err 400 invalid-name POST "$UP/Playlists" "$(jq -nc '{Name:"a\u0000b"}')" "$T1"
+  ck P33.lf "saut de ligne -> 400 invalid-name" "null" st_err 400 invalid-name POST "$UP/Playlists" "$(jq -nc '{Name:"a\nb"}')" "$T1"
+  ck P33.ls "U+2028 -> 400 invalid-name" "null" st_err 400 invalid-name POST "$UP/Playlists" "$(jq -nc '{Name:"a\u2028b"}')" "$T1"
+  # acceptés (données, jamais interprétées) : Emby doit les stocker et les renvoyer à l'identique, sans erreur 500 ni plantage
+  for name in '../x' 'a/b' 'a\b' '<b>x</b> & "q"' "l'apostrophe" 'Films 🎬'; do
+    st=$(api POST "$UP/Playlists" "$(body_name "$name")" "$T1")
+    if [[ $st == 200 ]]; then
+      id=$(created_id); [[ -n $id ]] && track_created "$id"
+      n=$(jq -r '.name' "$RESP")
+      ck "P33.ok[$name]" "nom accepté et renvoyé à l'identique par le plugin" "$(cat "$RESP")" test "$n" = "$name"
+      api GET "/Users/$U1/Items/$id" "" "$T1" >/dev/null
+      ck "P33.emby[$name]" "Emby relit le même nom (aucune troncature/assainissement inattendu)" "$(jq -c '{Name:.Name}' "$RESP")" test "$(jq -r '.Name' "$RESP")" = "$name"
+    else
+      rec "P33.ok[$name]" KO "HTTP $st inattendu pour un nom accepté par le contrat (observation F2 : noter le comportement d'Emby)" "$(cat "$RESP")"
+    fi
+  done
+  ck P33.noerror "aucune entrée Error journalisée par ces créations" "null" test "$(journal Error | jq 'length')" = 0
+  purge_created   # quota (M1) : ne pas épuiser les 10 playlists de test_u1 avant P34
+}
+
+
+p34() {
+  echo "== P34 (QUALIF, audit M1) — quota de 10 playlists possédées : 409 limit-reached, ordre 403 -> 400 -> quota -> name-exists, rien de supprimé"
+  local id2 tok2 i st n before
+  read -r id2 tok2 < <(create_and_login_test_account "SPIKE-P-quota")
+  set_sharing "$id2" true; wait_sharing "$id2" true 10 || die "AllowSharingPersonalItems non posé sur le compte du quota"
+  # 9 playlists possédées CRÉÉES NATIVEMENT (hors page) : le quota compte toutes les playlists possédées (S11 ligne 7)
+  for ((i=1; i<=9; i++)); do
+    st=$(api POST "/Playlists?Name=$(qs "SPIKE-quota-$i")&MediaType=Video&Ids=$ITEM1&UserId=$id2" "" "$tok2")
+    [[ $st == 200 ]] && track_created "$(jq -r '.Id' "$RESP")"
+  done
+  ck P34.nine "9 possédées (natives) : la 10e créée depuis la page -> 200" "null" st_ok 200 POST "$UP/Playlists" "$(body_name "SPIKE-quota-page")" "$tok2"
+  n=$(created_id); [[ -n $n ]] && track_created "$n"
+  api GET "$UP/Playlists" "" "$tok2" >/dev/null; before=$(jq 'length' "$RESP")
+  ck P34.ten "10 possédées : la suivante -> 409 limit-reached" "null" st_err 409 limit-reached POST "$UP/Playlists" "$(body_name "SPIKE-quota-11")" "$tok2"
+  ck P34.before_unique "quota vérifié AVANT l'unicité : nom déjà possédé à 10 -> 409 limit-reached (et non name-exists)" "null" st_err 409 limit-reached POST "$UP/Playlists" "$(body_name "SPIKE-quota-page")" "$tok2"
+  ck P34.after_400 "400 invalid-name AVANT le quota (nom vide à 10)" "null" st_err 400 invalid-name POST "$UP/Playlists" "$(body_name "")" "$tok2"
+  ck P34.after_403 "403 sharing-disabled AVANT le quota (compte sans permission)" "null" st_err 403 sharing-disabled POST "$UP/Playlists" "$(body_name "X")" "$TNP"
+  api GET "$UP/Playlists" "" "$tok2" >/dev/null
+  ck P34.intact "rien créé ni supprimé : toujours $before playlists" "$(jq 'length' "$RESP")" test "$(jq 'length' "$RESP")" = "$before"
+  ck P34.per_owner "le quota est PAR compte : test_u1 (moins de 10 possédées) crée encore" "null" st_ok 200 POST "$UP/Playlists" "$(body_name "SPIKE-quota-u1-$$")" "$T1"
+  n=$(created_id); [[ -n $n ]] && track_created "$n"
+  ck P34.nonumber "le message d'erreur du serveur ne contient pas la valeur du quota" "null" test "$(jq -r '.error // ""' "$RESP")" != "10"
+}
+
+
 p_busy() {
   echo "== P-busy — 409 busy : SKIP (aucun moyen déterministe de forcer la contention du verrou par REST)"
   skip P-busy "couvert par UserPlaylistServiceSpecTests.Locked_ByAnotherThread_ReturnsBusy_WithinFiveSecondBudget (unitaire)"
 }
 
-ALL=(P1 P2 P3 P4 P6 P7 P8 P9 P10 P11 P12 P13 P14 P15 P16 P17 P18 P19 P20 P21 P22 P23 P-busy)
+ALL=(P1 P2 P3 P4 P6 P7 P8 P9 P10 P11 P12 P13 P14 P15 P16 P17 P18 P19 P20 P21 P22 P23 P24 P25 P26 P27 P28 P29 P30 P31 P32 P33 P34 P-busy)
 if [[ ${#WANT[@]} -eq 0 ]]; then WANT=("${ALL[@]}"); fi
 for s in "${WANT[@]}"; do
   fn=$(tr 'A-Z-' 'a-z_' <<<"$s")

@@ -23,6 +23,9 @@ public static class JournalEntries
     /// propriétaire ATTENDU (peut être <c>null</c> si son compte a lui-même disparu entre-temps).</summary>
     public const string OwnerLost = "OwnerLost";
 
+    /// <summary>v1.2.0 (#55) : playlist créée depuis la page. <c>UserId</c> = propriétaire (demandeur) ; ids seulement, JAMAIS le nom.</summary>
+    public const string PlaylistCreated = "PlaylistCreated";
+
     private static JournalEntry New(IClock? clock, string kind) => new()
     {
         Ts = (clock?.UtcNow ?? DateTimeOffset.UtcNow).UtcDateTime.ToString("o"),
@@ -48,6 +51,9 @@ public static class JournalEntries
     /// <paramref name="detail"/> attendu : <c>family=&lt;f&gt; value=OUI|NON removed=&lt;n&gt;</c>.</summary>
     public static JournalEntry MarkerSetEntry(IClock? clock, string? playlistId, string? ownerUserId, string? detail) =>
         FillWithUser(New(clock, MarkerSet), playlistId, ownerUserId, detail);
+
+    public static JournalEntry PlaylistCreatedEntry(IClock? clock, string? playlistId, string? ownerUserId) =>
+        FillWithUser(New(clock, PlaylistCreated), playlistId, ownerUserId, null);
 
     /// <summary><c>OwnerLost</c> (v1.1.0) : <paramref name="ownerUserId"/> = propriétaire attendu, ids seulement.</summary>
     public static JournalEntry OwnerLostEntry(IClock? clock, string? playlistId, string? ownerUserId) =>

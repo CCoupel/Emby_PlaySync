@@ -3,10 +3,10 @@ using Xunit;
 
 namespace EmbySharedPlaylist.Tests;
 
-/// <summary>Table de vérité des deux familles (tests internes de dev-plugin ; la spécification est couverte par test-writer).</summary>
+/// <summary>Table de vérité des trois familles (v1.2.0 : + propager-avancement) (tests internes de dev-plugin ; la spécification est couverte par test-writer).</summary>
 public class MarkerEvaluatorDevTests
 {
-    public static IEnumerable<object[]> Families() { yield return new object[] { MarkerFamily.RemoveSiLu }; yield return new object[] { MarkerFamily.PropagerLu }; }
+    public static IEnumerable<object[]> Families() { yield return new object[] { MarkerFamily.RemoveSiLu }; yield return new object[] { MarkerFamily.PropagerLu }; yield return new object[] { MarkerFamily.PropagerAvancement }; }
 
     private static string N(MarkerFamily f) => MarkerEvaluator.FamilyName(f);
 
@@ -17,6 +17,8 @@ public class MarkerEvaluatorDevTests
         Assert.Equal("propager-lu", MarkerEvaluator.FamilyName(MarkerFamily.PropagerLu));
         Assert.Equal("remove-si-lu=NON", MarkerEvaluator.NonTag(MarkerFamily.RemoveSiLu));
         Assert.Equal("propager-lu=NON", MarkerEvaluator.NonTag(MarkerFamily.PropagerLu));
+        Assert.Equal("propager-avancement", MarkerEvaluator.FamilyName(MarkerFamily.PropagerAvancement));   // v1.2.0 (D21)
+        Assert.Equal("propager-avancement=NON", MarkerEvaluator.NonTag(MarkerFamily.PropagerAvancement));
     }
 
     [Theory, MemberData(nameof(Families))]

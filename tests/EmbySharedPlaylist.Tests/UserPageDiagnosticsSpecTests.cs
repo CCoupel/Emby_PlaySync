@@ -96,4 +96,14 @@ public class UserPageDiagnosticsSpecTests
         var kinds = DiagnosticsMapper.Journal(entries, null).Select(e => e.Kind).ToList();
         Assert.Contains("OwnerLost", kinds);
     }
+
+    [Fact]
+    public void MarkerSet_ForPropagerAvancement_IsExposedLikeTheOtherFamilies_v120()
+    {
+        // v1.2.0 (D21) : <Family> inclut propager-avancement dans le Detail de MarkerSet (ids seulement, aucun nom).
+        var entries = new[] { E("MarkerSet", "p1", "u1", "family=propager-avancement value=OUI removed=1") };
+        var dto = Assert.Single(DiagnosticsMapper.Journal(entries, null));
+        Assert.Equal("MarkerSet", dto.Kind);
+        Assert.Equal("family=propager-avancement value=OUI removed=1", dto.Detail);
+    }
 }

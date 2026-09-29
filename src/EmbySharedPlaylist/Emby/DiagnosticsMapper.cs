@@ -12,12 +12,12 @@ public static class DiagnosticsMapper
         JournalEntries.ScanPass, JournalEntries.MarkerPosed, JournalEntries.DescriptionWritten, "MarkerSeen", "Removal",
         "Propagation", "PositionPropagation", "PermissionPass", "PermissionPosed", JournalEntries.Skipped, JournalEntries.Error,
         // v1.1.0 (#39, D19/D20) : page utilisateur.
-        JournalEntries.ShareChanged, JournalEntries.MarkerSet,
+        JournalEntries.ShareChanged, JournalEntries.MarkerSet, JournalEntries.PlaylistCreated,
         // v1.1.0 (#39, security-audit-20260928-154256.md point 7) : sévérité admin, jamais filtré par défaut.
         JournalEntries.OwnerLost
     };
 
-    public static readonly string[] CounterKeys = { "remove-si-lu", "propager-lu", DefaultsService.DescriptionKey };
+    public static readonly string[] CounterKeys = { "remove-si-lu", "propager-lu", "propager-avancement", DefaultsService.DescriptionKey };
 
     /// <summary>
     /// Journal filtré. <paramref name="kinds"/> vide : uniquement les décisions du moteur ; sinon exactement les kinds demandés

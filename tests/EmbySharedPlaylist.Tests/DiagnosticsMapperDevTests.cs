@@ -65,8 +65,8 @@ public class DiagnosticsMapperDevTests
         var s = DiagnosticsMapper.State(seen, last, (7, 12, 90), 3);
 
         Assert.Equal(new[] { "1", "2" }, s.SeenPlaylistIds);
-        Assert.Equal(new Dictionary<string, int> { ["remove-si-lu"] = 2, ["propager-lu"] = 0, ["description"] = 0 }, s.GraceCounters["1"]);
-        Assert.Equal(new Dictionary<string, int> { ["remove-si-lu"] = 0, ["propager-lu"] = 0, ["description"] = 1 }, s.GraceCounters["2"]);
+        Assert.Equal(new Dictionary<string, int> { ["remove-si-lu"] = 2, ["propager-lu"] = 0, ["propager-avancement"] = 0, ["description"] = 0 }, s.GraceCounters["1"]);
+        Assert.Equal(new Dictionary<string, int> { ["remove-si-lu"] = 0, ["propager-lu"] = 0, ["propager-avancement"] = 0, ["description"] = 1 }, s.GraceCounters["2"]);
         Assert.Equal("2026-09-26T12:30:00.0000000Z", s.LastPass.Ts);
         Assert.Equal((42L, 5, 3), (s.LastPass.DurationMs, s.LastPass.PlaylistsSeen, s.LastPass.SharedManaged));
         Assert.Equal((7L, 12L, 90L), (s.Handler.Count, s.Handler.LastMs, s.Handler.MaxMs));

@@ -47,7 +47,7 @@ public sealed record UserPageSelectableDto(string UserId, string Name);
 /// <item>Propriété (<see cref="IShareGateway.GetOwned"/>) — 404 <see cref="UserPageErrors.NotFound"/>, indiscernable
 /// d'une playlist inexistante (anti-IDOR, CA6).</item>
 /// <item>Validations de forme propres à la méthode (niveau strict <c>"Read"</c>/<c>"Write"</c>, famille stricte
-/// <c>"remove-si-lu"</c>/<c>"propager-lu"</c> — comparaison EXACTE, sensible à la casse, aucune tolérance
+/// <c>"remove-si-lu"</c>/<c>"propager-lu"</c>/<c>"propager-avancement"</c> — comparaison EXACTE, sensible à la casse, aucune tolérance
 /// contrairement aux étiquettes elles-mêmes).</item>
 /// <item>Cible = soi (400 <see cref="UserPageErrors.Self"/>) ; cible inconnue/désactivée (400
 /// <see cref="UserPageErrors.InvalidUser"/>).</item>
@@ -67,7 +67,8 @@ public sealed class UserPlaylistService
     private static readonly IReadOnlyDictionary<string, MarkerFamily> Families = new Dictionary<string, MarkerFamily>(StringComparer.Ordinal)
     {
         [MarkerEvaluator.FamilyName(MarkerFamily.RemoveSiLu)] = MarkerFamily.RemoveSiLu,
-        [MarkerEvaluator.FamilyName(MarkerFamily.PropagerLu)] = MarkerFamily.PropagerLu
+        [MarkerEvaluator.FamilyName(MarkerFamily.PropagerLu)] = MarkerFamily.PropagerLu,
+        [MarkerEvaluator.FamilyName(MarkerFamily.PropagerAvancement)] = MarkerFamily.PropagerAvancement
     };
 
     private readonly IShareGateway _shares;
@@ -78,6 +79,7 @@ public sealed class UserPlaylistService
     private readonly IJournal _journal;
     private readonly IClock? _clock;
     private readonly TimeSpan _lockTimeout;
+    private readonly TimeSpan _createLockTimeout;
 
     public UserPlaylistService(IShareGateway shares, IUserDirectory users, IPlaylistGateway playlists, PlaylistLocks locks,
         DefaultsService defaults, IJournal journal, IClock? clock = null, TimeSpan? lockTimeout = null)
@@ -90,6 +92,7 @@ public sealed class UserPlaylistService
         _journal = journal;
         _clock = clock;
         _lockTimeout = lockTimeout ?? PlaylistLocks.DefaultTimeout;
+        _createLockTimeout = lockTimeout ?? CreateLockTimeout;
     }
 
     // ---- GET User/Playlists / GET User/Users --------------------------------------------------------------
@@ -122,6 +125,104 @@ public sealed class UserPlaylistService
                 .ToList();
             return UserPageResult<IReadOnlyList<UserPageSelectableDto>>.Success(list);
         });
+    }
+
+    // ---- POST User/Playlists (v1.2.0, #55, D22) -------------------------------------------------------------
+
+    public const int MaxNameLength = 100;
+
+    /// <summary>Délai d'attente du verrou de création <c>create:&lt;demandeur&gt;</c> avant 409 <c>busy</c> (audit M2, décision
+    /// utilisateur) : 1 s, constante unique. Distinct du délai des verrous de playlist (5 s) et de l'appel Emby de création
+    /// (5 s, inchangé). Un <c>lockTimeout</c> injecté (tests) le remplace.</summary>
+    public static readonly TimeSpan CreateLockTimeout = TimeSpan.FromSeconds(1);
+
+    /// <summary>Quota (audit sécurité M1, D22) : la création est refusée (409 <c>limit-reached</c>) si le demandeur possède déjà
+    /// AU MOINS ce nombre de playlists (toutes, partagées ou non, y compris créées nativement). Constante unique, jamais
+    /// recopiée ailleurs (la page n'affiche pas le nombre).</summary>
+    public const int MaxOwnedPlaylists = 10;
+
+    /// <summary>
+    /// Crée une playlist vide, non partagée, Vidéo, pour le demandeur (identité de session). Ordre : porte 403, nom (400),
+    /// verrou de création du demandeur (409 busy), unicité (409 name-exists), création, relecture, journal (jamais le nom).
+    /// </summary>
+    public UserPageResult<UserPagePlaylistDto> CreatePlaylist(string requesterId, string? rawName)
+    {
+        var gate = CheckSharing<UserPagePlaylistDto>(requesterId);
+        if (gate != null) return gate;
+
+        return Guard(null, () =>
+        {
+            var name = NormalizeName(rawName);
+            if (name == null) return Fail(UserPageErrors.InvalidName);
+
+            using var createGate = _locks.TryAcquire("create:" + requesterId, _createLockTimeout);
+            if (createGate == null) return Fail(UserPageErrors.Busy);
+
+            // UNE lecture sous le verrou, réutilisée pour le quota puis l'unicité (périmètre = playlists POSSÉDÉES par le
+            // demandeur, comme GET User/Playlists). Le quota précède l'unicité : il dépend du compte, pas du nom saisi.
+            var owned = _shares.ListOwnedPlaylists(requesterId);
+            if (owned.Count >= MaxOwnedPlaylists) return Fail(UserPageErrors.LimitReached);
+
+            foreach (var existing in owned)
+            {
+                var existingName = NormalizeName(existing.Name) ?? existing.Name?.Trim();
+                if (string.Equals(existingName, name, StringComparison.OrdinalIgnoreCase)) return Fail(UserPageErrors.NameExists);
+            }
+
+            string id;
+            using (WriteScope.Enter()) id = _playlists.CreatePlaylist(requesterId, name);
+
+            var fresh = _shares.GetOwned(requesterId, id);
+            if (fresh == null)
+            {
+                _journal.Add(JournalEntries.Of(_clock, JournalEntries.Error, id, "created-not-owned"));
+                return Fail(UserPageErrors.Internal);
+            }
+
+            _journal.Add(JournalEntries.PlaylistCreatedEntry(_clock, id, requesterId));
+            return UserPageResult<UserPagePlaylistDto>.Success(ToDto(fresh));
+        });
+    }
+
+    /// <summary>Catégories Unicode refusées dans un nom (F1) : Cc, Cf (ex. U+200B), Zl, Zp, Cn ; les surrogates sont traités à part.</summary>
+    private static bool IsForbiddenNameChar(char c)
+    {
+        if (char.IsSurrogate(c)) return false;
+        switch (char.GetUnicodeCategory(c))
+        {
+            case System.Globalization.UnicodeCategory.Control:
+            case System.Globalization.UnicodeCategory.Format:
+            case System.Globalization.UnicodeCategory.LineSeparator:
+            case System.Globalization.UnicodeCategory.ParagraphSeparator:
+            case System.Globalization.UnicodeCategory.OtherNotAssigned:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>Trim (espaces Unicode) + NFC ; null si vide, &gt; 100 caractères, catégorie interdite (Cc, Cf, Zl, Zp, Cn) ou surrogate isolé.</summary>
+    private static string? NormalizeName(string? raw)
+    {
+        if (raw == null) return null;
+        string name;
+        try { name = raw.Normalize(System.Text.NormalizationForm.FormC); }
+        catch (ArgumentException) { return null; } // séquence Unicode invalide
+        var start = 0;
+        var end = name.Length;
+        while (start < end && char.IsWhiteSpace(name[start])) start++;
+        while (end > start && char.IsWhiteSpace(name[end - 1])) end--;
+        name = name.Substring(start, end - start);
+        if (name.Length < 1 || name.Length > MaxNameLength) return null;
+        foreach (var c in name)
+            if (IsForbiddenNameChar(c)) return null;
+        // Surrogates isolés (paire haute/basse mal formée) : refusés (une paire valide est acceptée).
+        for (var i = 0; i < name.Length; i++)
+        {
+            if (char.IsHighSurrogate(name[i]) && i + 1 < name.Length && char.IsLowSurrogate(name[i + 1])) { i++; continue; }
+            if (char.IsSurrogate(name[i])) return null;
+        }
+        return name;
     }
 
     // ---- POST .../Members (upsert) -------------------------------------------------------------------------
@@ -291,7 +392,8 @@ public sealed class UserPlaylistService
         var options = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [MarkerEvaluator.FamilyName(MarkerFamily.RemoveSiLu)] = MarkerEvaluator.Evaluate(p.Tags, MarkerFamily.RemoveSiLu).ToString(),
-            [MarkerEvaluator.FamilyName(MarkerFamily.PropagerLu)] = MarkerEvaluator.Evaluate(p.Tags, MarkerFamily.PropagerLu).ToString()
+            [MarkerEvaluator.FamilyName(MarkerFamily.PropagerLu)] = MarkerEvaluator.Evaluate(p.Tags, MarkerFamily.PropagerLu).ToString(),
+            [MarkerEvaluator.FamilyName(MarkerFamily.PropagerAvancement)] = MarkerEvaluator.Evaluate(p.Tags, MarkerFamily.PropagerAvancement).ToString()
         };
         return new UserPagePlaylistDto(p.Id, p.Name, p.ItemCount, p.IsShared, members, options);
     }

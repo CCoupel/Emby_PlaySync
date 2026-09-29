@@ -17,24 +17,37 @@
 define([], function () {
     'use strict';
 
-    var FAMILIES = ['remove-si-lu', 'propager-lu'];
+    // Ordre d'affichage validé (v1.2.0, D21, question 4 du plan) ; « remove-si-lu » dépend de « propager-lu » (S10b).
+    var FAMILIES = ['remove-si-lu', 'propager-lu', 'propager-avancement'];
 
     var STRINGS = {
         fr: {
             title: "PlaySync",
             intro: "Vos playlists — partagez-les avec d'autres comptes et réglez leur comportement. Seules les playlists dont vous êtes propriétaire apparaissent ici.",
             denied: "Le partage de contenus personnels n'est pas activé pour votre compte. Contactez l'administrateur du serveur.",
-            empty: "Vous ne possédez aucune playlist. Ajoutez un média à une nouvelle playlist, puis revenez ici pour la partager.",
+            empty: "Vous ne possédez aucune playlist. Créez-en une avec « Nouvelle playlist », puis ajoutez-y des vidéos et des membres.",
+            newPlaylist: "Nouvelle playlist",
+            newPlaylistLabel: "Nom de la nouvelle playlist",
+            newPlaylistHint: "La playlist est créée vide et non partagée. Ajoutez-y des vidéos depuis Emby (« Ajouter à une playlist ») et des membres ci-dessous.",
+            create: "Créer",
+            cancel: "Annuler",
+            errInvalidName: "Saisissez un nom de 1 à 100 caractères.",
+            errNameExists: "Vous avez déjà une playlist portant ce nom.",
+            errLimitReached: "Vous possédez déjà le nombre maximal de playlists. Supprimez-en une pour pouvoir en créer une nouvelle.",
             shared: "Partagée",
             unshared: "Non partagée",
             members: "membres",
             member: "membre",
             items: "médias",
             optionsHeader: "Options",
-            removeOnPlayedTitle: "Retirer un média dès qu'il est lu",
-            removeOnPlayedDesc: "Quand un membre passe un média à lu, il est retiré de la playlist pour tous.",
-            propagateTitle: "Partager l'état de lecture",
-            propagateDesc: "Le lu et la position de lecture sont recopiés chez les autres membres.",
+            removeOnPlayedTitle: "Retirer si lu",
+            removeOnPlayedDesc: "Quand un membre passe un média à « lu », il est retiré de la playlist pour tous. Nécessite « Propager le lu ».",
+            propagateTitle: "Propager le lu",
+            propagateDesc: "Quand un membre passe un média à « lu », il est aussi marqué « lu » chez les autres membres. La position de lecture n'est pas touchée.",
+            propagateProgressTitle: "Propager l'avancement",
+            propagateProgressDesc: "La position de lecture (pause, arrêt) est recopiée chez les autres membres, même pour un média déjà vu. Ne marque jamais un média comme « lu ».",
+            depRequires: "Nécessite « Propager le lu ».",
+            depInactive: "Inactif tant que « Propager le lu » est désactivé.",
             optionsUnavailable: "Disponibles une fois la playlist partagée.",
             conflict: "Étiquettes en conflit, option inactive. Le prochain changement corrige l'incohérence.",
             membersHeader: "Membres",
@@ -65,17 +78,29 @@ define([], function () {
             title: 'PlaySync',
             intro: 'Your playlists — share them with other accounts and choose how they behave. Only playlists you own are listed here.',
             denied: 'Sharing personal content is not enabled for your account. Contact the server administrator.',
-            empty: 'You do not own any playlist. Add an item to a new playlist, then come back here to share it.',
+            empty: 'You don\'t own any playlist. Create one with "New playlist", then add videos and members to it.',
+            newPlaylist: 'New playlist',
+            newPlaylistLabel: 'New playlist name',
+            newPlaylistHint: 'The playlist is created empty and not shared. Add videos from Emby ("Add to playlist") and members below.',
+            create: 'Create',
+            cancel: 'Cancel',
+            errInvalidName: 'Enter a name between 1 and 100 characters.',
+            errNameExists: 'You already have a playlist with this name.',
+            errLimitReached: 'You already own the maximum number of playlists. Delete one to be able to create a new one.',
             shared: 'Shared',
             unshared: 'Not shared',
             members: 'members',
             member: 'member',
             items: 'items',
             optionsHeader: 'Options',
-            removeOnPlayedTitle: 'Remove an item once it is played',
-            removeOnPlayedDesc: 'When a member marks an item as played, it is removed from the playlist for everyone.',
-            propagateTitle: 'Share playback state',
-            propagateDesc: 'Played status and playback position are copied to the other members.',
+            removeOnPlayedTitle: 'Remove when played',
+            removeOnPlayedDesc: 'When a member marks an item as played, it is removed from the playlist for everyone. Requires "Sync played status".',
+            propagateTitle: 'Sync played status',
+            propagateDesc: 'When a member marks an item as played, it is marked as played for the other members too. Playback position is not changed.',
+            propagateProgressTitle: 'Sync playback position',
+            propagateProgressDesc: 'The playback position (pause, stop) is copied to the other members, even for an item already watched. Never marks an item as played.',
+            depRequires: 'Requires "Sync played status".',
+            depInactive: 'Inactive while "Sync played status" is off.',
             optionsUnavailable: 'Available once the playlist is shared.',
             conflict: 'Conflicting tags, option inactive. The next change fixes the inconsistency.',
             membersHeader: 'Members',
@@ -125,12 +150,25 @@ define([], function () {
             case 'not-shared': return 'errNotShared';
             case 'busy': return 'errBusy';
             case 'invalid-family': return 'errInvalidFamily';
+            case 'invalid-name': return 'errInvalidName';
+            case 'name-exists': return 'errNameExists';
+            case 'limit-reached': return 'errLimitReached';
             default: return 'errInternal';
         }
     }
 
-    function familyTitleKey(family) { return family === 'remove-si-lu' ? 'removeOnPlayedTitle' : 'propagateTitle'; }
-    function familyDescKey(family) { return family === 'remove-si-lu' ? 'removeOnPlayedDesc' : 'propagateDesc'; }
+    var FAMILY_TITLE_KEYS = {
+        'remove-si-lu': 'removeOnPlayedTitle',
+        'propager-lu': 'propagateTitle',
+        'propager-avancement': 'propagateProgressTitle'
+    };
+    var FAMILY_DESC_KEYS = {
+        'remove-si-lu': 'removeOnPlayedDesc',
+        'propager-lu': 'propagateDesc',
+        'propager-avancement': 'propagateProgressDesc'
+    };
+    function familyTitleKey(family) { return FAMILY_TITLE_KEYS[family]; }
+    function familyDescKey(family) { return FAMILY_DESC_KEYS[family]; }
 
     function el(tag, className) {
         var e = document.createElement(tag);
@@ -201,6 +239,8 @@ define([], function () {
 
     return function (view) {
         var selectableUsers = [];
+        var newButtonsWired = false;
+        var newSubmitting = false;
 
         function apiGet(path, params) {
             return ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(path, params || {}), dataType: 'json' });
@@ -275,7 +315,7 @@ define([], function () {
         }
 
         function cloneSelect() { return stampAndClone(prototypes().querySelector('select'), 'select'); }
-        function cloneToggle() { return stampAndClone(prototypes().querySelector('input'), 'toggle'); }
+        function cloneToggle() { return stampAndClone(prototypes().querySelector('input[type="checkbox"]'), 'toggle'); }
         function cloneIconButton() { return stampAndClone(prototypes().querySelectorAll('button')[0], 'icon-btn'); }
         function cloneSubmitButton() { return stampAndClone(prototypes().querySelectorAll('button')[1], 'submit-btn'); }
 
@@ -347,6 +387,11 @@ define([], function () {
                 var state = (playlist.Options && playlist.Options[family]) || 'None';
                 input.checked = state === 'Oui';
                 input.disabled = !playlist.IsShared;
+                // S10b (D21) : « Retirer si lu » n'a d'effet que si « Propager le lu » est actif. Sinon : grisé (reste coché
+                // s'il l'était : l'étiquette n'est pas modifiée) + mention. Purement visuel : l'API accepte toujours la bascule.
+                var dependencyOff = playlist.IsShared && family === 'remove-si-lu'
+                    && !(playlist.Options && playlist.Options['propager-lu'] === 'Oui');
+                if (dependencyOff) input.disabled = true;
                 label.appendChild(input);
 
                 var textCol = document.createElement('div');
@@ -354,6 +399,7 @@ define([], function () {
                 var titleEl = document.createElement('div');
                 titleEl.style.fontWeight = '500';
                 setText(titleEl, familyTitleKey(family));
+                if (dependencyOff) titleEl.style.opacity = '.55';
                 textCol.appendChild(titleEl);
 
                 var desc = document.createElement('div');
@@ -362,6 +408,14 @@ define([], function () {
                 desc.style.marginTop = '4px';
                 setText(desc, playlist.IsShared ? familyDescKey(family) : 'optionsUnavailable');
                 textCol.appendChild(desc);
+
+                if (dependencyOff) {
+                    var dep = document.createElement('div');
+                    dep.style.fontSize = '.9em';
+                    dep.style.marginTop = '4px';
+                    setText(dep, state === 'Oui' ? 'depInactive' : 'depRequires');
+                    textCol.appendChild(dep);
+                }
 
                 if (playlist.IsShared && state === 'Both') {
                     var warn = document.createElement('div');
@@ -592,6 +646,71 @@ define([], function () {
             return card;
         }
 
+        // ---- #55 (v1.2.0) : création d'une playlist (nom seul ; vide, non partagée, Vidéo : imposé par le serveur) ----
+
+        function newBox() { return view.querySelector('#PlaySyncNewBox'); }
+        function newInput() { return view.querySelector('#PlaySyncNewName'); }
+
+        function showNewError(key) {
+            var box = view.querySelector('#PlaySyncNewError');
+            if (!key) { box.style.display = 'none'; box.textContent = ''; return; }
+            setText(box, key);
+            box.style.display = '';
+        }
+
+        function closeNewBox() {
+            newBox().style.display = 'none';
+            newInput().value = '';
+            showNewError(null);
+        }
+
+        function submitNewPlaylist() {
+            var name = newInput().value;
+            // Contrôle rapide côté client (le serveur reste l'autorité : trim, NFC, 1–100, sans caractère de contrôle).
+            if (newSubmitting) return; // m1 : double soumission (clic répété / Entrée) ignorée jusqu'à la fin de la requête
+            if (!name || !name.trim()) { showNewError('errInvalidName'); return; }
+            showNewError(null);
+            newSubmitting = true;
+            view.querySelector('#PlaySyncNewCreate').disabled = true;
+            apiSend('POST', 'SharedPlaylist/User/Playlists', { Name: name }).then(
+                function () { newSubmitting = false; view.querySelector('#PlaySyncNewCreate').disabled = false; closeNewBox(); reload(); }, // rechargement complet : la carte prend sa place dans le tri serveur
+                function (err) {
+                    newSubmitting = false;
+                    view.querySelector('#PlaySyncNewCreate').disabled = false;
+                    var handle = function (code) {
+                        if (code === 'invalid-name' || code === 'name-exists' || code === 'limit-reached') { showNewError(errorKey(code)); return; }
+                        showToast(t(errorKey(code)));
+                        reload(); // contrat : après un 500 (délai Emby dépassé) la création a pu aboutir : recharger la liste
+                    };
+                    if (err && typeof err.json === 'function') {
+                        err.json().then(function (body) { handle(body && body.Error); }, function () { handle(null); });
+                    } else {
+                        handle(err && err.Error);
+                    }
+                }
+            );
+        }
+
+        function setupNewPlaylist() {
+            view.querySelector('#PlaySyncNewBtn').textContent = '+ ' + t('newPlaylist');
+            setText(view.querySelector('#PlaySyncNewLabel'), 'newPlaylistLabel');
+            setText(view.querySelector('#PlaySyncNewHint'), 'newPlaylistHint');
+            setText(view.querySelector('#PlaySyncNewCreate'), 'create');
+            setText(view.querySelector('#PlaySyncNewCancel'), 'cancel');
+            if (newButtonsWired) return;
+            newButtonsWired = true;
+            view.querySelector('#PlaySyncNewBtn').addEventListener('click', function () {
+                newBox().style.display = '';
+                newInput().focus();
+            });
+            view.querySelector('#PlaySyncNewCreate').addEventListener('click', submitNewPlaylist);
+            view.querySelector('#PlaySyncNewCancel').addEventListener('click', closeNewBox);
+            newInput().addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); submitNewPlaylist(); }
+                else if (e.key === 'Escape') { closeNewBox(); }
+            });
+        }
+
         function render(playlists) {
             var listRoot = view.querySelector('#PlaySyncList');
             clear(listRoot);
@@ -611,6 +730,8 @@ define([], function () {
             view.querySelector('#PlaySyncDenied').style.display = '';
             setText(view.querySelector('#PlaySyncDeniedText'), 'denied');
             view.querySelector('#PlaySyncEmpty').style.display = 'none';
+            view.querySelector('#PlaySyncNewBtn').style.display = 'none'; // la création exige la même permission
+            closeNewBox();
             clear(view.querySelector('#PlaySyncList'));
         }
 
@@ -618,6 +739,7 @@ define([], function () {
             apiGet('SharedPlaylist/User/Playlists').then(
                 function (list) {
                     view.querySelector('#PlaySyncDenied').style.display = 'none';
+                    view.querySelector('#PlaySyncNewBtn').style.display = '';
                     render(list);
                 },
                 function (err) {
@@ -630,6 +752,7 @@ define([], function () {
         function localize() {
             setText(view.querySelector('#PlaySyncTitle'), 'title');
             setText(view.querySelector('#PlaySyncIntro'), 'intro');
+            setupNewPlaylist();
         }
 
         view.addEventListener('viewshow', function () {
@@ -646,7 +769,7 @@ define([], function () {
             // quoi que ce soit (confirmé par les tentatives précédentes). Noms de modules EXACTS (journal
             // console réel) : seuls ceux réellement utilisés par cette page (emby-checkbox n'est jamais utilisé
             // ici, volontairement exclu).
-            require(['emby-toggle', 'emby-select', 'emby-button'], function () {
+            require(['emby-toggle', 'emby-select', 'emby-button', 'emby-input'], function () {
                 apiGet('SharedPlaylist/User/Users').then(
                     function (list) { selectableUsers = list || []; reload(); },
                     function () { selectableUsers = []; reload(); }

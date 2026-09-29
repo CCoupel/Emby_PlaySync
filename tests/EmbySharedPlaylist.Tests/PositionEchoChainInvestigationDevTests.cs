@@ -77,7 +77,7 @@ public class PositionEchoChainInvestigationDevTests
 
         public FakeGateway.State AddSharedPlaylist(string id, params string[] members)
         {
-            var s = Gateway.Add(id, "propager-lu=OUI");
+            var s = Gateway.Add(id, "propager-lu=OUI", "propager-avancement=OUI"); // v1.2.0 : lu ET avancement, deux familles indépendantes
             s.Overview = "x";
             s.Members = members.ToList();
             s.Items = new List<string> { "m1" };

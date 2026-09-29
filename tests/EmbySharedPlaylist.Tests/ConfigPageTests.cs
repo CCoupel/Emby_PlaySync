@@ -227,4 +227,69 @@ public class ConfigPageTests
         Assert.DoesNotContain("value=\"Manage\"", html);
         Assert.DoesNotContain("\"Manage\"", js.Replace('\'', '"'));
     }
+
+    // ==============================================================================================================
+    // Extension v1.2.0 (#56, D21, S10b, tâche B9) : trois interrupteurs et dépendance « Retirer si lu » -> « Propager le lu ».
+    // ADDITIF UNIQUEMENT. Vérifications STATIQUES du script embarqué (le rendu réel — grisage, mentions, toggle atomique —
+    // est vérifié en QUALIF par la procédure manuelle tests/integration/MANUAL.md §5sexies, inspection DevTools).
+    // ==============================================================================================================
+
+    [Fact]
+    public void UserScript_DeclaresTheThreeFamiliesInTheValidatedDisplayOrder_v120()
+    {
+        var js = ReadResource("EmbySharedPlaylist.Configuration.userScript.js").Replace('"', '\'');
+        var m = Regex.Match(js, @"FAMILIES\s*=\s*\[([^\]]*)\]");
+        Assert.True(m.Success, "littéral FAMILIES introuvable dans userScript.js");
+        var families = Regex.Matches(m.Groups[1].Value, @"'([^']+)'").Select(x => x.Groups[1].Value).ToList();
+        Assert.Equal(new[] { "remove-si-lu", "propager-lu", "propager-avancement" }, families);   // ordre validé (question 4 du plan)
+    }
+
+    [Fact]
+    public void UserScript_CarriesTheFrenchLabelsOfTheThreeToggles_v120()
+    {
+        var js = ReadResource("EmbySharedPlaylist.Configuration.userScript.js");
+        Assert.Contains("Retirer si lu", js);
+        Assert.Contains("Propager le lu", js);
+        Assert.Contains("Propager l'avancement", js.Replace("\\'", "'"));
+    }
+
+    [Fact]
+    public void UserScript_CarriesBothDependencyMentions_S10b()
+    {
+        // Mention quand « Propager le lu » est désactivé et « Retirer si lu » NON coché, puis quand il l'est déjà (coché et grisé).
+        var js = ReadResource("EmbySharedPlaylist.Configuration.userScript.js");
+        Assert.Contains("Nécessite", js);
+        Assert.Contains("Inactif tant que", js);
+    }
+
+    [Fact]
+    public void UserScript_DictionariesStayAlignedAfterTheThirdFamily_v120()
+    {
+        // Complète UserScript_FrenchAndEnglishDictionaries_HaveExactlyTheSameKeys : les clés propres à la 3e famille et aux
+        // mentions de dépendance existent dans les DEUX langues (aucune clé manquante côté EN).
+        var js = ReadResource("EmbySharedPlaylist.Configuration.userScript.js");
+        var fr = KeysOf(FrBlock, js);
+        var en = KeysOf(EnBlock, js);
+        Assert.Equal(fr, en);
+        Assert.Contains(fr, k => k.Contains("vancement", StringComparison.OrdinalIgnoreCase) || k.Contains("progress", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void UserScript_NoLongerDescribesPropagerLuAsCoveringThePosition_v120()
+    {
+        // Jusqu'à v1.1.0 la description de « Propager le lu » mentionnait l'avancement ; depuis v1.2.0 elle ne couvre que le flag lu.
+        var js = ReadResource("EmbySharedPlaylist.Configuration.userScript.js");
+        var fr = FrBlock.Match(js).Groups[1].Value;
+        var propagateDesc = Regex.Match(fr, @"propagateDesc\s*:\s*(['""])(.*?)\1", RegexOptions.Singleline);
+        if (propagateDesc.Success) Assert.DoesNotContain("avancement", propagateDesc.Groups[2].Value, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UserScript_StillNeverUsesInnerHtmlNorBlockingDialogs_AfterTheThirdToggle_v120()
+    {
+        var js = ReadResource("EmbySharedPlaylist.Configuration.userScript.js");
+        Assert.DoesNotContain("innerHTML", js);
+        Assert.DoesNotContain("confirm(", js);
+        Assert.DoesNotContain("alert(", js);
+    }
 }

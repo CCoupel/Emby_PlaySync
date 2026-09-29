@@ -13,10 +13,11 @@ public sealed record PositionPropagationResult(int Candidates, int PlaylistsChan
 /// SÉPARÉ (<c>ISessionManager.PlaybackProgress</c>/<c>PlaybackStopped</c>, pas <c>UserDataSaved</c>) : classe distincte, pas
 /// une fusion. Déclenché quand un utilisateur met en pause (transition détectée par <see cref="PauseTransitionTracker"/>) ou
 /// arrête la lecture (systématique). Pour chaque playlist gérée dont il est membre et qui contient le média : première
-/// détection si non vue, relecture fraîche des étiquettes, et si <c>propager-lu=OUI</c> SEULE (même marqueur que #20,
-/// indépendant de <c>remove-si-lu</c>) : pour chaque AUTRE membre avec accès, pose la position (anti-écho
-/// <see cref="PluginWriteTracker"/>, dernier écrit gagne, aucune écriture si déjà cette position). Le flag lu et la
-/// position du déclencheur ne sont jamais modifiés. Même verrou par playlist (un seul à la fois), même ordre de grandeur
+/// détection si non vue, relecture fraîche des étiquettes, et si <c>propager-avancement=OUI</c> SEULE (v1.2.0, D21 : famille
+/// dédiée, indépendante de <c>propager-lu</c> et de <c>remove-si-lu</c>) : pour chaque AUTRE membre avec accès, pose la
+/// position BRUTE (anti-écho <see cref="PluginWriteTracker"/>, dernier écrit gagne, aucune écriture si déjà cette
+/// position), quel que soit l'état lu du déclencheur ou du membre (#57). L'écriture chez un membre est sérialisée par
+/// <see cref="UserItemLocks"/>. Le flag lu et la position du déclencheur ne sont jamais modifiés. Même verrou par playlist (un seul à la fois), même ordre de grandeur
 /// de budget que le retrait/la propagation du lu (constante partagée, instance de minuteur propre à cet appel).
 /// <see cref="Handle"/> ne lève jamais.
 /// </summary>
@@ -33,10 +34,11 @@ public sealed class PlaybackPositionEngine
     private readonly TimeSpan _lockTimeout;
     private readonly TimeSpan _budget;
     private readonly HandlerStats? _handler;
+    private readonly UserItemLocks _userItemLocks;
 
     public PlaybackPositionEngine(IPlaylistGateway gateway, IUserDataGateway userData, PluginWriteTracker writeTracker,
         DefaultsService defaults, SeenPlaylists seen, PlaylistLocks locks, IJournal journal, IClock clock,
-        TimeSpan? lockTimeout = null, TimeSpan? budget = null, HandlerStats? handler = null)
+        TimeSpan? lockTimeout = null, TimeSpan? budget = null, HandlerStats? handler = null, UserItemLocks? userItemLocks = null)
     {
         _gateway = gateway;
         _userData = userData;
@@ -49,6 +51,7 @@ public sealed class PlaybackPositionEngine
         _lockTimeout = lockTimeout ?? PlaylistLocks.DefaultTimeout;
         _budget = budget ?? ReadRemovalEngine.DefaultBudget;
         _handler = handler;
+        _userItemLocks = userItemLocks ?? new UserItemLocks();
     }
 
     /// <summary>
@@ -132,7 +135,7 @@ public sealed class PlaybackPositionEngine
 
         // Relecture fraîche : les étiquettes sont lues à l'événement, jamais mises en cache.
         var fresh = _gateway.Get(snapshot.Id) ?? snapshot;
-        if (MarkerEvaluator.Evaluate(fresh.Tags, MarkerFamily.PropagerLu) != MarkerState.Oui)
+        if (MarkerEvaluator.Evaluate(fresh.Tags, MarkerFamily.PropagerAvancement) != MarkerState.Oui)
         {
             Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "inactive"));
             return 0;
@@ -141,11 +144,22 @@ public sealed class PlaybackPositionEngine
         var propagated = 0;
         var samePosition = 0;
         var noAccess = 0;
+        var lockBusy = 0;
 
         foreach (var memberId in fresh.MemberIds)
         {
             if (string.Equals(memberId, userId, StringComparison.Ordinal)) continue;
             if (total.Elapsed >= _budget) break; // budget global partagé : reprise au prochain événement
+
+            // Verrou (utilisateur, média) le plus interne (B7) : lecture de la position, anti-écho et écriture dans la même
+            // section, pour qu'un lu propagé en parallèle chez ce membre ne soit ni écrasé ni perdu.
+            using var userGate = _userItemLocks.TryAcquire(memberId, itemId, _lockTimeout);
+            if (userGate == null)
+            {
+                lockBusy++;
+                Journal(SkippedForMember(memberId, snapshot.Id, itemId, "lock-busy"));
+                continue;
+            }
 
             if (!_userData.HasAccess(memberId, itemId))
             {
@@ -164,12 +178,15 @@ public sealed class PlaybackPositionEngine
             }
 
             _writeTracker.Register(memberId, itemId);
-            if (_userData.SetPosition(memberId, itemId, ticks)) propagated++;
+            var written = false;
+            try { written = _userData.SetPosition(memberId, itemId, ticks); }
+            finally { if (!written) _writeTracker.Unregister(memberId, itemId); } // pas d'écriture => pas d'écho attendu (m2)
+            if (written) propagated++;
             else samePosition++; // résiduel : position redevenue identique entre notre lecture et l'écriture (rare)
         }
 
         var detail = $"members={fresh.MemberIds.Count(m => !string.Equals(m, userId, StringComparison.Ordinal))} " +
-                     $"propagated={propagated} samePosition={samePosition} noAccess={noAccess} durationMs={sw.ElapsedMilliseconds}";
+                     $"propagated={propagated} samePosition={samePosition} noAccess={noAccess} lockBusy={lockBusy} durationMs={sw.ElapsedMilliseconds}";
         var entry = JournalEntries.Of(_clock, "PositionPropagation", snapshot.Id, detail);
         entry.UserId = userId;
         entry.ItemId = itemId;

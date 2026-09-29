@@ -4,14 +4,15 @@ Plugin Emby Media Server pour partager une playlist « À voir » entre plusieur
 
 ## Principe
 
-Une playlist appartient à un utilisateur (le propriétaire), qui la partage avec d'autres utilisateurs grâce au partage natif de playlists d'Emby. Le plugin ajoute la gestion de l'état « vu », réglée par **deux étiquettes indépendantes** posées sur la playlist :
+Une playlist appartient à un utilisateur (le propriétaire), qui la partage avec d'autres utilisateurs grâce au partage natif de playlists d'Emby. Le plugin ajoute la gestion de l'état « vu », réglée par **trois étiquettes indépendantes** posées sur la playlist :
 
 | Étiquette | Effet quand elle vaut `OUI` | Version |
 |---|---|---|
-| `remove-si-lu` | Quand un membre passe un média de non lu à **lu**, il est **retiré de la liste pour tous**. | 0.2.0 |
-| `propager-lu` | L'**état de lecture** est copié chez les autres membres : le « lu » (0.3.0), puis l'**avancement de lecture** — position à la pause et à l'arrêt, ≥ 30 s de lecture — pour commencer avec un compte et poursuivre avec l'autre, la dernière lecture gagne (0.3.1). | 0.3.0 / 0.3.1 |
+| `remove-si-lu` | Quand un membre passe un média de non lu à **lu**, il est **retiré de la liste pour tous** (nécessite `propager-lu=OUI` depuis v1.2.0). | 0.2.0 |
+| `propager-lu` | Le **flag lu** est copié chez les autres membres quand l'un d'eux termine un média. Depuis v1.2.0, ne couvre plus l'avancement (c'est le rôle de `propager-avancement`). | 0.3.0 / 1.2.0 |
+| `propager-avancement` | L'**avancement de lecture** — position à la pause et à l'arrêt, ≥ 30 s de lecture — est copié chez les autres membres pour commencer avec un compte et poursuivre avec l'autre, la dernière lecture gagne. Nouveau en v1.2.0. | 1.2.0 |
 
-Par défaut, les deux étiquettes sont à `NON` : le plugin ne change rien au comportement natif d'Emby (« legacy »).
+Par défaut, les trois étiquettes sont à `NON` : le plugin ne change rien au comportement natif d'Emby (« legacy »). **Depuis v1.2.0** : `remove-si-lu` n'a d'effet que si `propager-lu` est aussi actif.
 
 ## Guide utilisateur
 
@@ -26,7 +27,16 @@ Depuis la v0.4.0, le plugin peut la poser **automatiquement pour tous les compte
 
 Sans activer l'interrupteur, chaque propriétaire doit accorder cette permission lui-même (Tableau de bord → Utilisateurs → son compte → onglet Profil) avant de pouvoir partager une playlist. Les destinataires n'ont rien à activer : leurs droits viennent uniquement du niveau de partage (Écriture/Lecture).
 
-### 2. Partager une liste
+### 2. Créer une liste (depuis v1.2.0)
+
+Le propriétaire peut créer directement une playlist vide depuis la page PlaySync :
+1. Menu utilisateur (Avatar) → **PlaySync** → bouton **Nouvelle playlist**.
+2. Entrer un nom (1–100 caractères, unique par propriétaire et insensible à la casse).
+3. Valider. La playlist est créée vide, non partagée, et prête à recevoir des médias et des membres.
+
+Quota : **10 playlists possédées par utilisateur** (comptées sur toutes les playlists Emby, natifs ou créées via PlaySync).
+
+### 3. Partager une liste
 
 **Méthode native (interface Emby)** :
 1. Le propriétaire crée sa playlist « À voir ».
@@ -34,42 +44,54 @@ Sans activer l'interrupteur, chaque propriétaire doit accorder cette permission
 3. Choisir pour chaque utilisateur le niveau **Écriture** (peut ajouter et retirer des médias) ou **Lecture** (consultation seule).
 
 **Méthode PlaySync (depuis v1.1.0)** :
-1. Le propriétaire ouvre le menu utilisateur (Avatar, en haut à droite) → **PlaySync**.
-2. Sélectionner la playlist, ajouter un membre, choisir son niveau, valider.
-3. Gérer également les deux options (retrait automatique du média lu, propagation de l'état de lecture) via des interrupteurs simples, sans éditer les étiquettes manuellement.
+1. Le propriétaire ouvre le menu utilisateur (Avatar) → **PlaySync**.
+2. Sélectionner une playlist non partagée, ajouter un membre, choisir son niveau, valider.
+3. Gérer aussi les trois options (retrait automatique, propagation du lu, propagation de l'avancement) via des interrupteurs simples, sans éditer manuellement les étiquettes.
 
-Seul le propriétaire gère les membres et les étiquettes. Un membre en écriture ne peut ni repartager la liste ni modifier son nom, sa description ou ses étiquettes. Voir [docs/chronogrammes.md §9](docs/chronogrammes.md#9-page-utilisateur-playsync-v110-39) pour le guide complet de la page PlaySync.
+Seul le propriétaire gère les membres et les étiquettes. Un membre en écriture ne peut ni repartager la liste ni modifier son nom, sa description ou ses étiquettes. Voir [docs/chronogrammes.md §10-§11](docs/chronogrammes.md#s10--page-utilisateur--partager-et-activer-une-option-v110-d19d20) pour le guide complet de la page PlaySync.
 
-Dès qu'une playlist est partagée, le plugin lui ajoute les deux étiquettes **`remove-si-lu=NON`** et **`propager-lu=NON`**, et, si la description est vide, un message d'aide.
+Dès qu'une playlist est partagée, le plugin lui ajoute les trois étiquettes **`remove-si-lu=NON`**, **`propager-lu=NON`** et **`propager-avancement=NON`**, et, si la description est vide, un message d'aide mis à jour.
 
-### 3. Activer une option : remplacer NON par OUI
+### 4. Activer une option : interrupteurs ou étiquettes manuelles
 
-Le format des étiquettes est `<option>=NON` ou `<option>=OUI` (casse et espaces autour du `=` sans importance). Pour activer une option :
+**Méthode PlaySync (recommandée depuis v1.2.0)** — via les trois interrupteurs :
+1. Menu utilisateur → **PlaySync** → sélectionner la playlist.
+2. Activer ou désactiver les trois options avec les interrupteurs :
+   - « **Retirer si lu** » — retiré **au démarrage automatique** de « Propager le lu » ;
+   - « **Propager le lu** » — le flag lu ; décocher garde `remove-si-lu=OUI` inerte ;
+   - « **Propager l'avancement** » — la position de lecture (indépendant des autres).
+3. Les changements sont appliqués atomiquement (sans état intermédiaire).
 
+**Méthode manuelle (avancée)** — édition directe des étiquettes :
 1. Menu « … » de la playlist → **Modifier les métadonnées**.
-2. Section **Mot-clé** (Étiquette) → **Ajouter** `remove-si-lu=OUI` (ou `propager-lu=OUI`), et **retirer** `remove-si-lu=NON` (ou `propager-lu=NON`), **dans la même édition**.
-3. Enregistrer. Sans `OUI`, rien ne change.
+2. Section **Mot-clé** (Étiquette) → pour chaque option, **ajouter** `<option>=OUI` et **retirer** `<option>=NON` **dans la même édition**.
+3. Enregistrer. Sans `OUI`, l'option reste à NON (inerte).
 
-Règles communes aux deux étiquettes :
-- Si `OUI` et `NON` sont présents ensemble, **`NON` l'emporte** : rien ne se passe.
-- Le plugin **ne supprime jamais** une étiquette qu'il trouve.
-- Retirer `NON` seul ne suffit pas : il faut ajouter `OUI`. Si toutes les étiquettes d'une option sont supprimées, le plugin repose `NON` après quelques minutes (~10 min) ; de même, le message d'aide est réécrit si la description est vidée.
+Règles communes aux trois étiquettes :
+- Si `OUI` et `NON` sont présents, **`NON` l'emporte** : l'option reste inerte.
+- Le plugin **ne supprime jamais** une étiquette (sauf via les interrupteurs PlaySync). Retirer `NON` seul ne suffit pas : il faut ajouter `OUI`. Si toutes les étiquettes sont supprimées manuellement, le plugin repose `NON` après ~10 min.
+- Le message d'aide est réécrit si la description est vidée.
 - Les playlists publiques non partagées explicitement sont ignorées.
 
-### 4. Ce que fait chaque option
+### 5. Ce que fait chaque option
 
-- **`remove-si-lu=OUI`** : quand un membre (propriétaire, Écriture ou Lecture) fait passer un média à « lu », il est **retiré de la liste pour tous**. Seule la **transition** non lu → lu déclenche le retrait : relire jusqu'au bout un média déjà lu ne le retire pas, et mettre en favori, importer ou masquer un film déjà vu non plus. Pour sortir à la main un média lu resté dans la liste : décocher puis recocher « lu » (un geste volontaire, toujours pris en compte), ou le retirer directement.
-- **`propager-lu=OUI`** : l'état de lecture est copié chez les autres membres —
-  - le **flag lu** : quand un membre finit un média, il est marqué lu chez les autres (sans jamais modifier un flag déjà posé) ;
-  - l'**avancement de lecture** : à la pause ou à l'arrêt d'une lecture d'au moins 30 s, la position est copiée chez les autres membres — commencez avec un compte, poursuivez avec l'autre ; la **dernière lecture gagne**, dans les deux sens.
+- **`remove-si-lu=OUI` (dépend de `propager-lu=OUI`)** : quand un membre (propriétaire, Écriture ou Lecture) fait passer un média à « lu », il est **retiré de la liste pour tous**. Seule la **transition** non lu → lu déclenche le retrait : relire jusqu'au bout un média déjà lu ne le retire pas, et mettre en favori, importer ou masquer un film déjà vu non plus. **Changement v1.2.0** : cette option est désormais inerte sans `propager-lu=OUI`. Pour sortir à la main un média lu resté : décocher puis recocher « lu », ou le retirer directement.
+- **`propager-lu=OUI`** : le **flag lu** est copié chez les autres membres quand l'un d'eux termine un média (0.3.0). Seul le passage à lu est propagé, jamais le retour à non lu. Sans jamais modifier un flag déjà posé, et sans propager la position (c'est le rôle de `propager-avancement`).
+- **`propager-avancement=OUI`** (nouveau en v1.2.0) : l'**avancement de lecture** — position à la pause ou à l'arrêt, ≥ 30 s — est copié chez les autres membres **quel que soit l'état lu** (la dernière lecture gagne, dans les deux sens). Permet de commencer avec un compte et poursuivre avec l'autre. Indépendant de `propager-lu` : on peut propager l'avancement sans le flag, ou réciproquement.
 
-Les deux options sont indépendantes (l'une sans l'autre est un usage valide) et un média lu n'est retiré que des listes dont son lecteur est membre (pas de transitivité entre listes).
+Les trois options sont indépendantes dans leur activation (chacune fonctionne ou non), mais `remove-si-lu` a besoin de `propager-lu` pour avoir un effet. Un média lu n'est retiré que des listes dont son lecteur est membre (pas de transitivité).
 
-### 5. Limites connues
+### 6. Limites et changements de v1.2.0
 
-- **Clients TV et mobile** : la visibilité de la playlist partagée et le retrait fonctionnent (partage natif Emby), mais **poser ou modifier une étiquette depuis un client TV ou mobile n'est pas garanti**. Vérification manuelle au cas par cas (issue #28) : reste ouverte, **non bloquante** pour la livraison.
-- Le message écrit dans la description d'une playlist gérée décrit le retrait, la propagation du flag lu et celle de l'avancement de lecture.
-- La page de configuration du plugin comporte un encart d'aide (partage natif, les deux étiquettes, permission automatique) et la case `AutoEnableSharing`.
+**Changements de comportement depuis v1.1.0** (lisez-les si vous migrez) :
+- Une playlist avec `propager-lu=OUI` **cesse de propager l'avancement** → pour retrouver cette fonction, activez « Propager l'avancement » via PlaySync.
+- Une playlist avec `remove-si-lu=OUI` mais `propager-lu=NON` **ne retire plus aucun média** → activez « Propager le lu » pour restaurer le retrait.
+- Une position ~99 % écrite par le plugin **ne marque plus automatiquement le média lu** → activez « Propager le lu » si vous voulez le flag aussi.
+
+**Autres limites** :
+- **Clients TV et mobile** : la visibilité de la playlist partagée et le retrait fonctionnent (partage natif Emby), mais **poser ou modifier une étiquette depuis un client TV ou mobile n'est pas garanti**. Vérification manuelle au cas par cas (issue #28) : reste ouverte, **non bloquante** pour la livraison. Les interrupteurs PlaySync ne sont accessibles que depuis le web.
+- Le message écrit dans la description d'une playlist gérée décrit les trois options et leur dépendance.
+- La page de configuration du plugin comporte un encart d'aide (partage natif, les trois étiquettes, permission automatique) et la case `AutoEnableSharing`.
 
 Ce n'est pas une wishlist de demandes de médias (comme Ombi ou Seerr) : la liste ne contient que des médias déjà présents dans la bibliothèque.
 

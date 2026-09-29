@@ -8,10 +8,27 @@
 
       <div class="sectionTitleContainer flex align-items-center">
         <h2 class="sectionTitle" id="PlaySyncTitle">PlaySync</h2>
+        <!-- #55 (v1.2.0) : masqué tant que la permission de partage n'est pas confirmée (affiché par le script, jamais
+             pour l'état « denied »). Écrit en dur (composant natif is="emby-button" : HTML statique, cf. prototypes). -->
+        <button is="emby-button" type="button" class="raised button-submit emby-button" id="PlaySyncNewBtn"
+                style="display:none;margin-left:auto"></button>
       </div>
 
       <div class="detailSection">
         <p class="fieldDescription" id="PlaySyncIntro"></p>
+      </div>
+
+      <!-- #55 (v1.2.0) : panneau de création intégré (jamais une fenêtre du navigateur). Nom seul ; erreurs sous le champ. -->
+      <div class="detailSection" id="PlaySyncNewBox" style="display:none">
+        <label class="inputLabel" for="PlaySyncNewName" id="PlaySyncNewLabel"></label>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <input is="emby-input" type="text" id="PlaySyncNewName" class="emby-input" maxlength="100"
+                 autocomplete="off" style="flex:1 1 240px" />
+          <button is="emby-button" type="button" class="raised button-submit emby-button" id="PlaySyncNewCreate"></button>
+          <button is="emby-button" type="button" class="raised emby-button" id="PlaySyncNewCancel"></button>
+        </div>
+        <div id="PlaySyncNewError" role="alert" style="display:none;color:#e57373;font-size:.9em;margin-top:6px"></div>
+        <p class="fieldDescription" id="PlaySyncNewHint"></p>
       </div>
 
       <!-- Sans permission (Q6b, GATE U13) : l'entrée de menu reste visible pour tous (aucun masquage natif

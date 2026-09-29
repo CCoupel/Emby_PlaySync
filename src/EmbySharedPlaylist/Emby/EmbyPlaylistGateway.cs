@@ -193,6 +193,30 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         }
     }
 
+    /// <summary>
+    /// v1.2.0 (#55, D22, C1) : patron compilé du spike (<c>IPlaylistManager.CreatePlaylist</c>, liste vide, <c>MediaType=Video</c>) ;
+    /// U14 : liste vide acceptée, <c>ManageDelete</c> du créateur posé immédiatement. Ne pas s'appuyer sur <c>MediaType</c>
+    /// relu ni sur <c>CanDelete</c> (peu fiables en lecture).
+    /// </summary>
+    public string CreatePlaylist(string ownerId, string name)
+    {
+        var owner = _userManager.GetUserById(ownerId) ?? throw new InvalidOperationException("owner-not-found");
+        using (WriteScope.Enter())
+        {
+            var task = _playlistManager.CreatePlaylist(new PlaylistCreationRequest
+            {
+                Name = name,
+                ItemIdList = Array.Empty<long>(),
+                MediaType = "Video",
+                User = owner
+            });
+            if (!task.Wait(CallTimeoutMs)) throw new TimeoutException("CreatePlaylist > 5 s");
+            var created = task.GetAwaiter().GetResult();
+            var playlist = FindPlaylist(created.Id) ?? throw new InvalidOperationException("created-playlist-not-found");
+            return playlist.InternalId.ToString();
+        }
+    }
+
     // ---- Aides -------------------------------------------------------------------------------------------
 
     private static bool ContainsItem(EntryReadResult read, long item) =>
