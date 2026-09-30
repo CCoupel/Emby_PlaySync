@@ -13,7 +13,7 @@ namespace EmbySharedPlaylist.Tests;
 /// propre à CETTE instance/boucle (copie de comportement, pas de code partagé) : mérite sa propre vérification, comme
 /// <see cref="ReadRemovalEngineBudgetSpecTests"/> pour le retrait/la propagation du lu.
 ///
-/// Chaîne complète (déclencheur ISessionManager -> PauseTransitionTracker/Stopped -> seuil 30 s -> PlaybackPositionEngine ;
+/// Chaîne complète (déclencheur ISessionManager -> PlaybackSyncTracker/Stopped -> seuil 30 s -> PlaybackPositionEngine ;
 /// depuis v1.2.0 (#57, D21) la garde D-c « déclencheur déjà lu » est SUPPRIMÉE et la famille est propager-avancement,
 /// pendant de <see cref="PropagationChainSpecTests"/> pour #20) : Emby/PlaybackSessionListener (livré, #45/#46) est un
 /// adaptateur SDK fin, comme EmbyPlaylistGateway/EmbyUserDataGateway — sa logique (TryExtract, seuil) est en méthodes

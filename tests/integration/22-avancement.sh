@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 22-avancement.sh — scénarios d'intégration I27-I36 de la v0.3.1 (issues #45 #46 #47 #48) sur emby2
+# 22-avancement.sh — scénarios d'intégration I27-I44 (v0.3.1 #45 #46 #47 #48 ; v1.2.0 #56 #57 ; v1.2.1 #58) sur emby2
 # (QUALIF UNIQUEMENT). À exécuter par qa après déploiement du plugin ; jamais depuis un poste sans avoir
 # vérifié la cible.
 #
@@ -16,6 +16,14 @@
 # Prérequis : tests/integration/00-setup-users.sh exécuté (test_u1 propriétaire, test_u2 Write, test_u3 Read) ;
 # >= 11 médias (>= 10 min, comme le reste de la suite ; la bibliothèque de QUALIF en compte 13 : I38/I39/I40 repartent d'un
 # bassin remis à zéro, fresh_pool). I36 (R8) crée puis nettoie LUI-MÊME test_u4 dans ce même run (comme I20 en v0.3.0).
+# v1.2.1 (#58, D23 — CORRECTION DU BUG : lecture continue sans pause + remove-si-lu=OUI => position 0/périmée chez le membre) :
+# l'avancement est propagé AUSSI pendant la lecture (chaque PlaybackProgress, au plus 1 fois / 10 s par couple, sans journal :
+# compteurs Diagnostics/State.PositionProgress), et la fin de lecture (PlayedToCompletion) écrit 0 chez les membres si
+# propager-lu=OUI (cibles mémorisées : le média a pu être retiré par remove-si-lu AVANT l'arrêt), la position brute sinon ;
+# un Progress tardif du même PlaySessionId après l'arrêt est ignoré. Nouveaux : I41 (CA1/CA2/CA8/S6), I42 (CA4, smoke/critical —
+# reproduction du bug), I43 (CA5), I44 (CA6). I35 RÉÉCRIT (CA3) : il affirmait « un Progress non pause ne propage jamais »,
+# comportement CHANGED documenté (contracts/CHANGELOG.md [20260930]). Les nap de 11 s (intervalle de 10 s + marge) sont NON
+# mis à l'échelle par WAIT_SCALE : variable PROGRESS_WAIT (défaut 11, secondes réelles ; le test hors ligne la réduit).
 # Usage : tests/integration/22-avancement.sh [I27 I33 …]   (sans liste : tous les scénarios)
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/int-lib.sh"
@@ -86,6 +94,7 @@ GRACE=$(jq -r '.gracePasses // 2' "$RESP")
 echo "  [OK] ${#M[@]} médias ; GracePasses=$GRACE"
 
 TICKS_30S=300000000   # 30 s (100 ns/tick, confirmé par le filtre >= 10 min = 6 000 000 000)
+wait_interval() { sleep "${PROGRESS_WAIT:-11}"; }   # intervalle minimal de propagation périodique (10 s) + marge, secondes RÉELLES (#58)
 
 # ---------------------------------------------------------------- scénarios
 i27() {
@@ -278,20 +287,26 @@ i34() {
 }
 
 i35() {
-  echo "== I35 — rafale de Progress (IsPaused=false, heartbeats) sans changement : aucune écriture"
-  local pl item sid i
+  echo "== I35 (v1.2.1, #58, CA3) — rafale de Progress en lecture (cadence rapide) : au plus UNE propagation par intervalle de 10 s, aucun journal par Progress"
+  local pl item sid i j thr0 thr1 first pu1
+  local -a P=()
   pl=$(shared_pl "SPIKE-I35" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
   prime "$pl" || true
   set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-avancement oui
+  for ((i=1; i<=10; i++)); do P+=("$(ticks_at "$item" $((10+i)))"); done   # positions précalculées : la rafale doit tenir dans l'intervalle
+  first=${P[0]}
+  thr0=$(state | jq -r '.positionProgress.throttled // 0')
   jclear
   sid=$(play_start "$U2" "$T2" "$item")
-  for ((i=1; i<=10; i++)); do
-    play_progress "$U2" "$T2" "$item" "$sid" "$(ticks_at "$item" $((10+i)))" false >/dev/null
-  done
+  for ((i=0; i<10; i++)); do play_progress "$U2" "$T2" "$item" "$sid" "${P[$i]}" false >/dev/null; done
+  wait_position "$U1" "$T1" "$item" "$first" 10 || true
   nap 2
-  ck I35.noposition "aucune position propagée (u1 reste à 0)" "null" test "$(position_of "$U1" "$T1" "$item")" = 0
+  pu1=$(position_of "$U1" "$T1" "$item")
+  ck I35.first "le 1er Progress (>= 30 s) est propagé : u1 à $first" "{\"u1\":\"$pu1\"}" test "$pu1" = "$first"
+  thr1=$(state | jq -r '.positionProgress.throttled // 0')
+  ck I35.throttled "les Progress suivants de la rafale sont ignorés (u1 reste à la 1re position) et comptés : positionProgress.throttled +>= 1" "{\"throttled\":$((thr1-thr0))}" test "$pu1" = "$first" -a "$((thr1-thr0))" -ge 1
   j=$(journal "PositionPropagation")
-  ck I35.nojournal "aucune entrée PositionPropagation (pas de mise à jour périodique)" "$j" test "$(jcount "$j" "$pl" PositionPropagation)" = 0
+  ck I35.nojournal "aucune entrée PositionPropagation pour les Progress périodiques (CA8)" "$j" test "$(jcount "$j" "$pl" PositionPropagation)" = 0
 }
 
 i36() {
@@ -407,7 +422,121 @@ i40() {
   ck I40.B.stays "B : remove-si-lu=NON => le média reste" "null" stays "$plB" "$itemB" 1 3
 }
 
-ALL=(I27 I29 I30 I31 I32 I33 I37 I34 I35 I36 I38 I39 I40)
+i41() {
+  echo "== I41 (smoke) — CA1/CA2/CA8/S6 : lecture continue SANS pause : le membre suit l'avancement (<= ~10 s de retard), sans journal par Progress ; pause immédiate ; heartbeat en pause silencieux ; aucun retrait parasite dans une autre liste"
+  fresh_pool
+  local item L1 L2 sid pa pb pc pd pe st0 st1 j
+  item=$(next_media)
+  L1=$(new_pl "SPIKE-I41-L1" "$item"); share_pl_one "$L1" "$U2" Write   # L1 = {u1, u2}
+  L2=$(new_pl "SPIKE-I41-L2" "$item"); share_pl_one "$L2" "$U3" Write   # L2 = {u1, u3} : u1 est membre des DEUX (S6/S7)
+  prime "$L1" || true; prime "$L2" || true
+  set_marker_state "$L1" remove-si-lu non; set_marker_state "$L1" propager-lu non; set_marker_state "$L1" propager-avancement oui
+  set_marker_state "$L2" remove-si-lu oui; set_marker_state "$L2" propager-lu oui; set_marker_state "$L2" propager-avancement non
+  pa=$(ticks_at "$item" 10); pb=$(ticks_at "$item" 20); pc=$(ticks_at "$item" 30); pd=$(ticks_at "$item" 40); pe=$(ticks_at "$item" 45)
+  st0=$(state | jq -r '.positionProgress.propagated // 0')
+  jclear
+  sid=$(play_start "$U2" "$T2" "$item")
+  play_progress "$U2" "$T2" "$item" "$sid" "$pa" false >/dev/null
+  wait_position "$U1" "$T1" "$item" "$pa" 10 || true
+  ck I41.t0 "1er Progress (10 %, sans pause) : u1 à la position de u2" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\",\"expected\":$pa}" test "$(position_of "$U1" "$T1" "$item")" = "$pa"
+  wait_interval
+  play_progress "$U2" "$T2" "$item" "$sid" "$pb" false >/dev/null
+  wait_position "$U1" "$T1" "$item" "$pb" 10 || true
+  ck I41.t1 "10 s plus tard (20 %, toujours sans pause) : u1 suit sans arrêt ni pause" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\",\"expected\":$pb}" test "$(position_of "$U1" "$T1" "$item")" = "$pb"
+  wait_interval
+  play_progress "$U2" "$T2" "$item" "$sid" "$pc" false >/dev/null
+  wait_position "$U1" "$T1" "$item" "$pc" 10 || true
+  ck I41.t2 "encore 10 s plus tard (30 %) : u1 suit" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\",\"expected\":$pc}" test "$(position_of "$U1" "$T1" "$item")" = "$pc"
+  st1=$(state | jq -r '.positionProgress.propagated // 0')
+  ck I41.counter "Diagnostics/State.positionProgress.propagated augmente d'au moins 3 (Progress périodiques comptés, pas journalisés)" "{\"delta\":$((st1-st0))}" test "$((st1-st0))" -ge 3
+  j=$(journal "PositionPropagation")
+  ck I41.nojournal "aucune entrée PositionPropagation pour les 3 Progress périodiques (CA8)" "$j" test "$(jcount "$j" "$L1" PositionPropagation)" = 0
+  # CA2 : pause IMMÉDIATE (quelques secondes après la dernière propagation, sans attendre l'intervalle) ; heartbeat en pause silencieux
+  nap 1
+  play_progress "$U2" "$T2" "$item" "$sid" "$pd" true >/dev/null
+  wait_position "$U1" "$T1" "$item" "$pd" 10 || true
+  ck I41.pause "pause : propagation immédiate (40 %)" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\",\"expected\":$pd}" test "$(position_of "$U1" "$T1" "$item")" = "$pd"
+  wait_journal "$L1" PositionPropagation 'trigger=pause' 1 10 || true
+  j=$(journal "PositionPropagation")
+  ck I41.pausejournal "la pause est journalisée avec trigger=pause en fin de Detail (CA8)" "$j" test "$(jcount "$j" "$L1" PositionPropagation 'trigger=pause$')" -ge 1
+  wait_interval
+  play_progress "$U2" "$T2" "$item" "$sid" "$pe" true >/dev/null   # heartbeat EN PAUSE, intervalle écoulé : jamais d'écriture
+  nap 2
+  ck I41.heartbeat "heartbeat en pause (même après 10 s) : u1 reste à la position de la pause" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\"}" test "$(position_of "$U1" "$T1" "$item")" = "$pd"
+  ck I41.s6 "CA7/S6/S7 : les écritures périodiques de u1 (origine plugin) ne retirent RIEN de L2 (remove-si-lu=OUI + propager-lu=OUI, u1 membre)" "null" test "$(count_item "$L2" "$item")" = 1
+  ck I41.l1stays "L1 : aucun retrait ni lu propagé (propager-lu=NON)" "null" test "$(count_item "$L1" "$item")/$(played_of "$U1" "$T1" "$item")" = "1/false"
+  play_stop "$U2" "$T2" "$item" "$sid" "$pe" >/dev/null
+  drop_item "$L1" "$item"; drop_item "$L2" "$item"
+}
+
+i42() {
+  echo "== I42 (smoke, critical) — CA4 / S9g : LE CAS DU BUG : lecture continue sans pause jusqu'au bout, propager-lu=OUI (avec ET sans remove-si-lu) : le membre est LU et à la position 0 (aucun « Reprendre »)"
+  fresh_pool
+  local variant id rm pl item sid half end j
+  for variant in "rm:oui" "norm:non"; do
+    IFS=: read -r id rm <<<"$variant"
+    pl=$(shared_pl "SPIKE-I42-$id" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
+    prime "$pl" || true
+    set_marker_state "$pl" remove-si-lu "$rm"; set_marker_state "$pl" propager-lu oui; set_marker_state "$pl" propager-avancement oui
+    half=$(ticks_at "$item" 50); end=$(ticks_at "$item" 100)
+    jclear
+    sid=$(play_start "$U2" "$T2" "$item")
+    play_progress "$U2" "$T2" "$item" "$sid" "$half" false >/dev/null     # lecture continue : AUCUNE pause, aucun arrêt avant la fin
+    wait_position "$U1" "$T1" "$item" "$half" 10 || true
+    ck "I42.$id.continuous" "avant la fin, u1 suit la lecture continue (50 %) : position = $half" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\"}" test "$(position_of "$U1" "$T1" "$item")" = "$half"
+    play_stop "$U2" "$T2" "$item" "$sid" "$end" >/dev/null                 # fin naturelle : Emby (lu, position 0, flux du lu) PUIS PlaybackStopped
+    ck "I42.$id.played" "u1 est LU (propager-lu=OUI, R4b)" "null" wait_played "$U1" "$T1" "$item" true 10
+    if [[ $rm == oui ]]; then
+      ck "I42.$id.removed" "remove-si-lu=OUI : le média est retiré AVANT l'arrêt (cas du bug) — la playlist n'est plus résolue à PlaybackStopped" "null" wait_count "$pl" "$item" 0 10
+    else
+      ck "I42.$id.stays" "sans remove-si-lu : le média reste" "null" stays "$pl" "$item" 1 3
+    fi
+    ck "I42.$id.zero" "CA4 : u1 est à la position 0 (aucun point de reprise ni « Reprendre à 99 % »)" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\"}" wait_position "$U1" "$T1" "$item" 0 10
+    wait_journal "$pl" PositionPropagation 'trigger=completion' 1 10 || true
+    j=$(journal "PositionPropagation")
+    ck "I42.$id.journal" "la fin de lecture est journalisée avec trigger=completion (CA8)" "$j" test "$(jcount "$j" "$pl" PositionPropagation 'trigger=completion$')" -ge 1
+  done
+}
+
+i43() {
+  echo "== I43 — CA5 / S9f inchangé : lecture continue jusqu'au bout SANS propager-lu : le membre n'est pas marqué lu par le plugin et garde la position d'arrêt"
+  local pl item sid half end pu1 p1played
+  pl=$(shared_pl "SPIKE-I43" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
+  prime "$pl" || true
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu non; set_marker_state "$pl" propager-avancement oui
+  half=$(ticks_at "$item" 50); end=$(ticks_at "$item" 99)
+  jclear
+  sid=$(play_start "$U2" "$T2" "$item")
+  play_progress "$U2" "$T2" "$item" "$sid" "$half" false >/dev/null
+  wait_position "$U1" "$T1" "$item" "$half" 10 || true
+  play_stop "$U2" "$T2" "$item" "$sid" "$end" >/dev/null
+  wait_position "$U1" "$T1" "$item" "$end" 10 || true
+  pu1=$(position_of "$U1" "$T1" "$item"); p1played=$(played_of "$U1" "$T1" "$item")
+  ck I43.position "position d'arrêt brute chez u1 (99 %, S9f inchangé) : $end" "{\"u1\":\"$pu1\"}" test "$pu1" = "$end"
+  ck I43.stays "propager-lu=NON : aucun retrait ni flag propagé par le plugin" "null" stays "$pl" "$item" 1 3
+  rec I43.u14b OK "OBSERVATION (comme I39.u14b, pas une assertion) : u1 Played=$p1played après une position brute à 99 % ; attendu par la spec : Played=false (« Reprendre à 99 % »)" "{\"u1Played\":\"$p1played\",\"u1Position\":\"$pu1\"}"
+  drop_item "$pl" "$item"
+}
+
+i44() {
+  echo "== I44 — CA6 : un Progress tardif (même PlaySessionId) après la fin de lecture n'écrase JAMAIS la remise à 0"
+  local pl item sid half end late
+  pl=$(shared_pl "SPIKE-I44" "$(next_media)"); item=$(entries "$pl" | jq -r '.[0].itemId')
+  prime "$pl" || true
+  set_marker_state "$pl" remove-si-lu non; set_marker_state "$pl" propager-lu oui; set_marker_state "$pl" propager-avancement oui
+  half=$(ticks_at "$item" 50); end=$(ticks_at "$item" 100)
+  sid=$(play_start "$U2" "$T2" "$item")
+  play_progress "$U2" "$T2" "$item" "$sid" "$half" false >/dev/null
+  wait_position "$U1" "$T1" "$item" "$half" 10 || true
+  play_stop "$U2" "$T2" "$item" "$sid" "$end" >/dev/null
+  ck I44.zero "après la fin de lecture : u1 à 0" "null" wait_position "$U1" "$T1" "$item" 0 10
+  wait_interval                                                            # l'intervalle de 10 s est écoulé : seule la fermeture de session empêche l'écriture
+  late=$(play_progress "$U2" "$T2" "$item" "$sid" "$(ticks_at "$item" 99)" false)   # Progress tardif, MÊME PlaySessionId
+  nap 3
+  ck I44.nolate "le Progress tardif (HTTP $late) n'a pas ré-écrit la position : u1 toujours à 0" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\"}" test "$(position_of "$U1" "$T1" "$item")" = 0
+}
+
+ALL=(I27 I29 I30 I31 I32 I33 I37 I34 I35 I36 I38 I39 I40 I41 I42 I43 I44)
 if [[ ${#WANT[@]} -eq 0 ]]; then WANT=("${ALL[@]}"); fi
 for s in "${WANT[@]}"; do
   fn=$(tr 'A-Z' 'a-z' <<<"$s")

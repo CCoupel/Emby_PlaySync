@@ -9,7 +9,10 @@ enchaîne correctement les scénarios. MODES (détection de défauts, tests hors
 ok | noremove | nopropagate (ni lu ni position) | noautoshare | repose | retraitseul (défaut v0.2.0-v1.1.0 : retrait SANS propager-lu) |
 dcguard (défaut : garde D-c « déclencheur déjà lu » de v0.3.1) | legacyavancement (défaut : propager-lu couvre la position) |
 nativeplayed (Emby pose le lu chez un membre après une position >= 90 %, origine plugin : bénin) |
-nativeleak (idem mais pris pour une action utilisateur : violation de S6)."""
+nativeleak (idem mais pris pour une action utilisateur : violation de S6) |
+v120 (défaut v1.2.0 du bug #58 : aucune propagation sur un Progress en lecture, fin de lecture sans cibles mémorisées).
+v1.2.1 (#58) : propagation PÉRIODIQUE sur Progress (intervalle FAKE_MIN_INTERVAL, 10 s par défaut), règle de fin de lecture
+(0 si propager-lu=OUI), cibles mémorisées à l'ouverture de session, Progress tardif ignoré, compteurs PositionProgress."""
 import sys, os, json, re, threading, http.server, urllib.parse, itertools, datetime
 
 def _load_help_texts():
@@ -33,6 +36,8 @@ def _load_help_texts():
 V1_TEXT, V2_TEXT, V3_TEXT = _load_help_texts()
 FAMS = ("remove-si-lu", "propager-lu", "propager-avancement")   # v1.2.0 : trois familles (ordre de pose de DefaultsService)
 
+import os, time
+MIN_INTERVAL = float(os.environ.get("FAKE_MIN_INTERVAL", "10"))   # minuterie de propagation périodique (miroir de PlaybackSyncTracker.MinInterval)
 PORT = int(sys.argv[1]); MODE = sys.argv[2] if len(sys.argv) > 2 else "ok"   # ok | noremove | nopropagate | noautoshare (v0.4.0)
 GRACE = 2
 PLUGIN_ID = "9ebe814e-9438-42b8-aa57-feea1ae92451"
@@ -56,8 +61,9 @@ def has_access(userid, item):
     return {**DEFAULT_POLICY, **POLICY.get(userid, {})}["EnableAllFolders"]
 def members(p): return list(dict.fromkeys([p["owner"]] + [u for u, lvl in p["shares"].items() if lvl != "None"]))
 def reset():   # redémarrage du PLUGIN uniquement : la mémoire du moteur est remise à zéro (Emby/PLAYED/PLAYDATA/POLICY/POSITION persistent)
-    global SEEN, GRACEC, JOURNAL, HANDLER, LASTPASS, WRITING, SKIPPED, PAUSED
-    SEEN, GRACEC, JOURNAL, SKIPPED, PAUSED = set(), {}, [], {}, {}
+    global SEEN, GRACEC, JOURNAL, HANDLER, LASTPASS, WRITING, SKIPPED, PAUSED, SYNC, POSPROG
+    SEEN, GRACEC, JOURNAL, SKIPPED, PAUSED, SYNC = set(), {}, [], {}, {}, {}
+    POSPROG = {"Propagated": 0, "Throttled": 0, "LockBusy": 0}
     HANDLER = {"Count": 0, "LastMs": 0, "MaxMs": 0}; LASTPASS = {"Ts": None, "DurationMs": 0, "PlaylistsSeen": 0, "SharedManaged": 0}; WRITING = False
 reset()
 
@@ -215,25 +221,53 @@ def transition(user, item):
 
         HANDLER["Count"] += 1; HANDLER["LastMs"] = ms; HANDLER["MaxMs"] = max(HANDLER["MaxMs"], ms)
 
-def position_transition(user, item, ticks):
+def open_session(user, item, sid):
+    """PlaybackStart / 1er Progress d'un nouveau PlaySessionId : cibles = playlists gérées contenant le média (mémorisées, v1.2.1)."""
+    targets = [pid for pid, p in PL.items() if user in members(p) and shared(p) and item in [e["item"] for e in p["entries"]]]
+    SYNC[(user, item)] = {"sid": sid, "last": None, "closed": False, "targets": targets}
+    return SYNC[(user, item)]
+
+def position_transition(user, item, ticks, trigger="stop", targets=None):
     # Tableau B (v1.2.0, D21) : seuil minimal 30 s = POSITION ABSOLUE ; famille propager-avancement seule ; AUCUNE garde sur
     # l'état lu (#57). Mode dcguard : garde D-c de v0.3.1 (déclencheur déjà lu => rien) ; legacyavancement : propager-lu suffit.
-    if ticks < TICKS_30S: return
-    if MODE == "dcguard" and (user, item) in PLAYED: return
+    # v1.2.1 (#58) : trigger = periodic | pause | stop | completion ; periodic : silencieux (compteurs, aucun journal) ;
+    # completion : 0 si propager-lu=OUI (seuil non appliqué), sinon position brute (seuil appliqué) ; `targets` = playlists
+    # mémorisées (réunies aux playlists contenant encore le média) — mode v120 : playlists contenant encore le média SEULES.
+    if trigger != "completion" and ticks < TICKS_30S: return 0
+    if MODE == "dcguard" and (user, item) in PLAYED: return 0
     fam = "propager-lu" if MODE == "legacyavancement" else "propager-avancement"
-    for pid, p in list(PL.items()):
-        if user not in members(p) or item not in [e["item"] for e in p["entries"]]: continue
+    quiet = trigger == "periodic"
+    pids = [pid for pid, p in PL.items() if user in members(p) and item in [e["item"] for e in p["entries"]]]
+    if trigger == "completion" and MODE != "v120":
+        pids += [t for t in (targets or []) if t in PL and t not in pids]
+    done = 0
+    for pid in pids:
+        p = PL[pid]
         if not shared(p): continue
-        if state_of(p["tags"], fam) != "Oui" or MODE == "nopropagate": jr("Skipped", pid, user, item, "inactive"); continue
+        if state_of(p["tags"], fam) != "Oui" or MODE == "nopropagate":
+            if not quiet: jr("Skipped", pid, user, item, "inactive")
+            continue
+        write = ticks
+        if trigger == "completion":
+            if state_of(p["tags"], "propager-lu") == "Oui": write = 0
+            elif ticks < TICKS_30S:
+                jr("Skipped", pid, user, item, "too-short"); continue
         propagated = already = noaccess = 0
         for m in members(p):
             if m == user: continue
-            if not has_access(m, item): jr("Skipped", pid, m, item, "no-access"); noaccess += 1; continue
-            if POSITION.get((m, item)) == ticks: jr("Skipped", pid, m, item, "same-position"); already += 1; continue
-            POSITION[(m, item)] = ticks; propagated += 1        # position BRUTE : ni Played ni PlayCount
-            native_played_on_position_write(m, item, ticks)
+            if not has_access(m, item):
+                if not quiet: jr("Skipped", pid, m, item, "no-access")
+                noaccess += 1; continue
+            if POSITION.get((m, item), 0) == write:
+                if not quiet: jr("Skipped", pid, m, item, "same-position")
+                already += 1; continue
+            POSITION[(m, item)] = write; propagated += 1        # position BRUTE (ou 0 en fin de lecture) : ni Played ni PlayCount
+            native_played_on_position_write(m, item, write)
+        done += propagated
         total = len(members(p)) - 1
-        jr("PositionPropagation", pid, user, item, f"members={total} propagated={propagated} samePosition={already} noAccess={noaccess} durationMs=3")
+        if not quiet:
+            jr("PositionPropagation", pid, user, item, f"members={total} propagated={propagated} samePosition={already} noAccess={noaccess} durationMs=3 trigger={trigger}")
+    return done
 
 def set_played(user, item, val):
     if val:
@@ -296,7 +330,7 @@ class H(http.server.BaseHTTPRequestHandler):
             if "Ids" in q: return self.out(200, {"Items": [self.dto(q["Ids"][0])] if q["Ids"][0] in PL else []})
             return self.out(200, {"Items": [{"Id": i, "Name": "M" + i, "RunTimeTicks": RT} for i in MEDIA]})
         if p == "/SharedPlaylist/Diagnostics/State":
-            return self.out(200, {"SeenPlaylistIds": sorted(SEEN), "GraceCounters": GRACEC, "LastPass": LASTPASS, "Handler": HANDLER, "SkippedCounts": SKIPPED, "GracePasses": GRACE})
+            return self.out(200, {"SeenPlaylistIds": sorted(SEEN), "GraceCounters": GRACEC, "LastPass": LASTPASS, "Handler": HANDLER, "SkippedCounts": SKIPPED, "GracePasses": GRACE, "PositionProgress": POSPROG})
         if p == "/SharedPlaylist/Diagnostics/Journal":
             res = list(JOURNAL)
             if "kind" in q: ks = q["kind"][0].split(","); res = [e for e in res if e["Kind"] in ks]
@@ -335,23 +369,42 @@ class H(http.server.BaseHTTPRequestHandler):
             return self.out(200, {"Id": r.group(2), "RunTimeTicks": RT,
                                    "UserData": {"Played": key in PLAYED, "LastPlayedDate": pd["LastPlayedDate"], "PlayCount": pd["PlayCount"],
                                                 "PlaybackPositionTicks": POSITION.get(key, 0)}})
-        if p == "/Sessions/Playing": return self.out(204)
+        if p == "/Sessions/Playing":
+            user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
+            open_session(user, body.get("ItemId"), body.get("PlaySessionId"))
+            PAUSED.pop((user, body.get("ItemId")), None)
+            return self.out(204)
         if p == "/Sessions/Playing/Progress":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
-            item = body["ItemId"]; paused = bool(body.get("IsPaused", False))
+            item = body["ItemId"]; paused = bool(body.get("IsPaused", False)); sid = body.get("PlaySessionId"); ticks = body.get("PositionTicks", 0)
+            s = SYNC.get((user, item))
+            if s and s["closed"] and s["sid"] == sid: return self.out(204)       # Progress tardif d'une session arrêtée : ignoré (CA6)
+            if not s or s["closed"] or s["sid"] != sid: s = open_session(user, item, sid)
             was_paused = PAUSED.get((user, item), False)
             PAUSED[(user, item)] = paused
-            if paused and not was_paused:   # transition false -> true (D-b) : SEUL déclencheur de Progress
-                position_transition(user, item, body.get("PositionTicks", 0))
+            if paused:
+                if not was_paused:   # transition false -> true : propagation IMMÉDIATE (inchangée)
+                    if position_transition(user, item, ticks, "pause", s["targets"]) is not None: s["last"] = time.time()
+            elif MODE != "v120":     # v1.2.1 : chaque Progress en lecture est candidat, au plus 1 propagation / MIN_INTERVAL
+                if s["last"] is not None and time.time() - s["last"] < MIN_INTERVAL: POSPROG["Throttled"] += 1
+                else:
+                    if ticks >= TICKS_30S and position_transition(user, item, ticks, "periodic", s["targets"]) > 0: POSPROG["Propagated"] += 1
+                    if ticks >= TICKS_30S: s["last"] = time.time()
             return self.out(204)
         if p == "/Sessions/Playing/Stopped":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
             item = body["ItemId"]; ticks = body.get("PositionTicks", 0)
-            # Deux flux INDÉPENDANTS, sans ordre garanti : la position (tableau B, aucune garde sur l'état lu depuis v1.2.0) puis,
-            # si Emby marque lu à cet arrêt (>= 90 %), la transition du lu (tableau A) — ici dans cet ordre, sans conséquence.
-            POSITION[(user, item)] = ticks           # la position du lecteur lui-même (donnée d'Emby, pas du plugin) : un arrêt à 0 la remet à 0
-            position_transition(user, item, ticks)   # systématique (D-b)
-            if ticks >= 0.9 * RT: set_played(user, item, True)
+            s = SYNC.get((user, item)); targets = s["targets"] if s else []
+            if s: s["closed"] = True
+            if ticks >= 0.9 * RT:
+                # Fin de lecture, séquence d'Emby (plan §2) : UserData du déclencheur (lu, position 0) -> flux du lu IMMÉDIAT
+                # (propagation du flag, retrait) -> PUIS PlaybackStopped (PlayedToCompletion) vers le flux de l'avancement.
+                POSITION[(user, item)] = 0
+                set_played(user, item, True)
+                position_transition(user, item, ticks, "completion", targets)
+            else:
+                POSITION[(user, item)] = ticks       # la position du lecteur lui-même (donnée d'Emby, pas du plugin)
+                position_transition(user, item, ticks, "stop", targets)   # systématique (D-b)
             PAUSED.pop((user, item), None)
             return self.out(204)
         r = re.fullmatch(r"/Items/(\d+)", p)

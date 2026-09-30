@@ -350,4 +350,53 @@ public class TableauxABSpecTests
         Assert.Equal(0, r.UserData.SetPositionCalls);
         Assert.Equal(0, r.UserData.MarkPlayedCalls);
     }
+
+    // ================================================================= v1.2.1 (#58, D23) : tableau B, déclencheurs périodique et fin de lecture (ajouts ADDITIFS)
+
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("propager-avancement=NON", false)]
+    [InlineData("propager-lu=OUI", false)]                                    // propager-lu seul n'active JAMAIS la position, y compris en continu
+    [InlineData("remove-si-lu=OUI,propager-lu=OUI", false)]
+    [InlineData("propager-avancement=OUI", true)]
+    [InlineData("propager-lu=OUI,remove-si-lu=OUI,propager-avancement=OUI", true)]
+    public void TableauB_OnAPeriodicProgress_SameMatrixAsPauseAndStop_AndNeverAnyFlagOrRemoval(string tagsCsv, bool expectPropagated)
+    {
+        var r = new Rig();
+        var s = r.Playlist("p", tagsCsv, "m1");
+
+        r.PositionEngine.Handle("u", "m1", 10 * Min, PositionTrigger.Periodic);
+
+        Assert.Equal(expectPropagated ? 10 * Min : 0L, r.UserData.GetPosition("v", "m1"));
+        Assert.Equal(0, r.UserData.MarkPlayedCalls);
+        Assert.Equal(new[] { "m1" }, s.Items);
+        Assert.Empty(r.Journal.Of("PositionPropagation"));                     // jamais de journal par Progress périodique
+    }
+
+    [Theory]
+    // propager-avancement non active : rien, quelle que soit propager-lu
+    [InlineData("", -1L)]
+    [InlineData("propager-lu=OUI", -1L)]
+    [InlineData("propager-avancement=NON,propager-lu=OUI", -1L)]
+    // propager-avancement OUI : 0 si propager-lu=OUI (remove-si-lu indifférent), position d'arrêt brute sinon
+    [InlineData("propager-avancement=OUI", 99L)]
+    [InlineData("propager-avancement=OUI,propager-lu=NON", 99L)]
+    [InlineData("propager-avancement=OUI,remove-si-lu=OUI", 99L)]
+    [InlineData("propager-avancement=OUI,propager-lu=OUI", 0L)]
+    [InlineData("propager-avancement=OUI,propager-lu=OUI,remove-si-lu=OUI", 0L)]
+    [InlineData("propager-avancement=OUI,propager-lu=OUI,remove-si-lu=NON", 0L)]
+    public void TableauB_OnCompletion_ZeroIfPropagerLuElseTheRawStopPosition(string tagsCsv, long expectedMinutesOrMinusOne)
+    {
+        var r = new Rig();
+        r.Playlist("p", tagsCsv, "F1");
+        r.UserData.SetPosition("v", "F1", 95 * Min);
+        r.UserData.SetPosition("o", "F1", 95 * Min);
+
+        r.PositionEngine.Handle("u", "F1", 99 * Min, PositionTrigger.Completion);
+
+        var expected = expectedMinutesOrMinusOne < 0 ? 95 * Min : expectedMinutesOrMinusOne * Min;
+        Assert.Equal(expected, r.UserData.GetPosition("v", "F1"));
+        Assert.Equal(expected, r.UserData.GetPosition("o", "F1"));
+        Assert.Equal(0, r.UserData.MarkPlayedCalls);                           // la position n'écrit jamais le flag lu (D21 préservé)
+    }
 }
