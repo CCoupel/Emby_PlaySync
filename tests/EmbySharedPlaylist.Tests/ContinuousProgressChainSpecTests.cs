@@ -84,16 +84,36 @@ public class ContinuousProgressChainSpecTests
             if (d == PlaybackSyncDecision.Throttled) { _r.Throttled++; return d; }
             if (d == PlaybackSyncDecision.Ignored || ticks < Threshold) return d;
             var trigger = d == PlaybackSyncDecision.PauseTransition ? PositionTrigger.Pause : PositionTrigger.Periodic;
-            var result = _r.PositionEngine.Handle(_user, _item, ticks, trigger, _r.Tracker.GetFreshTargets(_user, _item));
+            var targets = _r.Tracker.GetFreshTargets(_user, _item);
+            Func<bool>? isOpen = trigger == PositionTrigger.Periodic ? () => _r.Tracker.IsOpen(_user, _item, _psid) : null;
+            var result = _r.PositionEngine.Handle(_user, _item, ticks, trigger, targets, isOpen);
+            // M1 : les cibles ne sont (re)datées que par une VRAIE résolution (targets == null), comme le listener.
+            if (targets == null && result.CandidatePlaylistIds != null) _r.Tracker.SetTargets(_user, _item, result.CandidatePlaylistIds);
             if (result.LockBusy == 0) _r.Tracker.MarkPropagated(_user, _item, ticks);
             return d;
         }
+
+        /// <summary>Décision d'un Progress SANS exécuter le moteur (simule un Progress « en vol » décidé avant un Stop).</summary>
+        public PlaybackSyncDecision Decide(bool paused = false) => _r.Tracker.OnProgress(_user, _item, _psid, paused);
+
+        /// <summary>Exécution tardive du moteur pour un Progress périodique déjà décidé, avec la garde de session du listener.</summary>
+        public void LatePeriodic(long ticks) =>
+            _r.PositionEngine.Handle(_user, _item, ticks, PositionTrigger.Periodic, _r.Tracker.GetFreshTargets(_user, _item),
+                () => _r.Tracker.IsOpen(_user, _item, _psid));
 
         public void Stopped(long ticks, bool playedToCompletion)
         {
             var targets = _r.Tracker.OnStop(_user, _item, _psid);
             if (playedToCompletion) _r.PositionEngine.Handle(_user, _item, ticks, PositionTrigger.Completion, targets);
             else if (ticks >= Threshold) _r.PositionEngine.Handle(_user, _item, ticks, PositionTrigger.Stop, targets);
+        }
+
+        /// <summary>Arrêt tel que le listener le traite : <c>completed = PlayedToCompletion || repli pur</c> (données du déclencheur relues).</summary>
+        public void StoppedWithFallback(long ticks, bool playedToCompletionFlag, long runtimeTicks)
+        {
+            var completed = playedToCompletionFlag ||
+                PlaybackCompletion.LooksCompleted(runtimeTicks, ticks, _r.UserData.IsPlayed(_user, _item), _r.UserData.GetPosition(_user, _item));
+            Stopped(ticks, completed);
         }
     }
 
@@ -207,9 +227,10 @@ public class ContinuousProgressChainSpecTests
     }
 
     [Fact]
-    public void CA4_TheBugOfV120_WithoutMemorisedTargets_TheMemberWouldKeepAStalePosition_ContreEpreuve()
+    public void Documentation_CA4_WithoutMemorisedTargets_TheEngineFindsNoPlaylistAfterRemoval_NotARegressionTestOfTheFix()
     {
-        // Reproduction de la cause racine n°2 : si la session ne mémorisait PAS les cibles, la playlist n'est plus trouvée après
+        // TEST DE DOCUMENTATION (revue m2) : il décrit le comportement du moteur appelé avec targets:null — la cause racine n°2
+        // de v1.2.0 — et NE prouve rien du correctif (la preuve est CA4_S9g_… ci-dessus et I42 en intégration). Reproduction de la cause racine n°2 : si la session ne mémorisait PAS les cibles, la playlist n'est plus trouvée après
         // le retrait et la position périmée reste. Ce test documente le symptôme rapporté (« lu posé, position non mise à jour »).
         var r = new Rig();
         r.Playlist("p", "propager-avancement=OUI,propager-lu=OUI,remove-si-lu=OUI");
@@ -376,5 +397,136 @@ public class ContinuousProgressChainSpecTests
         s.Stopped(5 * Min, playedToCompletion: true);
 
         Assert.DoesNotContain(r.UserData.PositionsSet, p => p.UserId == "u");
+    }
+
+    // ---- M1 (revue) : cibles mémorisées datées par une VRAIE résolution, liste vide re-résolue ---------------------------------
+
+    [Fact]
+    public void M1_AMediaAddedToAPlaylistAfterTheStart_IsPickedUpAtTheNextProgress_EmptyTargetsAreReResolved()
+    {
+        var r = new Rig();
+        var s = r.Play(); s.Start();                       // aucune playlist au démarrage : cibles = liste vide
+        r.Playlist("p", "propager-avancement=OUI");        // le propriétaire ajoute F1 à une playlist partagée pendant la lecture
+        r.Advance(40);
+
+        s.Progress(40 * Sec);
+
+        Assert.Equal(40 * Sec, r.UserData.GetPosition("v", "F1"));
+        Assert.Equal(new[] { "p" }, r.Tracker.GetFreshTargets("u", "F1")); // et la résolution est mémorisée
+    }
+
+    [Fact]
+    public void M1_AMediaRemovedFromThePlaylistDuringPlayback_StopsBeingSynced_OnceTheTargetsExpire()
+    {
+        var r = new Rig();
+        var playlist = r.Playlist("p", "propager-avancement=OUI");
+        var s = r.Play(); s.Start();
+
+        for (var t = 30; t <= 400; t += 10)
+        {
+            if (t == 50) playlist.Items.Remove("F1");      // retiré par le propriétaire en cours de lecture
+            r.Clock.UtcNow = new FakeClock().UtcNow + TimeSpan.FromSeconds(t);
+            s.Progress(t * Sec);
+        }
+
+        // Tant que les cibles sont fraîches (< 5 min) la copie continue (fenêtre acceptée) ; au-delà elles sont re-résolues,
+        // la playlist ne contient plus le média : plus aucune écriture. Sans correctif, les Periodic rafraîchissaient la date des
+        // cibles et la copie se poursuivait jusqu'à l'arrêt (400 s).
+        var last = r.UserData.GetPosition("v", "F1");
+        Assert.True(last <= (PlaybackSyncTracker.TargetsMaxAge.TotalSeconds + 10) * Sec, $"copie encore active à {last / Sec} s");
+        Assert.True(last >= 50 * Sec);
+    }
+
+    [Fact]
+    public void M1_ReusingMemorisedTargetsAtAPeriodicProgress_NeverRefreshesTheirDate()
+    {
+        var r = new Rig();
+        r.Playlist("p", "propager-avancement=OUI");
+        var s = r.Play(); s.Start();
+        s.Progress(40 * Sec);                               // 1er Periodic : cibles du Start, réutilisées
+        r.Advance(PlaybackSyncTracker.TargetsMaxAge.TotalSeconds + 1);
+
+        Assert.Null(r.Tracker.GetFreshTargets("u", "F1")); // périmées malgré le Periodic intermédiaire
+    }
+
+    // ---- M2 (revue) : Progress « en vol » décidé AVANT le Stop, exécuté APRÈS : jamais d'écrasement de la position de fin ----------
+
+    [Fact]
+    public void M2_ALatePeriodicAfterTheCompletion_NeverOverwritesTheZero()
+    {
+        var r = new Rig();
+        r.Playlist("p", "propager-avancement=OUI,propager-lu=OUI");
+        var s = r.Play(); s.Start();
+        PlayContinuously(r, s, toMinutes: 95);
+        r.Advance(10);
+        Assert.Equal(PlaybackSyncDecision.Periodic, s.Decide());        // Progress à 95 % décidé (session encore ouverte)…
+        s.Stopped(100 * Min, playedToCompletion: true);                  // …le Stop/Completion passe avant : 0 chez le membre
+        Assert.Equal(0L, r.UserData.GetPosition("v", "F1"));
+
+        s.LatePeriodic(95 * Min);                                        // …puis le Periodic en vol obtient enfin ses verrous
+
+        Assert.Equal(0L, r.UserData.GetPosition("v", "F1"));             // le membre n'est pas « lu + Reprendre à 95 % »
+        Assert.Equal(0L, r.UserData.GetPosition("o", "F1"));
+    }
+
+    [Fact]
+    public void M2_ALatePeriodicAfterANormalStop_NeverOverwritesTheStopPosition()
+    {
+        var r = new Rig();
+        r.Playlist("p", "propager-avancement=OUI");
+        var s = r.Play(); s.Start();
+        PlayContinuously(r, s, toMinutes: 60);
+        r.Advance(10);
+        Assert.Equal(PlaybackSyncDecision.Periodic, s.Decide());
+        s.Stopped(62 * Min, playedToCompletion: false);
+
+        s.LatePeriodic(60 * Min);
+
+        Assert.Equal(62 * Min, r.UserData.GetPosition("v", "F1"));
+    }
+
+    [Fact]
+    public void M2_WithoutTheSessionGuard_TheLatePeriodicWouldOverwrite_DocumentationOfTheRace()
+    {
+        // TEST DE DOCUMENTATION : sans isSessionOpen (ancien comportement), le Periodic tardif écraserait la remise à 0.
+        var r = new Rig();
+        r.Playlist("p", "propager-avancement=OUI,propager-lu=OUI");
+        var s = r.Play(); s.Start();
+        PlayContinuously(r, s, toMinutes: 95);
+        s.Stopped(100 * Min, playedToCompletion: true);
+
+        r.PositionEngine.Handle("u", "F1", 95 * Min, PositionTrigger.Periodic);   // pas de garde
+
+        Assert.Equal(95 * Min, r.UserData.GetPosition("v", "F1"));
+    }
+
+    // ---- m1 (revue) : repli de fin de lecture dans la chaîne ---------------------------------------------------------------------
+
+    [Fact]
+    public void Fallback_PlayedToCompletionFalse_ButTheTriggerIsPlayedAtZeroNearTheEnd_IsTreatedAsACompletion()
+    {
+        var r = new Rig();
+        r.Playlist("p", "propager-avancement=OUI,propager-lu=OUI");
+        var s = r.Play(); s.Start();
+        PlayContinuously(r, s, toMinutes: 95);
+        r.UserData.SetPlayed("u", "F1", true);   // Emby a déjà appliqué la fin de lecture au déclencheur : lu, position 0
+        r.UserData.SetPosition("u", "F1", 0);
+
+        s.StoppedWithFallback(99 * Min, playedToCompletionFlag: false, runtimeTicks: 100 * Min);
+
+        Assert.Equal(0L, r.UserData.GetPosition("v", "F1"));
+    }
+
+    [Fact]
+    public void Fallback_DoesNotApply_WhenTheTriggerIsNotPlayed_TheStopIsANormalOne()
+    {
+        var r = new Rig();
+        r.Playlist("p", "propager-avancement=OUI,propager-lu=OUI");
+        var s = r.Play(); s.Start();
+        PlayContinuously(r, s, toMinutes: 95);
+
+        s.StoppedWithFallback(99 * Min, playedToCompletionFlag: false, runtimeTicks: 100 * Min);   // arrêt à 99 % sans fin de lecture
+
+        Assert.Equal(99 * Min, r.UserData.GetPosition("v", "F1"));
     }
 }

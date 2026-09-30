@@ -181,14 +181,89 @@ public class PlaybackPositionEngineContinuousSpecTests
     }
 
     [Fact]
-    public void Periodic_RecordsItsDurationInHandlerStats()
+    public void Periodic_IsNotMeasuredInHandlerStats_ItWouldBiasTheHandlerDiagnostics_I1()
     {
+        // Revue I1 : ~1 Progress / 10 s / couple biaiserait State.Handler (moyenne/max) ; seuls les événements discrets comptent.
         var r = new Rig();
         r.Playlist("1", Av);
 
         r.Engine.Handle("u", "F1", 45 * Min, PositionTrigger.Periodic);
+        r.Engine.Handle("u", "F1", 46 * Min, PositionTrigger.Periodic);
 
-        Assert.Equal(1, r.Handler.Snapshot().Count); // budget p95 <= 300 ms vérifié via Diagnostics/State.Handler
+        Assert.Equal(0, r.Handler.Snapshot().Count);
+    }
+
+    [Theory]
+    [InlineData(PositionTrigger.Pause)]
+    [InlineData(PositionTrigger.Stop)]
+    [InlineData(PositionTrigger.Completion)]
+    public void DiscreteEvents_AreStillMeasuredInHandlerStats_I1(PositionTrigger trigger)
+    {
+        var r = new Rig();
+        r.Playlist("1", Av);
+
+        r.Engine.Handle("u", "F1", 45 * Min, trigger);
+
+        Assert.Equal(1, r.Handler.Snapshot().Count);
+    }
+
+    // ---- M2 : Progress périodique TARDIF (course avec Stop/Completion) : ne jamais écraser la position de fin -----------------
+
+    [Fact]
+    public void Periodic_WhenTheSessionIsAlreadyClosed_WritesNothing_AndLeavesNoTrace_M2()
+    {
+        var r = new Rig();
+        r.Playlist("1", Av);
+
+        var result = r.Engine.Handle("u", "F1", 95 * Min, PositionTrigger.Periodic, isSessionOpen: () => false);
+
+        Assert.Equal(0, r.UserData.SetPositionCalls);
+        Assert.Equal(0L, r.UserData.GetPosition("v", "F1"));
+        Assert.Equal(0, result.Propagated);
+        Assert.Empty(r.Journal.Of("Skipped"));
+        Assert.Empty(r.Positions);
+    }
+
+    [Fact]
+    public void Periodic_WhenTheSessionStaysOpen_PropagatesAsUsual_M2()
+    {
+        var r = new Rig();
+        r.Playlist("1", Av);
+        var checks = 0;
+
+        r.Engine.Handle("u", "F1", 95 * Min, PositionTrigger.Periodic, isSessionOpen: () => { checks++; return true; });
+
+        Assert.Equal(95 * Min, r.UserData.GetPosition("v", "F1"));
+        Assert.True(checks >= 1); // la garde est bien consultée (sous les verrous)
+    }
+
+    [Fact]
+    public void Periodic_WhenTheSessionClosesWhileWaitingForTheLocks_NoMemberIsWritten_M2()
+    {
+        // La session est ouverte à l'entrée (verrou de playlist obtenu) puis se ferme : la garde re-testée sous le verrou de
+        // chaque membre interrompt l'écriture. Déterministe : la 1re consultation répond vrai, les suivantes faux.
+        var r = new Rig();
+        r.Playlist("1", Av);
+        var calls = 0;
+
+        r.Engine.Handle("u", "F1", 95 * Min, PositionTrigger.Periodic, isSessionOpen: () => ++calls == 1);
+
+        Assert.Equal(0, r.UserData.SetPositionCalls);
+        Assert.Equal(0L, r.UserData.GetPosition("v", "F1"));
+    }
+
+    [Theory]
+    [InlineData(PositionTrigger.Pause)]
+    [InlineData(PositionTrigger.Stop)]
+    [InlineData(PositionTrigger.Completion)]
+    public void DiscreteEvents_IgnoreTheSessionGuard_TheyAreTheEndOfTheSessionThemselves_M2(PositionTrigger trigger)
+    {
+        var r = new Rig();
+        r.Playlist("1", Av);
+
+        r.Engine.Handle("u", "F1", 95 * Min, trigger, isSessionOpen: () => false);
+
+        Assert.Equal(95 * Min, r.UserData.GetPosition("v", "F1"));
     }
 
     [Fact]
