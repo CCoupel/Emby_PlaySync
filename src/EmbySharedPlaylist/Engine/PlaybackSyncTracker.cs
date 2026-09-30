@@ -160,7 +160,17 @@ public sealed class PlaybackSyncTracker
         }
     }
 
-    private Session? Get((string User, string Item) key) => _index.TryGetValue(key, out var node) ? node.Value.S : null;
+    /// <summary>Lecture d'un couple existant : rafraîchit sa position LRU (le plus récemment utilisé en tête).</summary>
+    private Session? Get((string User, string Item) key)
+    {
+        if (!_index.TryGetValue(key, out var node)) return null;
+        if (node != _order.First)
+        {
+            _order.Remove(node);
+            _order.AddFirst(node);
+        }
+        return node.Value.S;
+    }
 
     private void Put((string User, string Item) key, Session s)
     {
