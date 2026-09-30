@@ -130,7 +130,7 @@ public class PlaybackPositionEngineDevTests
         Assert.Equal("u", entry.UserId);
         Assert.Equal("m1", entry.ItemId);
         // Forme du contrat : members/propagated/samePosition/noAccess puis durationMs (v1.2.0 : un compteur lockBusy=<n> optionnel peut s'y intercaler, B7).
-        Assert.Matches(@"^members=2 propagated=2 samePosition=0 noAccess=0( lockBusy=0)? durationMs=\d+$", entry.Detail);
+        Assert.Matches(@"^members=2 propagated=2 samePosition=0 noAccess=0( lockBusy=0)? durationMs=\d+( trigger=\w+)?$", entry.Detail);
     }
 
     [Fact]

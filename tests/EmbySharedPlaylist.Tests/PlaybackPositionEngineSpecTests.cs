@@ -103,7 +103,7 @@ public class PlaybackPositionEngineSpecTests
         r.Engine(slow, TimeSpan.FromMilliseconds(120)).Handle("u", "m1", 999);
 
         var entry = r.Journal.Of("PositionPropagation").Single();
-        var parts = entry.Detail!.Split(' ').Select(p => p.Split('=')).ToDictionary(p => p[0], p => int.Parse(p[1]));
+        var parts = entry.Detail!.Split(' ').Select(p => p.Split('=')).Where(p => int.TryParse(p[1], out _)).ToDictionary(p => p[0], p => int.Parse(p[1]));
         // Le budget global est partagé entre tous les membres de la playlist : certains n'ont pas été atteints, sans
         // qu'aucune entrée Skipped ne soit journalisée POUR EUX (contrairement à no-access/same-position, qui sont
         // évalués) — juste silencieusement non traités, reprise implicite au prochain événement (aucune erreur).
