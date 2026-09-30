@@ -5,14 +5,26 @@ using EmbySharedPlaylist.Reconciliation;
 
 namespace EmbySharedPlaylist.Engine;
 
-/// <summary>Bilan d'une propagation de position.</summary>
-public sealed record PositionPropagationResult(int Candidates, int PlaylistsChanged, int Propagated, int Skipped, long DurationMs);
+/// <summary>Bilan d'une propagation de position. <c>CandidatePlaylistIds</c> : playlists gérées contenant le média (à mémoriser) ; <c>LockBusy</c> : verrous non obtenus (playlist ou membre).</summary>
+public sealed record PositionPropagationResult(int Candidates, int PlaylistsChanged, int Propagated, int Skipped, long DurationMs,
+    IReadOnlyList<string>? CandidatePlaylistIds = null, int LockBusy = 0);
+
+/// <summary>Origine d'une propagation de position (v1.2.1, D23) ; le libellé (<c>trigger=</c>) termine le <c>Detail</c> journalisé.</summary>
+public enum PositionTrigger
+{
+    /// <summary><c>PlaybackProgress</c> périodique : verrous 250 ms, aucun journal (compteurs).</summary>
+    Periodic,
+    Pause,
+    Stop,
+    /// <summary>Fin de lecture (<c>PlayedToCompletion</c>) : 0 si <c>propager-lu=OUI</c>, sinon position brute.</summary>
+    Completion
+}
 
 /// <summary>
 /// Propagation de la position de lecture (#45), cousin de <see cref="ReadRemovalEngine"/> mais issu d'un flux d'événements
 /// SÉPARÉ (<c>ISessionManager.PlaybackProgress</c>/<c>PlaybackStopped</c>, pas <c>UserDataSaved</c>) : classe distincte, pas
-/// une fusion. Déclenché quand un utilisateur met en pause (transition détectée par <see cref="PauseTransitionTracker"/>) ou
-/// arrête la lecture (systématique). Pour chaque playlist gérée dont il est membre et qui contient le média : première
+/// une fusion. Déclenché (v1.2.1, D23) pendant la lecture (Progress périodique, ≤ 1/10 s par couple, <see cref="PlaybackSyncTracker"/>), à la
+/// pause (transition), à l'arrêt et en fin de lecture (<see cref="PositionTrigger"/>). Pour chaque playlist gérée dont il est membre et qui contient le média : première
 /// détection si non vue, relecture fraîche des étiquettes, et si <c>propager-avancement=OUI</c> SEULE (v1.2.0, D21 : famille
 /// dédiée, indépendante de <c>propager-lu</c> et de <c>remove-si-lu</c>) : pour chaque AUTRE membre avec accès, pose la
 /// position BRUTE (anti-écho <see cref="PluginWriteTracker"/>, dernier écrit gagne, aucune écriture si déjà cette
@@ -23,6 +35,12 @@ public sealed record PositionPropagationResult(int Candidates, int PlaylistsChan
 /// </summary>
 public sealed class PlaybackPositionEngine
 {
+    /// <summary>Positions absolues en deçà de ce seuil sont ignorées (bruit, ~30 s) ; non appliqué à la remise à 0 de fin de lecture.</summary>
+    public static readonly long MinPositionTicks = TimeSpan.FromSeconds(30).Ticks;
+
+    /// <summary>Délai d'attente des verrous sur un Progress périodique : ne jamais bloquer le pipeline de progression d'Emby.</summary>
+    public static readonly TimeSpan PeriodicLockTimeout = TimeSpan.FromMilliseconds(250);
+
     private readonly IPlaylistGateway _gateway;
     private readonly IUserDataGateway _userData;
     private readonly PluginWriteTracker _writeTracker;
@@ -35,10 +53,12 @@ public sealed class PlaybackPositionEngine
     private readonly TimeSpan _budget;
     private readonly HandlerStats? _handler;
     private readonly UserItemLocks _userItemLocks;
+    private readonly PositionProgressCounters? _progressCounters;
 
     public PlaybackPositionEngine(IPlaylistGateway gateway, IUserDataGateway userData, PluginWriteTracker writeTracker,
         DefaultsService defaults, SeenPlaylists seen, PlaylistLocks locks, IJournal journal, IClock clock,
-        TimeSpan? lockTimeout = null, TimeSpan? budget = null, HandlerStats? handler = null, UserItemLocks? userItemLocks = null)
+        TimeSpan? lockTimeout = null, TimeSpan? budget = null, HandlerStats? handler = null, UserItemLocks? userItemLocks = null,
+        PositionProgressCounters? progressCounters = null)
     {
         _gateway = gateway;
         _userData = userData;
@@ -52,6 +72,7 @@ public sealed class PlaybackPositionEngine
         _budget = budget ?? ReadRemovalEngine.DefaultBudget;
         _handler = handler;
         _userItemLocks = userItemLocks ?? new UserItemLocks();
+        _progressCounters = progressCounters;
     }
 
     /// <summary>
@@ -59,42 +80,36 @@ public sealed class PlaybackPositionEngine
     /// <c>PlaybackEventProcessor</c> côté flux du lu) pour CHAQUE appel, quel que soit le chemin de sortie — le contrat
     /// (<c>Diagnostics/State.Handler</c>) annonce les deux flux d'événements confondus.
     /// </summary>
-    public PositionPropagationResult Handle(string userId, string itemId, long ticks)
+    public PositionPropagationResult Handle(string userId, string itemId, long ticks,
+        PositionTrigger trigger = PositionTrigger.Stop, IReadOnlyCollection<string>? targets = null)
     {
         var total = Stopwatch.StartNew();
         var candidates = 0;
         var changed = 0;
         var propagated = 0;
         var skipped = 0;
+        var lockBusy = 0;
+        IReadOnlyList<string> candidateIds = Array.Empty<string>();
 
         try
         {
             try
             {
-                IReadOnlyList<PlaylistSnapshot> playlists;
-                try
-                {
-                    playlists = _gateway.ListSharedPlaylistsOfUserContaining(userId, itemId);
-                }
-                catch (Exception ex)
-                {
-                    Journal(JournalEntries.ErrorEntry(_clock, null, ex));
-                    return new PositionPropagationResult(0, 0, 0, 0, total.ElapsedMilliseconds);
-                }
-
+                var playlists = ResolvePlaylists(userId, itemId, trigger, targets);
                 candidates = playlists.Count;
+                candidateIds = playlists.Select(p => p.Id).ToList();
                 for (var index = 0; index < playlists.Count; index++)
                 {
                     var snapshot = playlists[index];
                     if (total.Elapsed >= _budget)
                     {
                         skipped += playlists.Count - index;
-                        Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "budget-exceeded"));
+                        JournalFor(trigger, JournalEntries.SkippedEntry(_clock, snapshot.Id, "budget-exceeded"));
                         break;
                     }
                     try
                     {
-                        var outcome = HandlePlaylist(snapshot, userId, itemId, ticks, total);
+                        var outcome = HandlePlaylist(snapshot, userId, itemId, ticks, trigger, total, ref lockBusy);
                         if (outcome < 0) skipped++;
                         else if (outcome > 0) { changed++; propagated += outcome; }
                         else skipped++;
@@ -111,7 +126,12 @@ public sealed class PlaybackPositionEngine
                 Journal(JournalEntries.ErrorEntry(_clock, null, ex));
             }
 
-            return new PositionPropagationResult(candidates, changed, propagated, skipped, total.ElapsedMilliseconds);
+            if (trigger == PositionTrigger.Periodic)
+            {
+                if (lockBusy > 0) _progressCounters?.IncrementLockBusy();
+                else if (propagated > 0) _progressCounters?.IncrementPropagated();
+            }
+            return new PositionPropagationResult(candidates, changed, propagated, skipped, total.ElapsedMilliseconds, candidateIds, lockBusy);
         }
         finally
         {
@@ -119,14 +139,57 @@ public sealed class PlaybackPositionEngine
         }
     }
 
+    /// <summary>
+    /// Ids des playlists gérées où <paramref name="userId"/> est membre et qui contiennent le média (ouverture de session,
+    /// mémorisation des cibles). Ne lève jamais : liste vide en cas d'erreur (journalisée).
+    /// </summary>
+    public IReadOnlyList<string> ResolveTargets(string userId, string itemId)
+    {
+        try { return _gateway.ListSharedPlaylistsOfUserContaining(userId, itemId).Select(p => p.Id).ToList(); }
+        catch (Exception ex)
+        {
+            Journal(JournalEntries.ErrorEntry(_clock, null, ex));
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>
+    /// Périodique avec cibles mémorisées : on relit ces playlists (pas de résolution coûteuse à chaque Progress). Fin de
+    /// lecture : cibles mémorisées ∪ playlists contenant encore le média (le média a pu être retiré par remove-si-lu
+    /// avant l'arrêt). Autres cas : playlists contenant le média.
+    /// </summary>
+    private IReadOnlyList<PlaylistSnapshot> ResolvePlaylists(string userId, string itemId, PositionTrigger trigger, IReadOnlyCollection<string>? targets)
+    {
+        if (trigger == PositionTrigger.Periodic && targets != null)
+            return FromIds(targets, new List<PlaylistSnapshot>());
+
+        var current = _gateway.ListSharedPlaylistsOfUserContaining(userId, itemId);
+        if (trigger != PositionTrigger.Completion || targets == null || targets.Count == 0) return current;
+        var merged = new List<PlaylistSnapshot>(current);
+        return FromIds(targets.Where(id => merged.All(p => !string.Equals(p.Id, id, StringComparison.Ordinal))).ToList(), merged);
+    }
+
+    private IReadOnlyList<PlaylistSnapshot> FromIds(IReadOnlyCollection<string> ids, List<PlaylistSnapshot> into)
+    {
+        foreach (var id in ids)
+        {
+            var snap = _gateway.Get(id);
+            if (snap != null) into.Add(snap);
+        }
+        return into;
+    }
+
     /// <returns>Nombre de membres propagés (&gt; 0), 0 si rien propagé (inactif/déjà à cette position/personne), -1 si passée (verrou occupé).</returns>
-    private int HandlePlaylist(PlaylistSnapshot snapshot, string userId, string itemId, long ticks, Stopwatch total)
+    private int HandlePlaylist(PlaylistSnapshot snapshot, string userId, string itemId, long ticks, PositionTrigger trigger,
+        Stopwatch total, ref int lockBusyTotal)
     {
         var sw = Stopwatch.StartNew();
-        using var gate = _locks.TryAcquire(snapshot.Id, _lockTimeout);
+        var timeout = trigger == PositionTrigger.Periodic && PeriodicLockTimeout < _lockTimeout ? PeriodicLockTimeout : _lockTimeout;
+        using var gate = _locks.TryAcquire(snapshot.Id, timeout);
         if (gate == null)
         {
-            Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "lock-busy"));
+            lockBusyTotal++;
+            JournalFor(trigger, JournalEntries.SkippedEntry(_clock, snapshot.Id, "lock-busy"));
             return -1;
         }
 
@@ -137,8 +200,21 @@ public sealed class PlaybackPositionEngine
         var fresh = _gateway.Get(snapshot.Id) ?? snapshot;
         if (MarkerEvaluator.Evaluate(fresh.Tags, MarkerFamily.PropagerAvancement) != MarkerState.Oui)
         {
-            Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "inactive"));
+            JournalFor(trigger, JournalEntries.SkippedEntry(_clock, snapshot.Id, "inactive"));
             return 0;
+        }
+
+        // Fin de lecture (D23) : propager-lu=OUI => 0 (miroir du déclencheur : lu, plus de point de reprise), sinon position
+        // d'arrêt brute (S9f) soumise au seuil de 30 s. Couplage sur la CONFIGURATION de la playlist, jamais sur l'état lu.
+        var writeTicks = ticks;
+        if (trigger == PositionTrigger.Completion)
+        {
+            if (MarkerEvaluator.Evaluate(fresh.Tags, MarkerFamily.PropagerLu) == MarkerState.Oui) writeTicks = 0;
+            else if (ticks < MinPositionTicks)
+            {
+                JournalFor(trigger, JournalEntries.SkippedEntry(_clock, snapshot.Id, "too-short"));
+                return 0;
+            }
         }
 
         var propagated = 0;
@@ -153,45 +229,65 @@ public sealed class PlaybackPositionEngine
 
             // Verrou (utilisateur, média) le plus interne (B7) : lecture de la position, anti-écho et écriture dans la même
             // section, pour qu'un lu propagé en parallèle chez ce membre ne soit ni écrasé ni perdu.
-            using var userGate = _userItemLocks.TryAcquire(memberId, itemId, _lockTimeout);
+            using var userGate = _userItemLocks.TryAcquire(memberId, itemId, timeout);
             if (userGate == null)
             {
                 lockBusy++;
-                Journal(SkippedForMember(memberId, snapshot.Id, itemId, "lock-busy"));
+                JournalFor(trigger, SkippedForMember(memberId, snapshot.Id, itemId, "lock-busy"));
                 continue;
             }
 
             if (!_userData.HasAccess(memberId, itemId))
             {
                 noAccess++;
-                Journal(SkippedForMember(memberId, snapshot.Id, itemId, "no-access")); // R8
+                JournalFor(trigger, SkippedForMember(memberId, snapshot.Id, itemId, "no-access")); // R8
                 continue;
             }
 
             // Vérifié AVANT d'enregistrer l'anti-écho : n'enregistrer que si une écriture réelle va suivre (sinon
             // l'entrée du tracker resterait "pending" sans jamais être consommée — même piège que la revue A1 sur #20).
-            if (_userData.GetPosition(memberId, itemId) == ticks)
+            if (_userData.GetPosition(memberId, itemId) == writeTicks)
             {
                 samePosition++;
-                Journal(SkippedForMember(memberId, snapshot.Id, itemId, "same-position"));
+                JournalFor(trigger, SkippedForMember(memberId, snapshot.Id, itemId, "same-position"));
                 continue;
             }
 
             _writeTracker.Register(memberId, itemId);
             var written = false;
-            try { written = _userData.SetPosition(memberId, itemId, ticks); }
+            try { written = _userData.SetPosition(memberId, itemId, writeTicks); }
             finally { if (!written) _writeTracker.Unregister(memberId, itemId); } // pas d'écriture => pas d'écho attendu (m2)
             if (written) propagated++;
             else samePosition++; // résiduel : position redevenue identique entre notre lecture et l'écriture (rare)
         }
 
-        var detail = $"members={fresh.MemberIds.Count(m => !string.Equals(m, userId, StringComparison.Ordinal))} " +
-                     $"propagated={propagated} samePosition={samePosition} noAccess={noAccess} lockBusy={lockBusy} durationMs={sw.ElapsedMilliseconds}";
-        var entry = JournalEntries.Of(_clock, "PositionPropagation", snapshot.Id, detail);
-        entry.UserId = userId;
-        entry.ItemId = itemId;
-        Journal(entry);
+        lockBusyTotal += lockBusy;
+        // Progress périodique : aucune entrée (compteurs Diagnostics/State.PositionProgress) — le journal est borné à 500.
+        if (trigger != PositionTrigger.Periodic)
+        {
+            var detail = $"members={fresh.MemberIds.Count(m => !string.Equals(m, userId, StringComparison.Ordinal))} " +
+                         $"propagated={propagated} samePosition={samePosition} noAccess={noAccess} lockBusy={lockBusy} durationMs={sw.ElapsedMilliseconds} " +
+                         $"trigger={TriggerLabel(trigger)}";
+            var entry = JournalEntries.Of(_clock, "PositionPropagation", snapshot.Id, detail);
+            entry.UserId = userId;
+            entry.ItemId = itemId;
+            Journal(entry);
+        }
         return propagated;
+    }
+
+    public static string TriggerLabel(PositionTrigger trigger) => trigger switch
+    {
+        PositionTrigger.Pause => "pause",
+        PositionTrigger.Completion => "completion",
+        PositionTrigger.Periodic => "periodic",
+        _ => "stop"
+    };
+
+    /// <summary>Les Skipped d'un Progress périodique ne sont pas journalisés (bruit) ; ceux des événements discrets le sont.</summary>
+    private void JournalFor(PositionTrigger trigger, JournalEntry entry)
+    {
+        if (trigger != PositionTrigger.Periodic) Journal(entry);
     }
 
     private JournalEntry SkippedForMember(string memberId, string playlistId, string itemId, string reason)

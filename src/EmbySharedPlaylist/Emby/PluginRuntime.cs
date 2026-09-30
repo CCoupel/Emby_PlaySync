@@ -26,7 +26,10 @@ public static class PluginRuntime
     public static PlaylistLocks Locks { get; } = new();
     public static SeenPlaylists Seen { get; } = new();
     public static PlayedTransitionTracker PlayedTransitions { get; } = new();
-    public static PauseTransitionTracker PauseTransitions { get; } = new();
+    /// <summary>v1.2.1 (D23) : session de lecture du déclencheur (pause, intervalle 10 s, cibles mémorisées) ; remplace PauseTransitionTracker.</summary>
+    public static PlaybackSyncTracker PlaybackSync { get; } = new();
+    /// <summary>v1.2.1 (D23) : compteurs des Progress périodiques (propagés / limités / verrou occupé), sans journal.</summary>
+    public static PositionProgressCounters PositionProgress { get; } = new();
     public static HandlerStats Handler { get; } = new();
     public static SkippedCounters Skipped { get; } = new();
 
@@ -79,7 +82,7 @@ public static class PluginRuntime
             // playlist (constante partagée), branché depuis PlaybackSessionListener, jamais depuis PlaybackListener (#45).
             // Revue C1 : même HandlerStats partagée que PlaybackProcessor, pour que Diagnostics/State.Handler confonde les deux flux.
             PositionEngine = new PlaybackPositionEngine(gateway, userData, Tracker, defaults, Seen, Locks, journal, clock,
-                budget: ReadRemovalEngine.DefaultBudget, handler: Handler, userItemLocks: UserItemLocks);
+                budget: ReadRemovalEngine.DefaultBudget, handler: Handler, userItemLocks: UserItemLocks, progressCounters: PositionProgress);
             // #26 : port/service indépendants des playlists (aucun verrou/budget partagé, voir AutoSharingService).
             var policyGateway = new EmbyUserPolicyGateway(userManager);
             PolicyGateway = policyGateway;

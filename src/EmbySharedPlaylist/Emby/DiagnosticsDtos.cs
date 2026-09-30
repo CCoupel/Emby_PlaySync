@@ -41,6 +41,9 @@ public class DiagnosticsStateDto
     public DiagnosticsHandlerDto Handler { get; set; } = new();
     public int GracePasses { get; set; }
 
+    /// <summary>v1.2.1 (D23) : compteurs des PlaybackProgress périodiques de l'avancement (jamais journalisés individuellement).</summary>
+    public DiagnosticsPositionProgressDto PositionProgress { get; set; } = new();
+
     /// <summary>Tous les <c>Skipped</c> depuis le démarrage, par raison (y compris ceux qui ne sont pas inscrits dans le journal).</summary>
     public Dictionary<string, long> SkippedCounts { get; set; } = new();
 }
@@ -51,6 +54,13 @@ public class DiagnosticsLastPassDto
     public long DurationMs { get; set; }
     public int PlaylistsSeen { get; set; }
     public int SharedManaged { get; set; }
+}
+
+public class DiagnosticsPositionProgressDto
+{
+    public long Propagated { get; set; }
+    public long Throttled { get; set; }
+    public long LockBusy { get; set; }
 }
 
 public class DiagnosticsHandlerDto
