@@ -35,7 +35,7 @@ run() { # MODE ARGS...
   users_env > "$W/private/test-users.env"
   snap > "$W/private/test-snapshot.json"
   set +e
-  OUT=$(cd "$W" && env PATH="$W/bin:$PATH" WAIT_SCALE=0.05 PROGRESS_WAIT=1.7 SPIKE_OUT="$W/out" \
+  OUT=$(cd "$W" && env PATH="$W/bin:$PATH" WAIT_SCALE=0.05 PROGRESS_WAIT=1.7 PROGRESS_STEP=0.15 SPIKE_OUT="$W/out" \
         bash tests/integration/22-avancement.sh "$@" 2>&1); RC=$?
   set -e
   kill $SRV 2>/dev/null || true; wait $SRV 2>/dev/null || true; SRV=""

@@ -23,7 +23,8 @@
 # un Progress tardif du même PlaySessionId après l'arrêt est ignoré. Nouveaux : I41 (CA1/CA2/CA8/S6), I42 (CA4, smoke/critical —
 # reproduction du bug), I43 (CA5), I44 (CA6). I35 RÉÉCRIT (CA3) : il affirmait « un Progress non pause ne propage jamais »,
 # comportement CHANGED documenté (contracts/CHANGELOG.md [20260930]). Les nap de 11 s (intervalle de 10 s + marge) sont NON
-# mis à l'échelle par WAIT_SCALE : variable PROGRESS_WAIT (défaut 11, secondes réelles ; le test hors ligne la réduit).
+# mis à l'échelle par WAIT_SCALE : variable PROGRESS_WAIT (défaut 11, secondes réelles ; le test hors ligne la réduit) ; I41 joue une
+# lecture en temps réel (PROGRESS_STEP = secondes réelles entre deux Progress, défaut 1).
 # Usage : tests/integration/22-avancement.sh [I27 I33 …]   (sans liste : tous les scénarios)
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/int-lib.sh"
@@ -439,14 +440,26 @@ i41() {
   play_progress "$U2" "$T2" "$item" "$sid" "$pa" false >/dev/null
   wait_position "$U1" "$T1" "$item" "$pa" 10 || true
   ck I41.t0 "1er Progress (10 %, sans pause) : u1 à la position de u2" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\",\"expected\":$pa}" test "$(position_of "$U1" "$T1" "$item")" = "$pa"
-  wait_interval
-  play_progress "$U2" "$T2" "$item" "$sid" "$pb" false >/dev/null
-  wait_position "$U1" "$T1" "$item" "$pb" 10 || true
-  ck I41.t1 "10 s plus tard (20 %, toujours sans pause) : u1 suit sans arrêt ni pause" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\",\"expected\":$pb}" test "$(position_of "$U1" "$T1" "$item")" = "$pb"
-  wait_interval
-  play_progress "$U2" "$T2" "$item" "$sid" "$pc" false >/dev/null
-  wait_position "$U1" "$T1" "$item" "$pc" 10 || true
-  ck I41.t2 "encore 10 s plus tard (30 %) : u1 suit" "{\"u1\":\"$(position_of "$U1" "$T1" "$item")\",\"expected\":$pc}" test "$(position_of "$U1" "$T1" "$item")" = "$pc"
+  # Lecture en TEMPS RÉEL (1× la vitesse, un Progress par seconde, position = pa + k s) : Emby extrapole la position de la session
+  # depuis le dernier rapport + le temps écoulé, donc des SAUTS de position (p. ex. +10 % en 11 s) sont déformés par Emby lui-même
+  # (QA 20260930-090324 : u1 = précédente + ~11 s). CA1 inchangé : u1 suit avec <= ~12 s de retard, sans arrêt ni pause.
+  local k pos lag=$((12*10000000)) prev=$pa c1 c2 u1now
+  local steps=27
+  for ((k=1; k<=steps; k++)); do
+    sleep "${PROGRESS_STEP:-1}"
+    pos=$((pa + k*10000000))
+    play_progress "$U2" "$T2" "$item" "$sid" "$pos" false >/dev/null
+    if [[ $k == 13 ]]; then
+      u1now=$(position_of "$U1" "$T1" "$item"); c1="{\"u1\":\"$u1now\",\"reported\":$pos,\"previous\":$prev}"
+      ck I41.t1 "à mi-lecture (~13 s sans pause) : u1 a AVANCÉ depuis la 1re position et suit u2 avec <= 12 s de retard" "$c1" test "$u1now" -gt "$prev" -a "$u1now" -le "$pos" -a "$u1now" -ge "$((pos - lag))"
+      prev=$u1now
+    fi
+    if [[ $k == $steps ]]; then
+      u1now=$(position_of "$U1" "$T1" "$item"); c2="{\"u1\":\"$u1now\",\"reported\":$pos,\"previous\":$prev}"
+      ck I41.t2 "en fin de séquence (~27 s sans pause) : u1 a encore avancé et suit u2 avec <= 12 s de retard" "$c2" test "$u1now" -gt "$prev" -a "$u1now" -le "$pos" -a "$u1now" -ge "$((pos - lag))"
+      pc=$pos
+    fi
+  done
   st1=$(state | jq -r '.positionProgress.propagated // 0')
   ck I41.counter "Diagnostics/State.positionProgress.propagated augmente d'au moins 3 (Progress périodiques comptés, pas journalisés)" "{\"delta\":$((st1-st0))}" test "$((st1-st0))" -ge 3
   j=$(journal "PositionPropagation")
