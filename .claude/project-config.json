@@ -4,7 +4,7 @@
   "org": "CCoupel",
   "project": "Emby_PlaySync",
   "description": "Plugin Emby Media Server (C#/.NET 6) qui partage et synchronise des playlists « À voir » entre utilisateurs : une playlist appartient à un propriétaire, elle est répliquée chez les membres, et un média lu est retiré de la liste et marqué lu pour les membres du groupe.",
-  "version": "0.5.0",
+  "version": "1.2.1",
   "initialized_at": "2026-09-26",
   "initialized_from": "manual",
   "src_dir": "src/EmbySharedPlaylist",

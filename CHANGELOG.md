@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] — 2026-09-30
+
+**Status**: DRAFT (review/QA pending)
+
+### Changed
+
+- **Propagation continue de l'avancement** (#58) : l'avancement de lecture est maintenant propagé **pendant la lecture** à chaque `PlaybackProgress`, au plus une fois toutes les 10 s par couple (déclencheur, média) ; pause et arrêt restent immédiats. Corrige : un membre ne voyait pas l'avancement d'une lecture continue sans pause jusqu'à la fin.
+- **Fin de lecture** : si `propager-lu=OUI` est aussi active sur la playlist, la position écrite chez les membres est **0** (aucun point de reprise, miroir du déclencheur) ; sinon position d'arrêt brute (S9f v1.2.0). Les playlists visées sont celles mémorisées pendant la lecture, même si `remove-si-lu` a retiré le média avant l'arrêt. Corrige : « lu » posé chez le membre mais point de reprise périmé.
+- **Journal diagnostics** : `PositionPropagation.Detail` gagne `trigger=<pause|stop|completion>`; les propagations issues d'un `PlaybackProgress` périodique ne sont **pas** journalisées (bruit). Nouvelle clé `Diagnostics/State.PositionProgress` : compteurs `{ Propagated, Throttled, LockBusy }`. `Diagnostics/State.Handler` ne mesure plus les Periodic (biais sur les moyennes/max).
+
+### Fixed
+
+- **Position non mise à jour en fin de lecture** (#58) : quand une lecture continuit jusqu'au bout sans pause, la position n'était écrite chez le membre que si `propager-avancement=OUI` était actif. Maintenant elle est écrite dès le premier `PlaybackProgress` ≤ 10 s après le dernier, et remise à 0 si `propager-lu=OUI` aussi (décorrélation du flag lu).
+
 ## [1.2.0] — 2026-09-29
 
 **Status**: VALIDATED WITH RESERVATIONS (QA: 897/897 tests pass; coverage 63.6% global; manual UI and platform verification pending)
