@@ -1,5 +1,13 @@
 # Changelog des contrats
 
+## [20260930] — v1.2.1 : BUGFIX avancement synchronisé en continu (D23)
+
+- **[CHANGED — comportement]** `propager-avancement` : la position est propagée aussi **pendant la lecture**, à chaque `ISessionManager.PlaybackProgress`, au plus **une fois toutes les 10 s** par couple (déclencheur, média) ; pause (transition) et arrêt restent immédiats ; seuil de 30 s (position absolue) inchangé. Corrige : un membre ne voyait pas l'avancement d'une lecture continue sans pause jusqu'à la fin.
+- **[CHANGED — comportement]** Fin de lecture (`PlayedToCompletion=true`) : si `propager-lu=OUI` est aussi active sur la playlist, la position écrite chez les membres est **0** (aucun point de reprise, comme chez le déclencheur) ; sinon position d'arrêt brute (S9f inchangé). Les playlists ciblées sont celles mémorisées pendant la lecture, même si `remove-si-lu` a retiré le média avant l'arrêt. Corrige : « lu » posé chez le membre mais point de reprise périmé.
+- **[CHANGED]** `Diagnostics/Journal` : `PositionPropagation.Detail` gagne `trigger=<pause|stop|completion>` (ajout en fin, rétrocompatible) ; les propagations issues d'un `PlaybackProgress` périodique ne sont **pas** journalisées (bruit).
+- **[NEW]** `Diagnostics/State.PositionProgress` : `{ Propagated, Throttled, LockBusy }` (clé ajoutée, rétrocompatible).
+- **[INFO]** Aucun endpoint ni étiquette modifiés ; aucun BREAKING de forme. `HelpText.V3` inchangé (« pause, arrêt » reste vrai) ; seule la description de l'option sur la page utilisateur change (maquette `v1.2.1/ui`).
+
 ## [20260929] — v1.2.0 : décorrélation lu / avancement (#56, #57) et création de playlist (#55)
 
 - **[BREAKING — comportement]** `propager-lu` ne propage plus que le **flag lu** : la position de lecture relève de la nouvelle famille `propager-avancement` (D21). **Aucune migration, aucun héritage** : sur une playlist existante, `propager-avancement` est absente, `=NON` est posé à la première détection, et l'avancement **cesse** d'être propagé jusqu'à activation explicite par le propriétaire.
