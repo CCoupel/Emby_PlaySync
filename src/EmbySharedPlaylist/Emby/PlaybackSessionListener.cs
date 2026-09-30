@@ -34,9 +34,6 @@ public sealed class PlaybackSessionListener : IServerEntryPoint
     /// <summary>Arrêts/pauses dont la POSITION ABSOLUE dans le média est en deçà de ce seuil sont ignorés (bruit, ~30 s).</summary>
     public static readonly long MinPositionTicks = PlaybackPositionEngine.MinPositionTicks;
 
-    /// <summary>Repli de fin de lecture : arrêt à au moins cette part de la durée du média (avec lu=vrai et position 0 chez le déclencheur).</summary>
-    private const double CompletionFallbackRatio = 0.9;
-
     private readonly ISessionManager _sessionManager;
 
     public PlaybackSessionListener(ISessionManager sessionManager, IUserDataManager userDataManager, ILibraryManager libraryManager,
@@ -92,7 +89,7 @@ public sealed class PlaybackSessionListener : IServerEntryPoint
                 case PlaybackSyncDecision.Periodic:
                     // Bruit d'un Progress périodique (position absente / < 30 s, ex. Progress à 0 du démarrage) : silencieux.
                     if (e.PlaybackPositionTicks is not long periodicTicks || periodicTicks < MinPositionTicks) return;
-                    Propagate(userId, itemId, periodicTicks, PositionTrigger.Periodic, PluginRuntime.PlaybackSync.GetFreshTargets(userId, itemId));
+                    Propagate(userId, itemId, periodicTicks, PositionTrigger.Periodic, PluginRuntime.PlaybackSync.GetFreshTargets(userId, itemId), e.PlaySessionId);
                     return;
                 case PlaybackSyncDecision.PauseTransition:
                     TryPropagateOrJournal(userId, itemId, e.PlaybackPositionTicks, PositionTrigger.Pause, null);
@@ -139,10 +136,9 @@ public sealed class PlaybackSessionListener : IServerEntryPoint
     {
         try
         {
-            var runtime = e.Item?.RunTimeTicks;
-            if (runtime is not long total || total <= 0 || e.PlaybackPositionTicks is not long pos || pos < total * CompletionFallbackRatio) return false;
             var data = PluginRuntime.UserData;
-            return data != null && data.IsPlayed(userId, itemId) == true && data.GetPosition(userId, itemId) == 0;
+            if (data == null) return false;
+            return PlaybackCompletion.LooksCompleted(e.Item?.RunTimeTicks, e.PlaybackPositionTicks, data.IsPlayed(userId, itemId), data.GetPosition(userId, itemId));
         }
         catch { return false; }
     }
@@ -178,11 +174,15 @@ public sealed class PlaybackSessionListener : IServerEntryPoint
     }
 
     /// <summary>Appelle le moteur puis met à jour le tracker (cibles mémorisées, minuterie de l'intervalle si aucun verrou occupé).</summary>
-    private static void Propagate(string userId, string itemId, long ticks, PositionTrigger trigger, IReadOnlyCollection<string>? targets)
+    private static void Propagate(string userId, string itemId, long ticks, PositionTrigger trigger, IReadOnlyCollection<string>? targets, string? playSessionId = null)
     {
-        var result = PluginRuntime.PositionEngine?.Handle(userId, itemId, ticks, trigger, targets);
+        var sync = PluginRuntime.PlaybackSync;
+        Func<bool>? isOpen = trigger == PositionTrigger.Periodic ? () => sync.IsOpen(userId, itemId, playSessionId) : null;
+        var result = PluginRuntime.PositionEngine?.Handle(userId, itemId, ticks, trigger, targets, isOpen);
         if (result == null || trigger == PositionTrigger.Completion || trigger == PositionTrigger.Stop) return;
-        if (result.CandidatePlaylistIds != null) PluginRuntime.PlaybackSync.SetTargets(userId, itemId, result.CandidatePlaylistIds);
+        // M1 : les cibles ne sont (re)datées que par une VRAIE résolution (targets == null) ; un Periodic qui réutilise les cibles
+        // mémorisées ne les rafraîchit pas, sinon la péremption de 5 min ne jouerait jamais.
+        if (targets == null && result.CandidatePlaylistIds != null) sync.SetTargets(userId, itemId, result.CandidatePlaylistIds);
         if (result.LockBusy == 0) PluginRuntime.PlaybackSync.MarkPropagated(userId, itemId, ticks);
     }
 

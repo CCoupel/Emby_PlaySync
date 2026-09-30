@@ -6,6 +6,7 @@
 - **[CHANGED — comportement]** Fin de lecture (`PlayedToCompletion=true`) : si `propager-lu=OUI` est aussi active sur la playlist, la position écrite chez les membres est **0** (aucun point de reprise, comme chez le déclencheur) ; sinon position d'arrêt brute (S9f inchangé). Les playlists ciblées sont celles mémorisées pendant la lecture, même si `remove-si-lu` a retiré le média avant l'arrêt. Corrige : « lu » posé chez le membre mais point de reprise périmé.
 - **[CHANGED]** `Diagnostics/Journal` : `PositionPropagation.Detail` gagne `trigger=<pause|stop|completion>` (ajout en fin, rétrocompatible) ; les propagations issues d'un `PlaybackProgress` périodique ne sont **pas** journalisées (bruit).
 - **[NEW]** `Diagnostics/State.PositionProgress` : `{ Propagated, Throttled, LockBusy }` (clé ajoutée, rétrocompatible).
+- **[CHANGED — sens]** `Diagnostics/State.Handler` ne mesure plus les propagations issues d'un `PlaybackProgress` périodique (≈ 1 / 10 s par couple : elles biaiseraient la moyenne et le max) ; il reste limité aux traitements discrets (retrait, propagation du lu, pause/arrêt/fin de lecture).
 - **[INFO]** Aucun endpoint ni étiquette modifiés ; aucun BREAKING de forme. `HelpText.V3` inchangé (« pause, arrêt » reste vrai) ; seule la description de l'option sur la page utilisateur change (maquette `v1.2.1/ui`).
 
 ## [20260929] — v1.2.0 : décorrélation lu / avancement (#56, #57) et création de playlist (#55)

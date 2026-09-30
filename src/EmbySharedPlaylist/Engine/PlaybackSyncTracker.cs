@@ -82,8 +82,8 @@ public sealed class PlaybackSyncTracker
         lock (_lock)
         {
             var s = Get(key);
-            if (s != null && s.Closed && string.Equals(s.PlaySessionId, psid, StringComparison.Ordinal))
-                return PlaybackSyncDecision.Ignored; // Progress tardif d'une session déjà arrêtée
+            if (s != null && s.Closed && psid.Length > 0 && string.Equals(s.PlaySessionId, psid, StringComparison.Ordinal))
+                return PlaybackSyncDecision.Ignored; // Progress tardif d'une session déjà arrêtée (garde : jamais si psid vide, sinon le couple resterait muet)
             if (s == null || s.Closed || !string.Equals(s.PlaySessionId, psid, StringComparison.Ordinal))
             {
                 s = new Session { PlaySessionId = psid }; // nouvelle session (Start manqué, redémarrage du plugin…)
@@ -100,6 +100,22 @@ public sealed class PlaybackSyncTracker
         }
     }
 
+    /// <summary>
+    /// Vrai si la session du couple est ouverte (non arrêtée) avec ce <c>PlaySessionId</c> (vide toléré). Re-testé par le moteur
+    /// sous les verrous avant l'écriture d'un Progress périodique : un Stop/Completion concurrent ferme la session avant
+    /// d'écrire, un Periodic tardif ne doit alors plus rien écrire.
+    /// </summary>
+    public bool IsOpen(string userId, string itemId, string? playSessionId)
+    {
+        var psid = playSessionId ?? string.Empty;
+        lock (_lock)
+        {
+            var s = Get((userId, itemId));
+            if (s == null || s.Closed) return false;
+            return psid.Length == 0 || s.PlaySessionId.Length == 0 || string.Equals(s.PlaySessionId, psid, StringComparison.Ordinal);
+        }
+    }
+
     /// <summary>Note une propagation aboutie (démarre la minuterie de l'intervalle).</summary>
     public void MarkPropagated(string userId, string itemId, long ticks)
     {
@@ -112,7 +128,7 @@ public sealed class PlaybackSyncTracker
         }
     }
 
-    /// <summary>Mémorise les playlists cibles du couple (ids).</summary>
+    /// <summary>Mémorise les playlists cibles du couple (ids). À n'appeler que pour une VRAIE résolution (elle date les cibles).</summary>
     public void SetTargets(string userId, string itemId, IReadOnlyList<string> targets)
     {
         lock (_lock)
@@ -124,13 +140,13 @@ public sealed class PlaybackSyncTracker
         }
     }
 
-    /// <summary>Cibles mémorisées si elles existent et ne sont pas périmées (<see cref="TargetsMaxAge"/>) ; sinon null.</summary>
+    /// <summary>Cibles mémorisées si elles existent, non vides et non périmées (<see cref="TargetsMaxAge"/>) ; sinon null (= à re-résoudre).</summary>
     public IReadOnlyList<string>? GetFreshTargets(string userId, string itemId)
     {
         lock (_lock)
         {
             var s = Get((userId, itemId));
-            if (s == null || s.Closed || s.Targets == null) return null;
+            if (s == null || s.Closed || s.Targets == null || s.Targets.Count == 0) return null;
             return _clock.UtcNow - s.TargetsAt > TargetsMaxAge ? null : s.Targets;
         }
     }
@@ -160,7 +176,7 @@ public sealed class PlaybackSyncTracker
         }
     }
 
-    /// <summary>Lecture d'un couple existant : rafraîchit sa position LRU (le plus récemment utilisé en tête).</summary>
+    /// <summary>Lecture d'un couple existant : rafraîchit sa position LRU (choix conscient, alignement sur l'ancien PauseTransitionTracker) (le plus récemment utilisé en tête).</summary>
     private Session? Get((string User, string Item) key)
     {
         if (!_index.TryGetValue(key, out var node)) return null;

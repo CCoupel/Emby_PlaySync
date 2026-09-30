@@ -81,7 +81,8 @@ public sealed class PlaybackPositionEngine
     /// (<c>Diagnostics/State.Handler</c>) annonce les deux flux d'événements confondus.
     /// </summary>
     public PositionPropagationResult Handle(string userId, string itemId, long ticks,
-        PositionTrigger trigger = PositionTrigger.Stop, IReadOnlyCollection<string>? targets = null)
+        PositionTrigger trigger = PositionTrigger.Stop, IReadOnlyCollection<string>? targets = null,
+        Func<bool>? isSessionOpen = null)
     {
         var total = Stopwatch.StartNew();
         var candidates = 0;
@@ -109,7 +110,7 @@ public sealed class PlaybackPositionEngine
                     }
                     try
                     {
-                        var outcome = HandlePlaylist(snapshot, userId, itemId, ticks, trigger, total, ref lockBusy);
+                        var outcome = HandlePlaylist(snapshot, userId, itemId, ticks, trigger, total, ref lockBusy, isSessionOpen);
                         if (outcome < 0) skipped++;
                         else if (outcome > 0) { changed++; propagated += outcome; }
                         else skipped++;
@@ -135,7 +136,8 @@ public sealed class PlaybackPositionEngine
         }
         finally
         {
-            _handler?.Record(total.ElapsedMilliseconds);
+            // v1.2.1 (I1) : les Progress périodiques (~1 / 10 s / couple) ne sont pas mesurés, ils biaiseraient State.Handler.
+            if (trigger != PositionTrigger.Periodic) _handler?.Record(total.ElapsedMilliseconds);
         }
     }
 
@@ -181,7 +183,7 @@ public sealed class PlaybackPositionEngine
 
     /// <returns>Nombre de membres propagés (&gt; 0), 0 si rien propagé (inactif/déjà à cette position/personne), -1 si passée (verrou occupé).</returns>
     private int HandlePlaylist(PlaylistSnapshot snapshot, string userId, string itemId, long ticks, PositionTrigger trigger,
-        Stopwatch total, ref int lockBusyTotal)
+        Stopwatch total, ref int lockBusyTotal, Func<bool>? isSessionOpen)
     {
         var sw = Stopwatch.StartNew();
         var timeout = trigger == PositionTrigger.Periodic && PeriodicLockTimeout < _lockTimeout ? PeriodicLockTimeout : _lockTimeout;
@@ -192,6 +194,10 @@ public sealed class PlaybackPositionEngine
             JournalFor(trigger, JournalEntries.SkippedEntry(_clock, snapshot.Id, "lock-busy"));
             return -1;
         }
+
+        // Progress périodique tardif (course avec Stop/Completion) : la session a pu être fermée entre la décision et le
+        // verrou ; abandon silencieux pour ne pas écraser la position de fin (0 ou position d'arrêt).
+        if (trigger == PositionTrigger.Periodic && isSessionOpen != null && !isSessionOpen()) return 0;
 
         // Première détection AVANT l'évaluation (pose des NON, message d'aide) ; verrou réentrant : même fil.
         if (!_seen.IsSeen(snapshot.Id)) _defaults.OnFirstDetection(snapshot);
@@ -236,6 +242,8 @@ public sealed class PlaybackPositionEngine
                 JournalFor(trigger, SkippedForMember(memberId, snapshot.Id, itemId, "lock-busy"));
                 continue;
             }
+
+            if (trigger == PositionTrigger.Periodic && isSessionOpen != null && !isSessionOpen()) break; // idem, sous le verrou du membre
 
             if (!_userData.HasAccess(memberId, itemId))
             {
