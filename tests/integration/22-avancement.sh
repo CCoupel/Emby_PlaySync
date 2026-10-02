@@ -71,6 +71,7 @@ U1=$(envget "$USERS_ENV" TEST_U1_ID); U2=$(envget "$USERS_ENV" TEST_U2_ID); U3=$
 T1=$(login test_u1 "$(envget "$USERS_ENV" TEST_U1_PW)")
 T2=$(login test_u2 "$(envget "$USERS_ENV" TEST_U2_PW)")
 T3=$(login test_u3 "$(envget "$USERS_ENV" TEST_U3_PW)")
+purge_stale_test_playlists   # #60 : aucune playlist SPIKE résiduelle d'un run précédent (sauf imbriqué : INT_NESTED=1)
 
 st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=RunTimeTicks&SortBy=SortName&Limit=200")
 [[ $st == 200 ]] || die "GET /Items -> $st"

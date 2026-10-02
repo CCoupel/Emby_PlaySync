@@ -353,6 +353,34 @@ cleanup_registered_playlists() {
   echo "  [OK] nettoyage final : $count playlist(s) enregistrée(s) supprimée(s)"
 }
 
+# purge_stale_test_playlists : supprime toute playlist SPIKE* visible de test_u1 (enregistrée ou non) laissée par un run précédent (#60) :
+# une playlist OUI/OUI résiduelle (ex. SPIKE-I17) partage son média avec un scénario ultérieur et propage le « lu » à tort.
+# Ignorée quand le script est imbriqué (INT_NESTED=1, ex. 20 relancé par I26 de 21) : elle supprimerait les playlists du script parent.
+purge_stale_test_playlists() {
+  if [[ ${INT_NESTED:-0} == 1 ]]; then return 0; fi
+  local st id n=0
+  st=$(api GET "/Users/$U1/Items?Recursive=true&IncludeItemTypes=Playlist")
+  if [[ $st != 200 ]]; then echo "  [..] purge des playlists SPIKE résiduelles ignorée (GET -> HTTP $st)"; return 0; fi
+  while IFS= read -r id; do
+    [[ -n $id ]] || continue
+    st=$(api DELETE "/Items/$id"); if [[ $st == 2* ]]; then n=$((n+1)); fi
+  done < <(jq -r '.Items[]|select((.Name//"")|startswith("SPIKE"))|.Id' "$RESP")
+  echo "  [OK] playlists SPIKE résiduelles purgées : $n"
+}
+# playlists_containing ITEM [PLAYLIST_A_IGNORER...] -> ids (un par ligne) des playlists visibles de test_u2/test_u3 qui contiennent ITEM
+playlists_containing() {
+  local item=$1; shift
+  local u id st seen=" $* "
+  for u in "$U2" "$U3"; do
+    st=$(api GET "/Users/$u/Items?Recursive=true&IncludeItemTypes=Playlist")
+    [[ $st == 200 ]] || continue
+    jq -r '.Items[].Id' "$RESP" | while IFS= read -r id; do echo "$id"; done
+  done | sort -u | while IFS= read -r id; do
+    [[ $seen == *" $id "* ]] && continue
+    if [[ $(count_item "$id" "$item") -ge 1 ]]; then echo "$id"; fi
+  done
+}
+
 NON_RM='remove-si-lu=NON'; NON_PR='propager-lu=NON'; OUI_RM='remove-si-lu=OUI'; OUI_PR='propager-lu=OUI'
 NON_AV='propager-avancement=NON'; OUI_AV='propager-avancement=OUI'   # v1.2.0 (#56, D21) : 3e famille, indépendante de propager-lu
 has_tag() { jq -e --arg t "$2" 'index($t)!=null' <<<"$1" >/dev/null; }

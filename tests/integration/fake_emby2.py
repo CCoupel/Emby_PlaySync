@@ -360,6 +360,10 @@ class H(http.server.BaseHTTPRequestHandler):
         r = re.fullmatch(r"/Users/(\w+)/PlayedItems/(\d+)", p)
         if r:
             set_played(r.group(1), r.group(2), m == "POST"); return self.out(200, {})
+        r = re.fullmatch(r"/Users/(\w+)/Items", p)
+        if r and m == "GET":   # liste des playlists visibles d'un compte (purge SPIKE résiduelles, #60)
+            if "Playlist" not in q.get("IncludeItemTypes", [""])[0]: return self.out(200, {"Items": []})
+            return self.out(200, {"Items": [{"Id": pid, "Name": x["name"]} for pid, x in PL.items() if member(x, r.group(1))]})
         r = re.fullmatch(r"/Users/(\w+)/Items/(\d+)", p)
         if r and m == "GET":
             if r.group(2) in PL: return self.out(200, self.dto(r.group(2)))
@@ -415,5 +419,12 @@ class H(http.server.BaseHTTPRequestHandler):
         r = re.fullmatch(r"/Items/(\d+)/MakePublic", p)
         if r: PL[r.group(1)]["public"] = True; return self.out(204)
         return self.out(404, {"error": p})
+
+if os.environ.get("FAKE_STALE") == "1":   # #60 : playlist SPIKE-I17 OUI/OUI résiduelle (non supprimée par un run précédent de 20), membre test_u3
+    _pid = str(next(ids))
+    PL[_pid] = {"name": "SPIKE-I17", "owner": USERS["test_u1"], "shares": {USERS["test_u2"]: "Write", USERS["test_u3"]: "Read"},
+                "tags": ["remove-si-lu=OUI", "propager-lu=OUI", "propager-avancement=NON"], "overview": "x", "public": False,
+                "entries": [{"pid": str(next(ids)), "item": MEDIA[0]}, {"pid": str(next(ids)), "item": MEDIA[1]}]}
+    SEEN.add(_pid)
 
 http.server.ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()

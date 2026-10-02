@@ -119,5 +119,18 @@ run ok I26
 echo "$OUT" | grep -q "nettoyage final" && ok "nettoyage final exécuté (imbrication I26)" || ko "nettoyage final absent de la sortie"
 [[ ! -s "$W/private/test-state.json" ]] && ok "private/test-state.json vidé après coup (playlists des deux scripts nettoyées)" || ko "test-state.json encore rempli après le run"
 
+echo "== 6. #60 : playlist SPIKE-I17 résiduelle (OUI/OUI, membre test_u3) : purgée au démarrage, I23 reste vert"
+run ok I23
+[[ $RC == 0 ]] && ok "code 0 (sans résidu : référence)" || ko "rc=$RC"
+export FAKE_STALE=1
+run ok I23
+[[ $RC == 0 ]] && ok "code 0 avec résidu SPIKE-I17" || { ko "rc=$RC"; echo "$OUT" | tail -20; }
+echo "$OUT" | grep -q "playlists SPIKE résiduelles purgées : 1" && ok "résidu purgé (1 playlist)" || ko "purge du résidu absente"
+[[ $(status_of I23.S6a.isolated) == OK && $(status_of I23.S6a.propagation) == OK ]] && ok "I23.S6a.isolated et .propagation OK (u3=false)" || ko "I23.S6a : $(status_of I23.S6a.isolated)/$(status_of I23.S6a.propagation)"
+echo "== 6b. même résidu SANS purge (mode imbriqué) : la pollution est détectée explicitement"
+INT_NESTED=1 run ok I23
+[[ $(status_of I23.S6a.isolated) == KO ]] && ok "I23.S6a.isolated : KO (pollution d'environnement détectée)" || ko "I23.S6a.isolated : $(status_of I23.S6a.isolated)"
+unset FAKE_STALE
+
 [[ $fail == 0 ]] || { echo "ECHEC test-propagation-flow-offline" >&2; exit 1; }
 echo "test-propagation-flow-offline : OK"
