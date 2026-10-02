@@ -486,7 +486,7 @@ i16() {
   ck I16.removal "un seul Removal pour un retrait" "$j1" test "$(jcount "$j1" "$pl" Removal)" = 1
   # un seul RemoveFromPlaylist => au plus un écho synchrone (PlaylistItemsRemoved, reentrant) et un écho différé (ItemUpdated du worker de
   # rafraîchissement, already-seen) — spec §S8 l.447. F1 (v1.2.2) : le WriteScope est révoqué à la sortie de l'écriture, donc l'écho différé
-  # du worker n'est PLUS compté reentrant (avant F1 : reentrant +2 / already-seen +0). Les bornes (≤ 1 chacune) restent inchangées.
+  # du worker n'est PLUS compté reentrant (avant F1 : reentrant +2 / already-seen +0) — vrai seulement si ReadRemovalEngine ne pose AUCUN scope externe autour de la boucle (M1, 564f950). Evidence {before,after} par compteur consignée dans le JSON. Les bornes (≤ 1 chacune) restent inchangées.
   ck I16.echo.removal.reentrant "au plus un écho synchrone (PlaylistItemsRemoved, reentrant) pour l'unique écriture de retrait (+$((rd-rc))) ; F1 : le worker différé n'y est plus compté" "{\"before\":$rc,\"after\":$rd}" test "$((rd-rc))" -le 1
   ck I16.echo.removal.deferred "au plus un écho différé (ItemUpdated du worker, already-seen) pour l'unique écriture de retrait (+$((ad-ac)))" "{\"before\":$ac,\"after\":$ad}" test "$((ad-ac))" -le 1
   ck I16.norepose "6 s plus tard : aucune pose ni nouveau retrait (pas de boucle)" "null" \
