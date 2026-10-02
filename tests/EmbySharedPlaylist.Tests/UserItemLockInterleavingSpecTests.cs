@@ -318,4 +318,23 @@ public class UserItemLockInterleavingSpecTests
         t.Join();
         return acquired;
     }
+
+    [Fact]
+    public void V121_ConcurrentReadFlowAndCompletionZero_ToTheSameMember_ThePlayedFlagAndTheZeroPositionBothSurvive()
+    {
+        // #58 (CA4, CA7) : à la fin de lecture, le flux du lu (MarkPlayed) et la remise à 0 de la position s'exécutent chez le
+        // même membre, dans n'importe quel ordre : lu=vrai ET position=0 dans TOUS les ordres (verrou (utilisateur, média)).
+        for (var iteration = 0; iteration < 12; iteration++)
+        {
+            var r = new Rig("propager-lu=OUI,propager-avancement=OUI,remove-si-lu=NON");
+            r.UserData.SetPosition("v", "m1", 95 * Min);
+            Parallel.Invoke(
+                () => r.ReadEngine.Handle("t1", "m1"),
+                () => r.PositionEngine.Handle("t2", "m1", 100 * Min, PositionTrigger.Completion));
+
+            Assert.True(r.UserData.PlayedOf("v", "m1"), $"lu perdu (itération {iteration})");
+            Assert.Equal(0L, r.UserData.PositionOf("v", "m1"));
+            Assert.Empty(r.Journal.Of("Error"));
+        }
+    }
 }

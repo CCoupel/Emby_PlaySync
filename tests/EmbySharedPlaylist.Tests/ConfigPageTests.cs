@@ -292,4 +292,36 @@ public class ConfigPageTests
         Assert.DoesNotContain("confirm(", js);
         Assert.DoesNotContain("alert(", js);
     }
+
+    // ---- v1.2.1 (#58, D23) : description de « Propager l'avancement » (maquette docs/mockup/v1.2.1/ui) — ajouts ADDITIFS --------------
+
+    [Fact]
+    public void UserScript_ProgressDescription_FR_MentionsPlaybackEveryAboutTenSeconds_Pause_And_Stop_v121()
+    {
+        var js = ReadResource("EmbySharedPlaylist.Configuration.userScript.js");
+        var fr = FrBlock.Match(js).Groups[1].Value;
+        var m = Regex.Match(fr, @"propagateProgressDesc\s*:\s*(['""])(.*?)\1", RegexOptions.Singleline);
+        Assert.True(m.Success, "propagateProgressDesc introuvable dans le dictionnaire FR");
+        var text = m.Groups[2].Value;
+        Assert.Contains("pendant la lecture", text);
+        Assert.Contains("10 s", text);
+        Assert.Contains("pause", text);
+        Assert.Contains("arrêt", text);
+        Assert.Contains("Ne marque jamais", text);       // toujours : jamais « lu » (D21)
+    }
+
+    [Fact]
+    public void UserScript_ProgressDescription_EN_MentionsPlaybackEveryAboutTenSeconds_Pause_And_Stop_v121()
+    {
+        var js = ReadResource("EmbySharedPlaylist.Configuration.userScript.js");
+        var en = EnBlock.Match(js).Groups[1].Value;
+        var m = Regex.Match(en, @"propagateProgressDesc\s*:\s*(['""])(.*?)\1", RegexOptions.Singleline);
+        Assert.True(m.Success, "propagateProgressDesc introuvable dans le dictionnaire EN");
+        var text = m.Groups[2].Value;
+        Assert.Contains("during playback", text);
+        Assert.Contains("10 s", text);
+        Assert.Contains("pause", text);
+        Assert.Contains("stop", text);
+        Assert.Contains("Never marks", text);
+    }
 }

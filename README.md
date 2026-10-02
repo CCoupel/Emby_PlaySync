@@ -10,7 +10,7 @@ Une playlist appartient à un utilisateur (le propriétaire), qui la partage ave
 |---|---|---|
 | `remove-si-lu` | Quand un membre passe un média de non lu à **lu**, il est **retiré de la liste pour tous** (nécessite `propager-lu=OUI` depuis v1.2.0). | 0.2.0 |
 | `propager-lu` | Le **flag lu** est copié chez les autres membres quand l'un d'eux termine un média. Depuis v1.2.0, ne couvre plus l'avancement (c'est le rôle de `propager-avancement`). | 0.3.0 / 1.2.0 |
-| `propager-avancement` | L'**avancement de lecture** — position à la pause et à l'arrêt, ≥ 30 s de lecture — est copié chez les autres membres pour commencer avec un compte et poursuivre avec l'autre, la dernière lecture gagne. Nouveau en v1.2.0. | 1.2.0 |
+| `propager-avancement` | L'**avancement de lecture** — position en continu (environ toutes les 10 s pendant la lecture, toujours à la pause et à l'arrêt), ≥ 30 s de lecture — est copié chez les autres membres pour commencer avec un compte et poursuivre avec l'autre, la dernière lecture gagne. Nouveau en v1.2.0, amélioré en v1.2.1. | 1.2.0 |
 
 Par défaut, les trois étiquettes sont à `NON` : le plugin ne change rien au comportement natif d'Emby (« legacy »). **Depuis v1.2.0** : `remove-si-lu` n'a d'effet que si `propager-lu` est aussi actif.
 
@@ -77,7 +77,7 @@ Règles communes aux trois étiquettes :
 
 - **`remove-si-lu=OUI` (dépend de `propager-lu=OUI`)** : quand un membre (propriétaire, Écriture ou Lecture) fait passer un média à « lu », il est **retiré de la liste pour tous**. Seule la **transition** non lu → lu déclenche le retrait : relire jusqu'au bout un média déjà lu ne le retire pas, et mettre en favori, importer ou masquer un film déjà vu non plus. **Changement v1.2.0** : cette option est désormais inerte sans `propager-lu=OUI`. Pour sortir à la main un média lu resté : décocher puis recocher « lu », ou le retirer directement.
 - **`propager-lu=OUI`** : le **flag lu** est copié chez les autres membres quand l'un d'eux termine un média (0.3.0). Seul le passage à lu est propagé, jamais le retour à non lu. Sans jamais modifier un flag déjà posé, et sans propager la position (c'est le rôle de `propager-avancement`).
-- **`propager-avancement=OUI`** (nouveau en v1.2.0) : l'**avancement de lecture** — position à la pause ou à l'arrêt, ≥ 30 s — est copié chez les autres membres **quel que soit l'état lu** (la dernière lecture gagne, dans les deux sens). Permet de commencer avec un compte et poursuivre avec l'autre. Indépendant de `propager-lu` : on peut propager l'avancement sans le flag, ou réciproquement.
+- **`propager-avancement=OUI`** (nouveau en v1.2.0, amélioré en v1.2.1) : l'**avancement de lecture** — position en continu (environ toutes les 10 s pendant la lecture, toujours à la pause ou à l'arrêt), ≥ 30 s — est copié chez les autres membres **quel que soit l'état lu** (la dernière lecture gagne, dans les deux sens). Permet de commencer avec un compte et poursuivre avec l'autre. Indépendant de `propager-lu` : on peut propager l'avancement sans le flag, ou réciproquement.
 
 Les trois options sont indépendantes dans leur activation (chacune fonctionne ou non), mais `remove-si-lu` a besoin de `propager-lu` pour avoir un effet. Un média lu n'est retiré que des listes dont son lecteur est membre (pas de transitivité).
 

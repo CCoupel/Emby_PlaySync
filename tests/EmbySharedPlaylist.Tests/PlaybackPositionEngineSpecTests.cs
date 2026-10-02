@@ -13,7 +13,7 @@ namespace EmbySharedPlaylist.Tests;
 /// propre à CETTE instance/boucle (copie de comportement, pas de code partagé) : mérite sa propre vérification, comme
 /// <see cref="ReadRemovalEngineBudgetSpecTests"/> pour le retrait/la propagation du lu.
 ///
-/// Chaîne complète (déclencheur ISessionManager -> PauseTransitionTracker/Stopped -> seuil 30 s -> PlaybackPositionEngine ;
+/// Chaîne complète (déclencheur ISessionManager -> PlaybackSyncTracker/Stopped -> seuil 30 s -> PlaybackPositionEngine ;
 /// depuis v1.2.0 (#57, D21) la garde D-c « déclencheur déjà lu » est SUPPRIMÉE et la famille est propager-avancement,
 /// pendant de <see cref="PropagationChainSpecTests"/> pour #20) : Emby/PlaybackSessionListener (livré, #45/#46) est un
 /// adaptateur SDK fin, comme EmbyPlaylistGateway/EmbyUserDataGateway — sa logique (TryExtract, seuil) est en méthodes
@@ -103,7 +103,7 @@ public class PlaybackPositionEngineSpecTests
         r.Engine(slow, TimeSpan.FromMilliseconds(120)).Handle("u", "m1", 999);
 
         var entry = r.Journal.Of("PositionPropagation").Single();
-        var parts = entry.Detail!.Split(' ').Select(p => p.Split('=')).ToDictionary(p => p[0], p => int.Parse(p[1]));
+        var parts = entry.Detail!.Split(' ').Select(p => p.Split('=')).Where(p => int.TryParse(p[1], out _)).ToDictionary(p => p[0], p => int.Parse(p[1]));
         // Le budget global est partagé entre tous les membres de la playlist : certains n'ont pas été atteints, sans
         // qu'aucune entrée Skipped ne soit journalisée POUR EUX (contrairement à no-access/same-position, qui sont
         // évalués) — juste silencieusement non traités, reprise implicite au prochain événement (aucune erreur).

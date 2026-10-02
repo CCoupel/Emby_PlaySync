@@ -37,7 +37,7 @@ public static class DiagnosticsMapper
     }
 
     public static DiagnosticsStateDto State(SeenPlaylists seen, LastPassInfo? lastPass, (long Count, long LastMs, long MaxMs) handler, int gracePasses,
-        IReadOnlyDictionary<string, long>? skipped = null)
+        IReadOnlyDictionary<string, long>? skipped = null, (long Propagated, long Throttled, long LockBusy)? positionProgress = null)
     {
         var counters = seen.Counters();
         return new DiagnosticsStateDto
@@ -59,6 +59,9 @@ public static class DiagnosticsMapper
                 },
             Handler = new DiagnosticsHandlerDto { Count = handler.Count, LastMs = handler.LastMs, MaxMs = handler.MaxMs },
             GracePasses = gracePasses,
+            PositionProgress = positionProgress is { } pp
+                ? new DiagnosticsPositionProgressDto { Propagated = pp.Propagated, Throttled = pp.Throttled, LockBusy = pp.LockBusy }
+                : new DiagnosticsPositionProgressDto(),
             SkippedCounts = skipped == null ? new Dictionary<string, long>() : new Dictionary<string, long>(skipped)
         };
     }

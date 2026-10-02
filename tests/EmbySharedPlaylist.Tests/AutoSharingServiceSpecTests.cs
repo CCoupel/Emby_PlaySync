@@ -9,7 +9,7 @@ namespace EmbySharedPlaylist.Tests;
 /// d'actions dans l'ordre où un vrai administrateur les vivrait), en complément boîte blanche
 /// d'<see cref="AutoSharingServiceDevTests"/> (déjà très complet : interrupteur, no-op déjà actif, jamais de
 /// révocation, D-e, isolation des erreurs par utilisateur, échec de la liste, annulation). Même esprit que
-/// <see cref="PauseTransitionTrackerSpecTests"/>/<see cref="PlayedTransitionTrackerSpecTests"/>.
+/// <see cref="PlaybackSyncTrackerSpecTests"/>/<see cref="PlayedTransitionTrackerSpecTests"/>.
 /// </summary>
 public class AutoSharingServiceSpecTests
 {

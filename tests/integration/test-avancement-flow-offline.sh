@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# test-avancement-flow-offline.sh — exécute 22-avancement.sh (I27-I40) DE BOUT EN BOUT contre un faux Emby
-# + faux moteur v1.2.0 local (fake_emby2.py, propagation de position comprise, trois familles, aucune garde D-c) dans une copie temporaire du
+# test-avancement-flow-offline.sh — exécute 22-avancement.sh (I27-I44) DE BOUT EN BOUT contre un faux Emby
+# + faux moteur v1.2.1 local (fake_emby2.py, propagation de position comprise, trois familles, aucune garde D-c, propagation périodique,
+# règle de fin de lecture, cibles mémorisées, Progress tardif ignoré — intervalle réduit FAKE_MIN_INTERVAL/PROGRESS_WAIT) dans une copie temporaire du
 # dépôt : aucun accès à emby2, aucun secret. Vérifie que le script lit bien les contrats et enchaîne les scénarios.
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -29,12 +30,12 @@ snap() { jq -nSc --argjson p "$POL" '{users:["admin","cyril","user2"], policies:
 
 run() { # MODE ARGS...
   local mode=$1; shift
-  python3 -W ignore "$HERE/fake_emby2.py" "$PORT" "$mode" & SRV=$!
+  FAKE_MIN_INTERVAL=1.5 python3 -W ignore "$HERE/fake_emby2.py" "$PORT" "$mode" & SRV=$!
   for _ in $(seq 25); do curl -s -o /dev/null "http://127.0.0.1:$PORT/emby/System/Info" && break; sleep 0.2; done
   users_env > "$W/private/test-users.env"
   snap > "$W/private/test-snapshot.json"
   set +e
-  OUT=$(cd "$W" && env PATH="$W/bin:$PATH" WAIT_SCALE=0.05 SPIKE_OUT="$W/out" \
+  OUT=$(cd "$W" && env PATH="$W/bin:$PATH" WAIT_SCALE=0.05 PROGRESS_WAIT=1.7 PROGRESS_STEP=0.15 SPIKE_OUT="$W/out" \
         bash tests/integration/22-avancement.sh "$@" 2>&1); RC=$?
   set -e
   kill $SRV 2>/dev/null || true; wait $SRV 2>/dev/null || true; SRV=""
@@ -55,7 +56,11 @@ for id in I27.propagated I27.notplayed I28.propagated I28.journal \
           I38.pause I38.stop I38.flags I38.stays I38.journal I38.noguard I38.norm \
           I39.position I39.l1_stays I39.s6 I39.no_lu_chain I39.u14b \
           I40.A.position I40.A.nolu I40.A.stays I40.B.nopos I40.B.lu I40.B.stillnopos I40.B.stays \
-          I35.noposition I35.nojournal \
+          I35.first I35.throttled I35.nojournal \
+          I41.t0 I41.t1 I41.t2 I41.counter I41.nojournal I41.pause I41.pausejournal I41.heartbeat I41.s6 I41.l1stays \
+          I42.rm.continuous I42.rm.played I42.rm.removed I42.rm.zero I42.rm.journal \
+          I42.norm.continuous I42.norm.played I42.norm.stays I42.norm.zero I42.norm.journal \
+          I43.position I43.stays I43.u14b I44.zero I44.nolate \
           I36.others I36.aggregate I36.permember I36.noerror \
           PROTECTED; do
   [[ $(status_of "$id") == OK ]] || ko "$id : $(status_of "$id")"
@@ -80,6 +85,12 @@ run nativeleak I39
 [[ $(status_of I39.s6) == KO ]] && ok "I39.s6 : KO (le « lu » natif d'origine plugin retire le média d'une autre liste : violation de S6)" || ko "I39.s6 : $(status_of I39.s6)"
 run nativeplayed I39
 [[ $RC == 0 ]] && ok "nativeplayed : code 0 (lu natif d'origine plugin, sans effet moteur)" || { ko "nativeplayed rc=$RC"; echo "$OUT" | grep -E "^  \[KO\]" | head -20; }
+
+echo "== 2c. défaut v1.2.0 du bug #58 détecté (pas de propagation en lecture continue, fin de lecture sans cibles mémorisées)"
+run v120 I41 I42
+[[ $RC == 1 ]] && ok "v120 : code 1" || ko "v120 rc=$RC"
+[[ $(status_of I41.t1) == KO ]] && ok "I41.t1 : KO (le membre ne suit pas une lecture continue sans pause : bug #58)" || ko "I41.t1 : $(status_of I41.t1)"
+[[ $(status_of I42.rm.continuous) == KO ]] && ok "I42.rm.continuous : KO (aucune propagation avant la fin : bug #58)" || ko "I42.rm.continuous : $(status_of I42.rm.continuous)"
 
 echo "== 3. scénario inconnu refusé"
 run ok I99; [[ $RC != 0 ]] && ok "scénario inconnu refusé" || ko "scénario inconnu accepté"

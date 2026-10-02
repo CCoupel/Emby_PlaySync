@@ -210,4 +210,22 @@ public class NativePlayedEchoSpecTests
         Assert.Equal(0, r.WriteTracker.Count);
         Assert.Contains("same-position", r.Journal.Details("Skipped"));
     }
+
+    [Fact]
+    public void V121_CompletionZeroWrite_ProducesOneConsumedEcho_NoReadFlow_NoRemoval_NothingPending()
+    {
+        // #58 : la remise à 0 de fin de lecture est une écriture du plugin comme une autre : un écho, consommé ; ni R4a ni R4b.
+        var r = new Rig();
+        var l1 = r.Playlist("L1", "propager-avancement=OUI,propager-lu=OUI,remove-si-lu=OUI", new[] { "u1", "u2" }, "F1");
+        r.Raw.SetPlayed("u1", "F1", true);            // le flux du lu est déjà passé chez u1
+        r.Raw.SetPosition("u1", "F1", 95 * Min);      // point de reprise laissé par la propagation périodique
+
+        r.PositionEngine.Handle("u2", "F1", 100 * Min, PositionTrigger.Completion);
+
+        Assert.Equal(0L, r.Raw.GetPosition("u1", "F1"));
+        Assert.Equal(new[] { PlaybackEventOutcome.Echo }, r.Emby.Outcomes);
+        Assert.Equal(0, r.ReadFlowCalls);
+        Assert.Equal(new[] { "F1" }, l1.Items);       // ce moteur ne retire jamais rien
+        Assert.Equal(0, r.WriteTracker.Count);
+    }
 }
