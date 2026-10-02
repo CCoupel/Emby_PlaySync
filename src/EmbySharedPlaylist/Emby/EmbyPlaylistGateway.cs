@@ -116,16 +116,43 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
             return true;
         }
 
-        var before = ItemCounts(read);
+        var guard = new EntryRemovalGuard(
+            read: () => ReadFlat(playlist),
+            removeByEntryId: entryId =>
+            {
+                using (WriteScope.Enter())
+                {
+                    var task = _playlistManager.RemoveFromPlaylist(playlist, new[] { entryId });
+                    if (!task.Wait(CallTimeoutMs)) throw new TimeoutException("RemoveFromPlaylist > 5 s");
+                    task.GetAwaiter().GetResult();
+                }
+            },
+            reAdd: lost => ReAdd(playlist, playlistId, lost),
+            waitRefreshIdle: () => WaitRefreshIdle(playlist),
+            logWrongEntry: detail =>
+            {
+                try { _journal?.Add(JournalEntries.Of(null, JournalEntries.Error, playlistId, detail)); } catch { }
+            },
+            pause: () => Thread.Sleep(RefreshPollMs * 2));
+        return guard.RemoveOne(item);
+    }
+
+    private IReadOnlyList<(long ItemId, long EntryId)> ReadFlat(Playlist playlist)
+    {
+        var r = _entries.Read(playlist);
+        return r.Entries.Select(e => (e.ItemId, e.EntryId)).Concat(r.WithoutEntryId.Select(i => (i, 0L))).ToList();
+    }
+
+    private void ReAdd(Playlist playlist, string playlistId, long lost)
+    {
+        User? owner = null;
+        try { var ownerId = Get(playlistId)?.OwnerId; if (ownerId != null) owner = _userManager.GetUserById(ownerId); } catch { /* sans propriétaire */ }
         using (WriteScope.Enter())
         {
-            var task = _playlistManager.RemoveFromPlaylist(playlist, new[] { entry.EntryId });
-            if (!task.Wait(CallTimeoutMs)) throw new TimeoutException("RemoveFromPlaylist > 5 s");
-            task.GetAwaiter().GetResult();
+            var add = _playlistManager.AddToPlaylist(playlist, new[] { lost }, false, owner, CancellationToken.None);
+            if (!add.Wait(CallTimeoutMs)) throw new TimeoutException("AddToPlaylist > 5 s");
+            add.GetAwaiter().GetResult();
         }
-
-        CompensateWrongEntries(playlist, playlistId, item, before);
-        return true;
     }
 
     /// <summary>Attente bornée (≤ 1 s) que la playlist ne soit plus en file de rafraîchissement Emby. Sans fournisseur ou en cas d'erreur : on n'attend pas.</summary>
@@ -147,65 +174,6 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         if (pm.GetRefreshProgress(playlistId) != null) return true;
         var queue = pm.GetRefreshQueue();
         return queue != null && queue.Any(q => q.Item1 == playlistId);
-    }
-
-    private static bool HasLoss(Dictionary<long, int> before, Dictionary<long, int> after, long target) =>
-        before.Any(b => b.Key != target && (after.TryGetValue(b.Key, out var n) ? n : 0) < b.Value);
-
-    private static Dictionary<long, int> ItemCounts(EntryReadResult read)
-    {
-        var counts = new Dictionary<long, int>();
-        foreach (var id in read.Entries.Select(e => e.ItemId).Concat(read.WithoutEntryId))
-            counts[id] = counts.TryGetValue(id, out var n) ? n + 1 : 1;
-        return counts;
-    }
-
-    /// <summary>
-    /// Relecture après écriture : si un média AUTRE que la cible a perdu une entrée (multiensemble des ItemId avant/après),
-    /// l'identifiant d'entrée était périmé. Compensation : ré-ajout de l'ItemId perdu et journal <c>Error wrong-entry</c>
-    /// (ids seulement). Jamais d'exception : le retrait lui-même a réussi.
-    /// </summary>
-    private void CompensateWrongEntries(Playlist playlist, string playlistId, long target, Dictionary<long, int> before)
-    {
-        try
-        {
-            // Le worker de rafraîchissement (DeleteListItems puis réinsertion) n'est pas atomique : une lecture pendant son passage peut
-            // voir une liste partielle. Une perte apparente est donc CONFIRMÉE (attente de fin de rafraîchissement + 2ᵉ lecture) avant toute compensation.
-            var after = ItemCounts(_entries.Read(playlist));
-            if (HasLoss(before, after, target))
-            {
-                WaitRefreshIdle(playlist);
-                Thread.Sleep(RefreshPollMs * 2);
-                after = ItemCounts(_entries.Read(playlist));
-            }
-            // Lecture vide alors qu'il y avait des entrées : lecture non fiable, on ne compense pas (jamais de ré-ajout à l'aveugle).
-            if (after.Count == 0 && before.Count > 1) return;
-            foreach (var (lost, count) in before)
-            {
-                if (lost == target) continue;
-                after.TryGetValue(lost, out var now);
-                for (var missing = count - now; missing > 0; missing--)
-                {
-                    try
-                    {
-                        User? owner = null;
-                        try { var ownerId = Get(playlistId)?.OwnerId; if (ownerId != null) owner = _userManager.GetUserById(ownerId); } catch { /* sans propriétaire */ }
-                        using (WriteScope.Enter())
-                        {
-                            var add = _playlistManager.AddToPlaylist(playlist, new[] { lost }, false, owner, CancellationToken.None);
-                            if (!add.Wait(CallTimeoutMs)) throw new TimeoutException("AddToPlaylist > 5 s");
-                            add.GetAwaiter().GetResult();
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        try { _journal?.Add(JournalEntries.ErrorEntry(null, playlistId, ex)); } catch { }
-                    }
-                    try { _journal?.Add(JournalEntries.Of(null, JournalEntries.Error, playlistId, $"wrong-entry removed={lost} target={target}")); } catch { }
-                }
-            }
-        }
-        catch { /* jamais d'exception ici */ }
     }
 
     public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, OverviewChange? overview)
