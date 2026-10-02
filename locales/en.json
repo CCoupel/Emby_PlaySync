@@ -36,7 +36,7 @@
 
   "solutions.c6.title": "Propagate progress, separately",
 
-  "solutions.c6.text": "The <code>propager-avancement</code> tag: playback position is copied on pause or stop, independently of the watched flag — including when re-watching an already watched title.",
+  "solutions.c6.text": "The <code>propager-avancement</code> tag: playback position is copied continuously during playback (about every 10 s), on pause and on stop, independently of the watched flag — including when re-watching an already watched title. At the end of playback, with “Propagate watched”, the position resets to 0 for members.",
 
   "solutions.c7.title": "Create a playlist from PlaySync",
 
@@ -68,7 +68,7 @@
   "deployment.config.row1": "Automatically grants the sharing permission to every account",
   "deployment.config.row2": "Playlist tag — removes a watched item for all members (only effective with propager-lu)",
   "deployment.config.row3": "Playlist tag — propagates the watched flag",
-  "deployment.config.row3b": "Playlist tag — propagates playback position (pause, stop)",
+  "deployment.config.row3b": "Playlist tag — propagates playback position (continuous, pause, stop)",
   "deployment.config.row4": "Enables the log and state available to an admin",
 
   "footer.tagline": "PlaySync — community plugin for Emby, not affiliated with Emby.",

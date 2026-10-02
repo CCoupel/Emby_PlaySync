@@ -36,7 +36,7 @@
 
   "solutions.c6.title": "Propager l'avancement, à part",
 
-  "solutions.c6.text": "Étiquette <code>propager-avancement</code> : la position de lecture est copiée à la pause ou à l'arrêt, indépendamment du flag lu — y compris en relisant un média déjà vu.",
+  "solutions.c6.text": "Étiquette <code>propager-avancement</code> : la position de lecture est copiée en continu pendant la lecture (toutes les ~10 s), à la pause et à l'arrêt, indépendamment du flag lu — y compris en relisant un média déjà vu. En fin de lecture, avec « Propager le lu », la position repasse à 0 chez les membres.",
 
   "solutions.c7.title": "Créer une playlist depuis PlaySync",
 
@@ -68,7 +68,7 @@
   "deployment.config.row1": "Accorde automatiquement la permission de partage à tous les comptes",
   "deployment.config.row2": "Étiquette de playlist — retire un média lu pour tous les membres (actif seulement avec propager-lu)",
   "deployment.config.row3": "Étiquette de playlist — propage le flag lu",
-  "deployment.config.row3b": "Étiquette de playlist — propage la position de lecture (pause, arrêt)",
+  "deployment.config.row3b": "Étiquette de playlist — propage la position de lecture (en continu, pause, arrêt)",
   "deployment.config.row4": "Active le journal et l'état consultables par un administrateur",
 
   "footer.tagline": "PlaySync — plugin communautaire pour Emby, non affilié à Emby.",
