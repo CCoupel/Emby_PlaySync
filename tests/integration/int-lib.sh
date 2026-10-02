@@ -49,6 +49,22 @@ jclear() { api GET "$DIAG/Journal?clear=true" >/dev/null; }
 state() { api GET "$DIAG/State" >/dev/null; jq -c . "$RESP"; }
 # echo_sum : compteurs agrégés already-seen + reentrant (Diagnostics/State.skippedCounts) ; un « écho » = événement de retour d'une écriture du plugin
 echo_sum() { state | jq -r '((.skippedCounts["already-seen"]//0) + (.skippedCounts["reentrant"]//0))'; }
+# echo_split : « reentrant already-seen » (deux entiers) — un retrait produit deux échos distincts (spec §S8, chronogrammes.md l.447) :
+# PlaylistItemsRemoved synchrone (reentrant) et ItemUpdated différé (already-seen) ; chacun est borné séparément (#59).
+echo_split() { state | jq -r '"\(.skippedCounts["reentrant"]//0) \(.skippedCounts["already-seen"]//0)"'; }
+# echo_settle : attend que echo_sum ne bouge plus pendant 2 s (plafond 10 s) puis affiche la valeur (référence stable avant mesure, #59)
+echo_settle() {
+  local prev cur stable=0 i
+  prev=$(echo_sum)
+  for ((i=0; i<10; i++)); do
+    nap 1; cur=$(echo_sum)
+    if [[ $cur == "$prev" ]]; then stable=$((stable+1)); else stable=0; prev=$cur; fi
+    if [[ $stable -ge 2 ]]; then break; fi
+  done
+  echo "$prev"
+}
+# echo_settle_split : comme echo_settle, mais affiche « reentrant already-seen » une fois stabilisé
+echo_settle_split() { echo_settle >/dev/null; echo_split; }
 # jkv DETAIL CLE -> valeur de « CLE=valeur » dans un Detail
 jkv() { grep -o "\\b$2=[^ ]*" <<<"$1" | head -n1 | cut -d= -f2-; }
 # jcount JOURNAL_JSON PLAYLIST KIND [DETAIL_REGEX] -> nombre d'entrées

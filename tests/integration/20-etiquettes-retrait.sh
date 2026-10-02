@@ -435,21 +435,25 @@ i15() {
 }
 
 i16() {
-  echo "== I16 — ré-entrance : exactement un écho par écriture du plugin, aucune repose"
+  echo "== I16 — ré-entrance : au plus un écho synchrone et un écho différé par écriture du plugin, aucune repose"
   assert_baseline
   local pl jp j1 j2 e16a e16b e16c e16d
   # (a) écriture de pose : une seule écriture (ApplyDefaults) => un seul écho, trois étiquettes posées une fois
   pl=$(shared_pl "SPIKE-I16" "${M[0]},${M[1]}"); jclear
-  nap 2; e16a=$(echo_sum)
-  prime "$pl" || true; nap 6; jp=$(journal); e16b=$(echo_sum)
+  e16a=$(echo_settle)
+  prime "$pl" || true; nap 6; jp=$(journal); e16b=$(echo_settle)
   ck I16.posed "MarkerPosed : exactement une pose par famille (3), pas de repose 6 s plus tard" "$jp" test "$(jcount "$jp" "$pl" MarkerPosed)" = 3
   ck I16.echo.pose "un écho au plus (already-seen/reentrant) pour l'écriture de pose (+$((e16b-e16a)))" "{\"before\":$e16a,\"after\":$e16b}" test "$((e16b-e16a))" -le 1
   # (b) écriture de retrait
-  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1; jclear; e16c=$(echo_sum)
+  owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; jclear
+  local sc sd rc rd ac ad   # référence stabilisée APRÈS owner_edit : son ItemUpdated différé ne doit pas être compté dans la fenêtre (b)
+  sc=$(echo_settle_split); rc=${sc% *}; ac=${sc#* }; e16c=$((rc+ac))
   finish "$U2" "$T2" "${M[0]}"; wait_count "$pl" "${M[0]}" 0 10 || true
-  nap 3; j1=$(journal); nap 6; j2=$(journal); e16d=$(echo_sum)
+  nap 3; j1=$(journal); nap 6; j2=$(journal); sd=$(echo_settle_split); rd=${sd% *}; ad=${sd#* }; e16d=$((rd+ad))
   ck I16.removal "un seul Removal pour un retrait" "$j1" test "$(jcount "$j1" "$pl" Removal)" = 1
-  ck I16.echo.removal "un écho au plus pour l'écriture de retrait (+$((e16d-e16c)))" "{\"before\":$e16c,\"after\":$e16d}" test "$((e16d-e16c))" -le 1
+  # un seul RemoveFromPlaylist => au plus un écho synchrone (PlaylistItemsRemoved, reentrant) et un écho différé (ItemUpdated, already-seen) — spec §S8 l.447
+  ck I16.echo.removal.reentrant "au plus un écho synchrone (PlaylistItemsRemoved) pour l'unique écriture de retrait (+$((rd-rc)))" "{\"before\":$rc,\"after\":$rd}" test "$((rd-rc))" -le 1
+  ck I16.echo.removal.deferred "au plus un écho différé (ItemUpdated) pour l'unique écriture de retrait (+$((ad-ac)))" "{\"before\":$ac,\"after\":$ad}" test "$((ad-ac))" -le 1
   ck I16.norepose "6 s plus tard : aucune pose ni nouveau retrait (pas de boucle)" "null" \
     test "$(jcount "$j2" "$pl" MarkerPosed)/$(jcount "$j2" "$pl" Removal)" = "0/1"
   ck I16.noerror "aucune entrée Error pour cette playlist" "null" test "$(jcount "$j2" "$pl" Error)" = 0

@@ -44,7 +44,7 @@ echo "== 1. moteur conforme : I0–I17 avec --restart (v1.2.0 : retrait exige pr
 ENVX="" run ok --restart
 [[ $RC == 0 ]] && ok "code 0 (aucun KO)" || { ko "rc=$RC"; echo "$OUT" | grep -E "KO|ERREUR|ECHEC" | head -30; }
 jq -e '.partial==false and .summary.ko==0' "$(J)" >/dev/null && ok "JSON de preuves complet, 0 KO" || ko "JSON : $(jq -c .summary "$(J)")"
-for id in I0.state I1.tags I1.help I1.f1 I2.non I2.both I2.case I2.prop I2.solo I2.prboth I2.space I2.oui I2.oui.views I3.removed I3.others I5.dup I5.all I5.journal I5.other I5.again I6.private I6.notag I6.public I7.stays I8a.noimmediate I8a.final I8a.active I8b.final I8c.pass2 I9.kept I9.rewritten I10.immediate I10.nodup I11.removed I12.reread I12.toggle I13.action I13.seen I13.echoes I14.distinct I14.once I14.same I15.removed I15.nodup I16.posed  I16.removal  I16.norepose I17.max I17.p95 I17.fast LOGS PROTECTED; do
+for id in I0.state I1.tags I1.help I1.f1 I2.non I2.both I2.case I2.prop I2.solo I2.prboth I2.space I2.oui I2.oui.views I3.removed I3.others I5.dup I5.all I5.journal I5.other I5.again I6.private I6.notag I6.public I7.stays I8a.noimmediate I8a.final I8a.active I8b.final I8c.pass2 I9.kept I9.rewritten I10.immediate I10.nodup I11.removed I12.reread I12.toggle I13.action I13.seen I13.echoes I14.distinct I14.once I14.same I15.removed I15.nodup I16.posed I16.removal I16.echo.removal.reentrant I16.echo.removal.deferred I16.norepose I17.max I17.p95 I17.fast LOGS PROTECTED; do
   [[ $(status_of "$id") == OK ]] && : || ko "$id : $(status_of "$id")"
 done
 [[ $fail == 0 ]] && ok "tous les identifiants clés sont OK"
