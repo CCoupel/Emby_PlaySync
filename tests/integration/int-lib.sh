@@ -65,6 +65,28 @@ echo_settle() {
 }
 # echo_settle_split : comme echo_settle, mais affiche « reentrant already-seen » une fois stabilisé
 echo_settle_split() { echo_settle >/dev/null; echo_split; }
+# --- médias de test (#61) : UNIQUEMENT la bibliothèque locale PlaySync-Tests (créée par 01-setup-media.sh), jamais de média virtuel.
+# Un média VirtualLib (/config/virtual/*.strm) fait relayer chaque événement de session vers PROD (sessions fantômes).
+TEST_MEDIA_LIBRARY_NAME=${TEST_MEDIA_LIBRARY:-PlaySync-Tests}
+TEST_MEDIA_ROOT=${TEST_MEDIA_ROOT:-/config/test-media/}
+# assert_local_media ITEMS_JSON : die si un média n'a pas de Path, est sous /config/virtual/, est un .strm ou sort de TEST_MEDIA_ROOT
+assert_local_media() {
+  local bad
+  bad=$(jq -r --arg root "$TEST_MEDIA_ROOT" '[.[]|select((.Path//"")=="" or (.Path|startswith("/config/virtual/")) or (.Path|ascii_downcase|endswith(".strm")) or ((.Path|startswith($root))|not))|(.Path//"(sans chemin)")]|join(", ")' <<<"$1")
+  [[ -z $bad ]] || die "médias virtuels interdits en QUALIF (#61) : $bad — utiliser la bibliothèque $TEST_MEDIA_LIBRARY_NAME (01-setup-media.sh)"
+}
+# select_test_media N : renseigne le tableau global M avec N médias (>= 10 min, tri par nom) de la bibliothèque de test ; die avant toute écriture
+select_test_media() {
+  local n=$1 st lib items
+  st=$(api GET /Library/VirtualFolders); [[ $st == 200 ]] || die "GET /Library/VirtualFolders -> $st"
+  lib=$(jq -r --arg n "$TEST_MEDIA_LIBRARY_NAME" '[.[]|select(.Name==$n)|.ItemId][0] // empty' "$RESP")
+  [[ -n $lib ]] || die "bibliothèque $TEST_MEDIA_LIBRARY_NAME introuvable : lancer tests/integration/01-setup-media.sh d'abord"
+  st=$(api GET "/Items?Recursive=true&ParentId=$lib&IncludeItemTypes=Movie,Episode,Video&Fields=RunTimeTicks,Path&SortBy=SortName&Limit=200")
+  [[ $st == 200 ]] || die "GET /Items (bibliothèque $TEST_MEDIA_LIBRARY_NAME) -> $st"
+  items=$(jq -c --argjson n "$n" '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|{Id,Path}][0:$n]' "$RESP")
+  assert_local_media "$items"
+  mapfile -t M < <(jq -r '.[].Id' <<<"$items")
+}
 # jkv DETAIL CLE -> valeur de « CLE=valeur » dans un Detail
 jkv() { grep -o "\\b$2=[^ ]*" <<<"$1" | head -n1 | cut -d= -f2-; }
 # jcount JOURNAL_JSON PLAYLIST KIND [DETAIL_REGEX] -> nombre d'entrées
@@ -434,7 +456,46 @@ play_to() { # UID TOKEN ITEM POURCENT [progress-only] : Playing, Progress à mi-
   body() { jq -nc --arg i "$item" --arg s "$sid" --argjson p "$1" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}'; }
   api POST /Sessions/Playing "$(body 0)" "$tok" >/dev/null
   api POST /Sessions/Playing/Progress "$(body $((rt*pct/100)))" "$tok" >/dev/null
-  if [[ ${5:-} != progress-only ]]; then api POST /Sessions/Playing/Stopped "$(body $((rt*pct/100)))" "$tok" >/dev/null; fi
+  if [[ ${5:-} != progress-only ]]; then api POST /Sessions/Playing/Stopped "$(body $((rt*pct/100)))" "$tok" >/dev/null
+  else session_register "$tok" "$sid" "$item" $((rt*pct/100)); fi   # session laissée ouverte exprès : fermée par close_open_sessions (#61)
+}
+# --- registre des sessions de lecture ouvertes (#61) : fichier (play_start est appelé dans $(...)) ; fermées par Stopped puis Logout.
+session_register() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >> "${SCRATCH:?}/sessions.open"; }
+session_unregister() { # SID
+  [[ -s ${SCRATCH:-/nonexistent}/sessions.open ]] || return 0
+  { grep -vF -- "$(printf '\t%s\t' "$1")" "$SCRATCH/sessions.open" || true; } > "$SCRATCH/sessions.open.tmp"; mv "$SCRATCH/sessions.open.tmp" "$SCRATCH/sessions.open"
+}
+close_open_sessions() { # Stopped sur chaque session encore ouverte (même position que le dernier Progress), puis registre vidé
+  [[ -s ${SCRATCH:-/nonexistent}/sessions.open ]] || return 0
+  local tok sid item pos
+  while IFS=$'\t' read -r tok sid item pos; do
+    [[ -n $sid ]] || continue
+    api POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$item" --arg s "$sid" --argjson p "${pos:-0}" \
+      '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$tok" >/dev/null || true
+  done < "$SCRATCH/sessions.open"
+  : > "$SCRATCH/sessions.open"
+}
+# logout_test_sessions : déconnecte les jetons de test (le tableau de bord n'affiche plus de session test_u*@spike). Sauf si imbriqué
+# (INT_NESTED=1) : même DeviceId => le jeton du script parent pourrait être invalidé.
+logout_test_sessions() {
+  if [[ ${INT_NESTED:-0} == 1 ]]; then return 0; fi
+  local t
+  for t in "${T1:-}" "${T2:-}" "${T3:-}" "${T4:-}"; do
+    if [[ -n $t ]]; then api POST /Sessions/Logout "" "$t" >/dev/null || true; fi
+  done
+}
+end_test_sessions() { if [[ ${INT_NESTED:-0} != 1 ]]; then close_open_sessions; logout_test_sessions; fi; }   # à appeler dans on_exit
+test_sessions_playing() { # JSON des sessions test_u* ayant un NowPlayingItem (clé admin)
+  local st; st=$(api GET /Sessions)
+  if [[ $st != 200 ]]; then echo '[]'; return 0; fi
+  jq -c '[.[]|select((.UserName//"")|startswith("test_u"))|select(.NowPlayingItem!=null)|{user:.UserName,item:.NowPlayingItem.Id}]' "$RESP"
+}
+# check_no_test_sessions : contrôle de fin de script (#61) -> résultat SESSIONS.clean ; ignoré si imbriqué
+check_no_test_sessions() {
+  if [[ ${INT_NESTED:-0} == 1 ]]; then return 0; fi
+  close_open_sessions
+  local ss; ss=$(test_sessions_playing)
+  ck SESSIONS.clean "aucune session de lecture test_u* ne reste ouverte en fin de script (relais VirtualLib / sessions fantômes, #61)" "$ss" test "$(jq length <<<"$ss")" = 0
 }
 played_of() { api GET "/Users/$1/Items/$3" "" "$2" >/dev/null; jq -r '.UserData.Played' "$RESP"; }
 position_of() { api GET "/Users/$1/Items/$3" "" "$2" >/dev/null; jq -r '.UserData.PlaybackPositionTicks // 0' "$RESP"; }
@@ -444,6 +505,7 @@ position_of() { api GET "/Users/$1/Items/$3" "" "$2" >/dev/null; jq -r '.UserDat
 # « lu » ; ces fonctions donnent le contrôle explicite du POSITIONNEMENT et de IsPaused nécessaire à l'avancement.
 play_start() { # UID TOKEN ITEM -> SID (session)
   local sid; sid="int-$RANDOM$RANDOM"
+  session_register "$2" "$sid" "$3" 0
   api POST /Sessions/Playing "$(jq -nc --arg i "$3" --arg s "$sid" '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:0,CanSeek:true}')" "$2" >/dev/null
   echo "$sid"
 }
@@ -452,6 +514,7 @@ play_progress() { # UID TOKEN ITEM SID POSITION_TICKS IS_PAUSED(true|false) -> H
     '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,IsPaused:$pa,CanSeek:true}')" "$2"
 }
 play_stop() { # UID TOKEN ITEM SID POSITION_TICKS -> HTTP status
+  session_unregister "$4"
   api POST /Sessions/Playing/Stopped "$(jq -nc --arg i "$3" --arg s "$4" --argjson p "$5" \
     '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,CanSeek:true}')" "$2"
 }

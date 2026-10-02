@@ -71,5 +71,15 @@ echo "== 5. défaut simulé : repose sur événement d'une playlist déjà vue"
 rm -f "$W"/out/*; ENVX="" run repose I8 I13
 [[ $RC == 1 ]] && { [[ $(status_of I13.seen) == KO || $(status_of I8a.noimmediate) == KO ]] && ok "repose détectée (I13.seen / I8a.noimmediate KO)" || ko "repose non détectée"; } || ko "rc=$RC"
 
+echo "== 6. #61 : sessions fermées (I17 ouvre 20 sessions progress-only) et déconnexion en fin de script"
+rm -f "$W"/out/*; ENVX="" run ok I17
+[[ $RC == 0 && $(status_of SESSIONS.clean) == OK ]] && ok "SESSIONS.clean OK : aucune session test_u* en lecture après I17" || ko "sessions : rc=$RC $(status_of SESSIONS.clean)"
+
+echo "== 7. #61 : médias virtuels (/config/virtual/*.strm) refusés avant toute écriture"
+rm -f "$W"/out/*; export FAKE_VIRTUAL=1; ENVX="" run ok I1
+unset FAKE_VIRTUAL
+[[ $RC == 2 ]] && echo "$OUT" | grep -q "médias virtuels interdits en QUALIF (#61)" && ok "garde-fou : die (code 2) sur média virtuel" || { ko "garde-fou virtuel : rc=$RC"; echo "$OUT" | tail -5; }
+echo "$OUT" | grep -q "bassin de" && ko "des écritures ont eu lieu avant le refus" || ok "refus avant la remise à zéro du bassin (aucune écriture)"
+
 [[ $fail == 0 ]] || { echo "ECHEC test-int-flow-offline" >&2; exit 1; }
 echo "test-int-flow-offline : OK"

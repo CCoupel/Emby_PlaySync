@@ -49,6 +49,7 @@ on_exit() {
   # Nettoyage final (retour qa, 2026-09-27) : ni ce script ni 20-etiquettes-retrait.sh (relancé par I26, en
   # sous-processus partageant private/test-state.json) ne se nettoient sinon quand ils sont imbriqués.
   cleanup_registered_playlists
+  end_test_sessions   # #61 : Stopped sur les sessions ouvertes puis Logout des jetons de test
   if [[ $DONE == 0 && -s $RES ]]; then write_out true; echo "  (trap) preuves partielles : $OUT_FILE" >&2; fi
   rm -rf "$SCRATCH"; exit $rc
 }
@@ -65,9 +66,7 @@ T2=$(login test_u2 "$(envget "$USERS_ENV" TEST_U2_PW)")
 T3=$(login test_u3 "$(envget "$USERS_ENV" TEST_U3_PW)")
 purge_stale_test_playlists   # #60 : aucune playlist SPIKE résiduelle d'un run précédent (sauf imbriqué : INT_NESTED=1)
 
-st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=RunTimeTicks&SortBy=SortName&Limit=200")
-[[ $st == 200 ]] || die "GET /Items -> $st"
-mapfile -t M < <(jq -r '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|.Id][0:24][]' "$RESP")
+select_test_media 24   # #61 : bibliothèque locale PlaySync-Tests uniquement ; refus de tout média /config/virtual/
 # Seuil abaissé (décision utilisateur, 2026-09-27) : la bibliothèque de QUALIF n'a que 13 médias de >= 10 min.
 # Réduction de couverture documentée : au lieu d'un média jamais réutilisé par sous-cas, un petit bassin est
 # recyclé (round-robin) pour I18/I19/I20/I21/I22/I24/I25, chaque réutilisation étant précédée d'une remise à
@@ -402,6 +401,7 @@ for s in "${WANT[@]}"; do
   "$fn"
 done
 
+check_no_test_sessions   # #61 : aucune session test_u* en lecture
 echo "== Comptes protégés"
 compare_protected "fin des scénarios" "${TEST_USERS[@]}" && rec PROTECTED OK "admin, cyril, user2 inchangés" || rec PROTECTED KO "comptes protégés modifiés" "null"
 

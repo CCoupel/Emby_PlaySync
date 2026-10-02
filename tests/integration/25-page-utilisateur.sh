@@ -53,6 +53,7 @@ on_exit() {
   cleanup_test_accounts
   purge_created
   cleanup_registered_playlists
+  end_test_sessions   # #61 : Stopped sur les sessions ouvertes puis Logout des jetons de test
   if [[ $DONE == 0 && -s $RES ]]; then write_out true; echo "  (trap) preuves partielles : $OUT_FILE" >&2; fi
   rm -rf "$SCRATCH"; exit $rc
 }
@@ -105,9 +106,7 @@ read -r NP_ID TNP < <(create_and_login_test_account "SPIKE-P-noperm")
 set_sharing "$NP_ID" false; wait_sharing "$NP_ID" false 5 || die "impossible de poser AllowSharingPersonalItems=false sur le compte sans permission"
 echo "  [OK] compte sans permission créé (id $NP_ID)"
 
-st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=RunTimeTicks&SortBy=SortName&Limit=200")
-[[ $st == 200 ]] || die "GET /Items -> $st"
-mapfile -t M < <(jq -r '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|.Id][0:2][]' "$RESP")
+select_test_media 2   # #61 : bibliothèque locale PlaySync-Tests uniquement ; refus de tout média /config/virtual/
 [[ ${#M[@]} -ge 2 ]] || die "moins de 2 médias (>= 10 min) : demander à l'utilisateur"
 reset_pool_full "${M[@]}"
 ITEM1=${M[0]}; ITEM2=${M[1]}
@@ -580,6 +579,7 @@ for s in "${WANT[@]}"; do
   "$fn"
 done
 
+check_no_test_sessions   # #61 : aucune session test_u* en lecture
 echo "== Comptes protégés"
 # cleanup_test_accounts AVANT compare_protected (qa-20260928-160840.md §4.4) : le compte éphémère
 # SPIKE-P-noperm-* (créé pour P2/P3) doit avoir disparu avant la comparaison, sinon compare_protected voit un

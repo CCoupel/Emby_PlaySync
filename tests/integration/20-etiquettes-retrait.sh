@@ -56,6 +56,7 @@ on_exit() {
   # #60 : SPIKE-I17 (OUI/OUI, dernier scénario) ne doit pas survivre au script. drop_playlists = playlists DU RUN seulement
   # ($SCRATCH/pls.run) ; pas de cleanup_registered_playlists ici : imbriqué (I26 de 21) il supprimerait celles de 21.
   drop_playlists
+  end_test_sessions   # #61 : Stopped sur les sessions ouvertes puis Logout des jetons de test
   if [[ $DONE == 0 && -s $RES ]]; then write_out true; echo "  (trap) preuves partielles : $OUT_FILE" >&2; fi
   rm -rf "$SCRATCH"; exit $rc
 }
@@ -72,9 +73,7 @@ relogin() {
 }
 relogin
 purge_stale_test_playlists   # #60 : aucune playlist SPIKE d'un run précédent (sauf si imbriqué : INT_NESTED=1)
-st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=RunTimeTicks&SortBy=SortName&Limit=200")
-[[ $st == 200 ]] || die "GET /Items -> $st"
-mapfile -t M < <(jq -r '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|.Id][0:6][]' "$RESP")
+select_test_media 6   # #61 : bibliothèque locale PlaySync-Tests uniquement ; refus de tout média /config/virtual/
 [[ ${#M[@]} -ge 6 ]] || die "moins de 6 médias (>= 10 min) : I14/I15 exigent 6 médias (demander à l'utilisateur)"
 reset_pool_full "${M[@]}"   # remise à zéro complète (lu+position) : un run précédent (même script, même invocation séparée) ne doit rien laisser
 echo "  [OK] bassin de ${#M[@]} médias remis à zéro (lu=false, position=0)"
@@ -478,6 +477,7 @@ i17() {
   for ((i=0; i<20; i++)); do play_to "$U2" "$T2" "${M[1]}" 30 progress-only; done
   nap 2; after=$(state | jq -r '.handler.count // 0')
   ck I17.fast "20 PlaybackProgress sans transition : aucun traitement de transition (Handler.Count inchangé)" "{\"before\":$before,\"after\":$after}" test "$before" = "$after"
+  close_open_sessions   # #61 : les 20 sessions progress-only (et celles des autres scénarios) sont fermées par Stopped
 }
 
 ALL=(I0 I1 I2 I3 I4 I5 I6 I7 I8 I9 I10 I11 I12 I13 I14 I15 I16 I17)
@@ -500,6 +500,7 @@ if [[ $LOGS_OK == 1 ]]; then
 else
   skip LOGS "logs kubectl indisponibles (kubectl ou private/kubeconfig.yml)"
 fi
+check_no_test_sessions   # #61 : aucune session test_u* en lecture
 echo "== Comptes protégés"
 compare_protected "fin des scénarios" "${TEST_USERS[@]}" && rec PROTECTED OK "admin, cyril, user2 inchangés" || rec PROTECTED KO "comptes protégés modifiés" "null"
 

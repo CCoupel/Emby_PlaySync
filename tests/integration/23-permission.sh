@@ -57,6 +57,7 @@ on_exit() {
   local rc=$?; set +e
   cleanup_test_accounts
   if [[ -n ${ORIG_CFG:-} ]]; then plugin_cfg_set "$ORIG_CFG" || true; fi   # restaure AutoEnableSharing (et tout le reste) tel que trouvé
+  end_test_sessions
   if [[ $DONE == 0 && -s $RES ]]; then write_out true; echo "  (trap) preuves partielles : $OUT_FILE" >&2; fi
   rm -rf "$SCRATCH"; exit $rc
 }

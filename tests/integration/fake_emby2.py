@@ -51,6 +51,8 @@ RT = 7_000_000_000
 TASK_ID = "77"
 pass_no = itertools.count(1)
 
+LIB_ID = "7777"
+SESSIONS = {}   # (user, PlaySessionId) -> item : sessions de lecture ouvertes (#61)
 PL, PLAYED, PLAYDATA, POLICY, POSITION = {}, set(), {}, {}, {}   # POSITION[(user,item)] = ticks (donnée Emby, persiste)
 TICKS_30S = 300_000_000   # v0.3.1 : seuil minimal (30 s, 100 ns/tick)
 DEFAULT_POLICY = {"EnableAllFolders": True, "EnabledFolders": [], "AllowSharingPersonalItems": False}
@@ -328,7 +330,18 @@ class H(http.server.BaseHTTPRequestHandler):
             return self.out(200, {"Policy": pol})                     # pour ne pas changer la forme des réponses des comptes jamais touchés
         if p == "/Items" and m == "GET":
             if "Ids" in q: return self.out(200, {"Items": [self.dto(q["Ids"][0])] if q["Ids"][0] in PL else []})
-            return self.out(200, {"Items": [{"Id": i, "Name": "M" + i, "RunTimeTicks": RT} for i in MEDIA]})
+            root = "/config/virtual/Alphi/" if os.environ.get("FAKE_VIRTUAL") == "1" else "/config/test-media/"   # #61 : FAKE_VIRTUAL=1 => médias VirtualLib (.strm)
+            ext = ".strm" if os.environ.get("FAKE_VIRTUAL") == "1" else ".mp4"
+            if "ParentId" in q and q["ParentId"][0] != LIB_ID: return self.out(200, {"Items": []})
+            return self.out(200, {"Items": [{"Id": i, "Name": "M" + i, "RunTimeTicks": RT, "Path": root + "PlaySync-Test-" + i + ext} for i in MEDIA]})
+        if p == "/Library/VirtualFolders" and m == "GET":
+            return self.out(200, [{"Name": "Listes de lecture", "ItemId": "9"}, {"Name": "PlaySync-Tests", "ItemId": LIB_ID, "Locations": ["/config/test-media"]}])
+        if p == "/Sessions" and m == "GET":
+            return self.out(200, [{"UserName": n, "UserId": u, "NowPlayingItem": {"Id": it}} for (u, sid), it in SESSIONS.items() for n, uu in USERS.items() if uu == u])
+        if p == "/Sessions/Logout" and m == "POST":
+            user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
+            for k in [k for k in SESSIONS if k[0] == user]: SESSIONS.pop(k)
+            return self.out(204)
         if p == "/SharedPlaylist/Diagnostics/State":
             return self.out(200, {"SeenPlaylistIds": sorted(SEEN), "GraceCounters": GRACEC, "LastPass": LASTPASS, "Handler": HANDLER, "SkippedCounts": SKIPPED, "GracePasses": GRACE, "PositionProgress": POSPROG})
         if p == "/SharedPlaylist/Diagnostics/Journal":
@@ -375,6 +388,7 @@ class H(http.server.BaseHTTPRequestHandler):
                                                 "PlaybackPositionTicks": POSITION.get(key, 0)}})
         if p == "/Sessions/Playing":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
+            SESSIONS[(user, body.get("PlaySessionId", ""))] = body["ItemId"]
             open_session(user, body.get("ItemId"), body.get("PlaySessionId"))
             PAUSED.pop((user, body.get("ItemId")), None)
             return self.out(204)
@@ -397,6 +411,7 @@ class H(http.server.BaseHTTPRequestHandler):
             return self.out(204)
         if p == "/Sessions/Playing/Stopped":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
+            SESSIONS.pop((user, body.get("PlaySessionId", "")), None)
             item = body["ItemId"]; ticks = body.get("PositionTicks", 0)
             s = SYNC.get((user, item)); targets = s["targets"] if s else []
             if s: s["closed"] = True
