@@ -127,7 +127,7 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
                     task.GetAwaiter().GetResult();
                 }
             },
-            reAdd: lost => ReAdd(playlist, playlistId, lost),
+            reAdd: (lost, skipDuplicates) => ReAdd(playlist, playlistId, lost, skipDuplicates),
             waitRefreshIdle: () => WaitRefreshIdle(playlist),
             logWrongEntry: detail =>
             {
@@ -143,29 +143,30 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         return r.Entries.Select(e => (e.ItemId, e.EntryId)).Concat(r.WithoutEntryId.Select(i => (i, 0L))).ToList();
     }
 
-    private void ReAdd(Playlist playlist, string playlistId, long lost)
+    private void ReAdd(Playlist playlist, string playlistId, long lost, bool skipDuplicates)
     {
         User? owner = null;
         try { var ownerId = Get(playlistId)?.OwnerId; if (ownerId != null) owner = _userManager.GetUserById(ownerId); } catch { /* sans propriétaire */ }
         using (WriteScope.Enter())
         {
-            var add = _playlistManager.AddToPlaylist(playlist, new[] { lost }, false, owner, CancellationToken.None);
+            var add = _playlistManager.AddToPlaylist(playlist, new[] { lost }, skipDuplicates, owner, CancellationToken.None);
             if (!add.Wait(CallTimeoutMs)) throw new TimeoutException("AddToPlaylist > 5 s");
             add.GetAwaiter().GetResult();
         }
     }
 
     /// <summary>Attente bornée (≤ 1 s) que la playlist ne soit plus en file de rafraîchissement Emby. Sans fournisseur ou en cas d'erreur : on n'attend pas.</summary>
-    private void WaitRefreshIdle(Playlist playlist)
+    private bool WaitRefreshIdle(Playlist playlist)
     {
-        if (_providerManager == null) return;
+        if (_providerManager == null) return true;
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             while (IsRefreshing(playlist.InternalId) && sw.ElapsedMilliseconds < RefreshIdleWaitMs)
                 Thread.Sleep(RefreshPollMs);
+            return !IsRefreshing(playlist.InternalId);
         }
-        catch { /* l'attente est un confort : jamais d'exception ici */ }
+        catch { return false; /* état inconnu : non confirmé */ }
     }
 
     private bool IsRefreshing(long playlistId)

@@ -458,7 +458,7 @@ public class ReadRemovalEngineDevTests
     }
 
     [Fact]
-    public void OneLockAtATime_AndTheRemovalRunsUnderTheLockInAWriteScope()
+    public void OneLockAtATime_AndTheRemovalRunsUnderTheLock()
     {
         var r = new Rig();
         r.Add("1", new[] { "remove-si-lu=OUI", "propager-lu=OUI" }, "m1");
@@ -466,7 +466,8 @@ public class ReadRemovalEngineDevTests
         var held = new List<string>();
         r.Gateway.OnRemove = id =>
         {
-            Assert.True(WriteScope.Active);
+            // v1.2.2 (#59, M1) : le WriteScope n'enveloppe plus la boucle du moteur (c'est la passerelle qui enveloppe chaque écriture).
+            Assert.False(WriteScope.Active);
             Assert.True(r.Locks.IsHeldByCurrentThread(id));
             lock (held) held.Add(id);
         };

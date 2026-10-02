@@ -150,11 +150,10 @@ public sealed class ReadRemovalEngine
         else
         {
             var count = 0;
-            using (WriteScope.Enter())
-            {
-                // Une entrée à la fois, résolue par ItemId à l'instant (les identifiants d'entrée ne sont pas stables).
-                while (count < MaxEntriesPerPlaylist && total.Elapsed < _budget && _gateway.RemoveOneEntry(snapshot.Id, itemId)) count++;
-            }
+            // Une entrée à la fois, résolue par ItemId à l'instant (les identifiants d'entrée ne sont pas stables).
+            // v1.2.2 (#59, M1) : PAS de WriteScope englobant la boucle — la passerelle enveloppe chaque écriture ; un scope externe
+            // resterait actif pendant l'attente de l'itération suivante et ferait compter « reentrant » l'ItemUpdated du worker Emby.
+            while (count < MaxEntriesPerPlaylist && total.Elapsed < _budget && _gateway.RemoveOneEntry(snapshot.Id, itemId)) count++;
 
             if (count == 0)
             {

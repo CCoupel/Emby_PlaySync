@@ -12,19 +12,19 @@ public sealed class EntryRemovalGuard
 {
     private readonly Func<IReadOnlyList<(long ItemId, long EntryId)>> _read;
     private readonly Action<long> _removeByEntryId;
-    private readonly Action<long> _reAdd;
-    private readonly Action _waitRefreshIdle;
+    private readonly Action<long, bool> _reAdd;
+    private readonly Func<bool> _waitRefreshIdle;
     private readonly Action<string> _logWrongEntry;
     private readonly Action? _pause;
 
     /// <param name="read">Entrées courantes (lecture fraîche) ; EntryId = 0 si Emby n'en fournit pas.</param>
     /// <param name="removeByEntryId">Suppression par identifiant d'entrée (peut lever).</param>
-    /// <param name="reAdd">Ré-ajout d'un ItemId (compensation ; une exception est avalée).</param>
-    /// <param name="waitRefreshIdle">Attente bornée de la fin du rafraîchissement ; peut être no-op.</param>
-    /// <param name="logWrongEntry">Journalise <c>Error</c> avec le détail reçu (<c>wrong-entry removed=&lt;ItemId&gt; target=&lt;ItemId&gt;</c>).</param>
+    /// <param name="reAdd">Ré-ajout d'un ItemId (compensation ; une exception est avalée). 2ᵉ argument : skipDuplicates (vrai si l'ItemId n'avait qu'UNE entrée avant le retrait).</param>
+    /// <param name="waitRefreshIdle">Attente bornée de la fin du rafraîchissement ; renvoie faux si elle a expiré (file toujours active). Une exception vaut « non confirmé ».</param>
+    /// <param name="logWrongEntry">Journalise <c>Error</c> avec le détail reçu (<c>wrong-entry removed=&lt;ItemId&gt; target=&lt;ItemId&gt;</c>, ou <c>wrong-entry-unconfirmed …</c> sans ré-ajout).</param>
     /// <param name="pause">Courte pause avant la 2ᵉ lecture de confirmation ; null = aucune.</param>
-    public EntryRemovalGuard(Func<IReadOnlyList<(long ItemId, long EntryId)>> read, Action<long> removeByEntryId, Action<long> reAdd,
-        Action waitRefreshIdle, Action<string> logWrongEntry, Action? pause = null)
+    public EntryRemovalGuard(Func<IReadOnlyList<(long ItemId, long EntryId)>> read, Action<long> removeByEntryId, Action<long, bool> reAdd,
+        Func<bool> waitRefreshIdle, Action<string> logWrongEntry, Action? pause = null)
     {
         _read = read;
         _removeByEntryId = removeByEntryId;
@@ -32,6 +32,13 @@ public sealed class EntryRemovalGuard
         _waitRefreshIdle = waitRefreshIdle;
         _logWrongEntry = logWrongEntry;
         _pause = pause;
+    }
+
+    /// <summary>Compat (v1.2.2 initial) : attente sans signal d'expiration (toujours « confirmée »), ré-ajout sans skipDuplicates.</summary>
+    public EntryRemovalGuard(Func<IReadOnlyList<(long ItemId, long EntryId)>> read, Action<long> removeByEntryId, Action<long> reAdd,
+        Action waitRefreshIdle, Action<string> logWrongEntry, Action? pause = null)
+        : this(read, removeByEntryId, (lost, _) => reAdd(lost), () => { waitRefreshIdle(); return true; }, logWrongEntry, pause)
+    {
     }
 
     /// <summary>Vrai si une entrée de la cible a été résolue et supprimée (la boucle appelante relit et rappelle) ; faux si la cible n'a aucune entrée identifiable.</summary>
@@ -52,9 +59,10 @@ public sealed class EntryRemovalGuard
     private void Compensate(long target, Dictionary<long, int> before)
     {
         var after = Counts(_read());
+        var idleConfirmed = true;
         if (HasLoss(before, after, target))
         {
-            try { _waitRefreshIdle(); } catch { }
+            try { idleConfirmed = _waitRefreshIdle(); } catch { idleConfirmed = false; }
             _pause?.Invoke();
             after = Counts(_read());
         }
@@ -66,7 +74,13 @@ public sealed class EntryRemovalGuard
             after.TryGetValue(lost, out var now);
             for (var missing = count - now; missing > 0; missing--)
             {
-                try { _reAdd(lost); } catch { /* journalisé ci-dessous : l'erreur reste visible */ }
+                if (!idleConfirmed)
+                {
+                    // R4a : un doublon est plus tolérable qu'une perte, mais pas de faux ré-ajout tant que le worker d'Emby est actif.
+                    try { _logWrongEntry($"wrong-entry-unconfirmed removed={lost} target={target}"); } catch { }
+                    continue;
+                }
+                try { _reAdd(lost, count == 1); } catch { /* journalisé ci-dessous : l'erreur reste visible */ }
                 try { _logWrongEntry($"wrong-entry removed={lost} target={target}"); } catch { }
             }
         }
