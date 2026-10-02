@@ -1,6 +1,6 @@
 # MEMORY.md — Emby_PlaySync
 
-> Mis à jour le 2026-10-02 en fin de session (/end-session). Source de vérité pour
+> Mis à jour le 2026-10-02 en fin de session (/end-session, 2e session du jour). Source de vérité pour
 > `/start-session`. À tenir à jour à chaque session.
 
 ## Version courante
@@ -8,17 +8,23 @@
 - **v1.2.1** — déployée en PROD (namespace `media`, `deployment/emby`), tag `v1.2.1`,
   merge `2828ea9`, release https://github.com/CCoupel/Emby_PlaySync/releases/tag/v1.2.1
 - Déploiement PROD : 2026-10-02 (scale 0 / terminaison / copie / scale 1, base saine)
-- Branche courante : `main` (HEAD `9c9c1f4`, aligné `origin/main`), aucune branche `milestone/*` ouverte
-  - `milestone/v1.2.1` conservée (non supprimée), contient tout le travail du bugfix #58
+- Branche courante : `milestone/v1.2.2` (locale, **non poussée**, créée depuis `main` le 2026-10-02)
+  - `main` = `9c9c1f4`/`f986dd7`, aligné `origin/main` ; `milestone/v1.2.1` conservée (non supprimée)
+- **Template Claude : v3.9.0** (`cf187ca`), sync faite le 2026-10-02 (était v3.8.0)
 - QUALIF (`emby2`) : plugin 1.2.1.0, `.prev` = 1.2.0.0 (PROD aussi)
 - Site marketing publié : https://ccoupel.github.io/Emby_PlaySync/ (v1.2.1, gh-pages seulement)
 - **Posts réseaux v1.2.0 et v1.2.1 : rédigés, NON publiés** (docs/releases/vX/social-posts.md) — publication manuelle
 
 ## Travail en cours
 
-- Aucun cycle FEATURE/BUGFIX/HOTFIX en cours — session close proprement, team dissoute
-- Milestone GitHub : **v1.2.1 fermé** (#58 fermée)
-- **Aucun milestone ouvert** — backlog v1.3.0 en attente de cadrage
+- **Milestone v1.2.2 ouvert** (GitHub n°11, patch) : issues #59, #60, #61 (bugs/tests) + nouveau pipeline CI
+  - Créé d'abord en `v1.3.0` par erreur, renommé : bugs seuls = incrément de patch
+  - Commit `f1af920` sur `milestone/v1.2.2` : `.github/workflows/release.yml` (C2 tag = `<Version>` du csproj,
+    C5 notes extraites de `CHANGELOG.md` `## [X.Y.Z]`, C4 asset `.sha256`) ; actionlint v1.7.7 : 0 erreur ; **pas de tag**
+  - Asset conservé en `EmbySharedPlaylist.dll` (écart C4 assumé : deploy et dossier plugins l'attendent)
+  - **Avant le tag v1.2.2** : `doc-updater` doit écrire `## [1.2.2]` dans `CHANGELOG.md`, sinon la release échoue volontairement
+- Aucun cycle de dev démarré sur #59/#60/#61 (pas de plan, pas de dev)
+- Milestone GitHub **v1.2.1 fermé** (#58 fermée) ; backlog v1.3.0 en attente de cadrage (ouvrir v1.3.0 seulement pour une feature)
 
 ## Décisions techniques v1.2.1 (bugfix #58, D23, session 2026-09-30/10-02)
 
@@ -90,8 +96,10 @@
 ### (4) Site marketing vit sur gh-pages seulement
 - **UNIQUE source** : branche `gh-pages` → https://ccoupel.github.io/Emby_PlaySync/
 - Dossier `MARKETING/` **retiré** de `main` en commit 3c24ca6 (doublon historique)
-- **Consigne agent** : travailler dans un worktree `gh-pages` (_work/site, gitignoré), jamais de site sur `main/milestone/*`
-- **Ambiguïté template résolue** : users doivent corriger `marketing-release.template.md` (l.55-62/270/305/314/318), `marketing.md` (l.122), `init-project` (l.951)
+- **Template v3.9.0 (2026-10-02)** : le template adopte cette règle. Worktree git de `gh-pages` = **`MARKETING/`**
+  (gitignoré, `git worktree add MARKETING gh-pages`), commit/push depuis ce worktree ; release notes et posts restent
+  dans `docs/releases/` sur la branche de code. Compagnon `marketing-release.md` (qui imposait `_work/site`) **supprimé**.
+  Plus de worktree `_work/site` (absent de `git worktree list`) ; `/marketing` recréera `MARKETING/`.
 
 ### (5) Règle oubliée : `/deploy prod` dispatche systématiquement `marketing PREPARE`
 - **Décision** : Phase 6 du cycle (Deployment + Communication)
@@ -112,7 +120,7 @@
 - **TeamCreate indisponible** dans la session
 - **Adresse teammates** : répondent à `team-lead` (label de tâche), pas à `main` (adresse du protocole template)
 - **Protocole** : `.claude/agents/context/TEAMMATES_PROTOCOL.template.md` (pas de fichier sans suffixe)
-- **Template v3.7.3** (8c49482, inchangé) : à corriger pour unifier adresses `main`/`team-lead`
+- **Template v3.9.0** (cf187ca) : unification adresses `main`/`team-lead` non vérifiée, à contrôler
 
 ## Règles critiques projet
 
@@ -121,7 +129,8 @@
 - Spec de référence : `docs/chronogrammes.md` (règles R1–R12, scénarios S1–S11, décisions D3/D9/D19/D20/D21/D23)
 - PROD SQLite : arrêt propre avant redémarrage (pas `rollout restart`, utiliser scale 0/wait/scale 1)
 - Sauvegarde library.db à **froid** (scale 0 + terminaison complète du pod) avant tout déploiement
-- Marketing : travail seulement sur branche `gh-pages`, jamais sur `main/milestone/*`
+- Marketing : travail seulement sur branche `gh-pages` (worktree `MARKETING/`), jamais sur `main/milestone/*`
+- Jamais de travail direct sur `main` ; pipeline de release = contrat C1–C9 (`agents/infra`, section 3bis), audité avant PUBLISH PROD
 - `/deploy prod` doit dispatcher automatiquement `marketing PREPARE` (Phase 6)
 - Tests QUALIF : éviter médias virtuels VirtualLib (isolation emby2 vs PROD)
 
@@ -140,4 +149,5 @@
 
 ---
 
-**Clôture session 2026-10-02** : v1.2.1 en PROD, docs finalisées, procédures corrigées, leçons documentées.
+**Clôture session 2026-10-02** : v1.2.1 en PROD ; template v3.9.0 synchronisé ; milestone v1.2.2 ouvert avec le patch CI
+(`f1af920`, local, non poussé). Prochaine étape : cadrer/planifier #59/#60/#61, puis CHANGELOG `[1.2.2]` avant tag.
