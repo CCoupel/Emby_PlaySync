@@ -5,6 +5,38 @@
 > cible `deployment/emby` (namespace `media`) et artefact = asset de la GitHub Release (BORE : jamais
 > le DLL local de QUALIF, la CI a reconstruit depuis le tag).
 
+## PRE-DEPLOYMENT — Sauvegarde de `library.db`
+
+**Avant tout déploiement**, sauvegarder la base de données Emby de PROD pour la cohérence et le rollback :
+
+```bash
+# 1. Scale à 0 et attendre la terminaison complète du pod
+kubectl scale deployment/emby -n media --replicas=0
+sleep 5
+kubectl wait --for=delete pod -l app=emby -n media --timeout=60s 2>/dev/null || true
+
+# 2. Copie à froid (base complètement stoppée)
+POD=$(kubectl get pods -n media --no-headers | grep -E '^emby-' | grep -v emby2 | head -1)
+[ -n "$POD" ] && kubectl exec -n media "$POD" -- ls /config/library.db >/dev/null 2>&1 || {
+  echo "ERREUR : pod PROD non accessible après scale 0 — avorter et investiguer"
+  exit 1
+}
+
+# Créer le répertoire de backup
+mkdir -p backups/prod
+BACKUP_DIR="backups/prod/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+# Copier library.db, .db-wal, .db-shm (WAL mode)
+MSYS_NO_PATHCONV=1 kubectl cp media/$POD:/config/library.db "$BACKUP_DIR/library.db" 2>/dev/null || true
+MSYS_NO_PATHCONV=1 kubectl cp media/$POD:/config/library.db-wal "$BACKUP_DIR/library.db-wal" 2>/dev/null || true
+MSYS_NO_PATHCONV=1 kubectl cp media/$POD:/config/library.db-shm "$BACKUP_DIR/library.db-shm" 2>/dev/null || true
+
+echo "Backup PROD : $BACKUP_DIR"
+```
+
+**Important** : ne jamais copier `library.db` pendant qu'Emby est en fonctionnement — seule une copie à froid (après scale 0) garantit la cohérence. `kubectl rollout restart` ne suffit pas : il faut scale à 0, attendre la terminaison, puis sauvegarder.
+
 ## GARDE-FOU
 
 `CLAUDE.md` : « Never deploy to `emby` (production) — only `emby2` ». Cette procedure ne s'execute que si
