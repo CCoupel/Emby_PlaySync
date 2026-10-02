@@ -41,10 +41,10 @@ J() { ls -t "$W"/out/integration-*.json | head -1; }
 status_of() { jq -r --arg id "$1" '[.results[]|select(.id==$id)|.status]|first // "absent"' "$(J)"; }
 
 echo "== 1. moteur conforme : I0–I17 avec --restart (v1.2.0 : retrait exige propager-lu, trois familles)"
-ENVX="" run ok --restart
+ENVX="I14C_ITER=2" run ok --restart
 [[ $RC == 0 ]] && ok "code 0 (aucun KO)" || { ko "rc=$RC"; echo "$OUT" | grep -E "KO|ERREUR|ECHEC" | head -30; }
 jq -e '.partial==false and .summary.ko==0' "$(J)" >/dev/null && ok "JSON de preuves complet, 0 KO" || ko "JSON : $(jq -c .summary "$(J)")"
-for id in I0.state I1.tags I1.help I1.f1 I2.non I2.both I2.case I2.prop I2.solo I2.prboth I2.space I2.oui I2.oui.views I3.removed I3.others I5.dup I5.all I5.journal I5.other I5.again I6.private I6.notag I6.public I7.stays I8a.noimmediate I8a.final I8a.active I8b.final I8c.pass2 I9.kept I9.rewritten I10.immediate I10.nodup I11.removed I12.reread I12.toggle I13.action I13.seen I13.echoes I14.distinct I14.once I14.integrity I14.same I14c.rep1 I14c.integrity1 I14c.rep2 I14c.integrity2 I14c.rep3 I14c.integrity3 I15.removed I15.nodup I16.posed I16.removal I16.echo.removal.reentrant I16.echo.removal.deferred I16.norepose I17.max I17.p95 I17.fast LOGS PROTECTED; do
+for id in I0.state I1.tags I1.help I1.f1 I2.non I2.both I2.case I2.prop I2.solo I2.prboth I2.space I2.oui I2.oui.views I3.removed I3.others I5.dup I5.all I5.journal I5.other I5.again I6.private I6.notag I6.public I7.stays I8a.noimmediate I8a.final I8a.active I8b.final I8c.pass2 I9.kept I9.rewritten I10.immediate I10.nodup I11.removed I12.reread I12.toggle I13.action I13.seen I13.echoes I14.distinct I14.once I14.integrity I14.same I14c.rep1 I14c.integrity1 I14c.rep2 I14c.integrity2 I14c.rep3 I14c.integrity3 I14c.par1 I14c.parintegrity1 I14c.par2 I14c.parintegrity2 I15.removed I15.nodup I16.posed I16.removal I16.echo.removal.reentrant I16.echo.removal.deferred I16.norepose I17.max I17.p95 I17.fast LOGS PROTECTED; do
   [[ $(status_of "$id") == OK ]] && : || ko "$id : $(status_of "$id")"
 done
 [[ $fail == 0 ]] && ok "tous les identifiants clés sont OK"
@@ -64,8 +64,8 @@ rm -f "$W"/out/*; ENVX="" run retraitseul I2
 [[ $RC == 1 && $(status_of I2.solo) == KO ]] && ok "remove-si-lu=OUI seul retire encore => I2.solo KO, code 1 (S3b/D21)" || ko "retraitseul : rc=$RC $(status_of I2.solo)"
 
 echo "== 3c. défaut v1.2.1 : identifiant d'entrée périmé (retire le média voisin) détecté par I14.integrity et I14c"
-rm -f "$W"/out/*; ENVX="" run staleentry I14 I14c
-[[ $RC == 1 && $(status_of I14.integrity) == KO && $(status_of I14c.rep1) == KO && $(status_of I14c.integrity1) == KO ]] && ok "staleentry => I14.integrity, I14c.rep1 et I14c.integrity1 KO, code 1" || ko "staleentry : rc=$RC $(status_of I14.integrity)/$(status_of I14c.rep1)/$(status_of I14c.integrity1)"
+rm -f "$W"/out/*; ENVX="I14C_ITER=2" run staleentry I14 I14c I14p
+[[ $RC == 1 && $(status_of I14.integrity) == KO && $(status_of I14c.rep1) == KO && $(status_of I14c.integrity1) == KO ]] && [[ $(status_of I14c.par1) == KO && $(status_of I14c.parintegrity1) == KO ]] && ok "staleentry => I14.integrity, I14c.rep1/integrity1 et I14c.par1/parintegrity1 KO, code 1" || ko "staleentry : rc=$RC $(status_of I14.integrity)/$(status_of I14c.rep1)/$(status_of I14c.integrity1)/$(status_of I14c.par1)/$(status_of I14c.parintegrity1)"
 
 echo "== 4. logs Emby en erreur"
 rm -f "$W"/out/*; ENVX="FAKE_LOG_BAD=1" run ok I1

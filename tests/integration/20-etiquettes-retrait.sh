@@ -73,7 +73,7 @@ relogin() {
 }
 relogin
 purge_stale_test_playlists   # #60 : aucune playlist SPIKE d'un run précédent (sauf si imbriqué : INT_NESTED=1)
-select_test_media 6   # #61 : bibliothèque locale PlaySync-Tests uniquement ; refus de tout média /config/virtual/
+select_test_media 10   # (I14c parallèle : jusqu'à 10 médias par playlist ; les autres scénarios n'en utilisent que 6)  # #61 : bibliothèque locale PlaySync-Tests uniquement ; refus de tout média /config/virtual/
 [[ ${#M[@]} -ge 6 ]] || die "moins de 6 médias (>= 10 min) : I14/I15 exigent 6 médias (demander à l'utilisateur)"
 reset_pool_full "${M[@]}"   # remise à zéro complète (lu+position) : un run précédent (même script, même invocation séparée) ne doit rien laisser
 echo "  [OK] bassin de ${#M[@]} médias remis à zéro (lu=false, position=0)"
@@ -389,7 +389,7 @@ i14() {
   echo "== I14 — événements simultanés"
   assert_baseline
   local pl j k i
-  pl=$(shared_pl "SPIKE-I14" "$(IFS=,; echo "${M[*]}")"); prime "$pl" || true
+  pl=$(shared_pl "SPIKE-I14" "$(IFS=,; echo "${M[*]:0:6}")"); prime "$pl" || true
   owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1; jclear
   local -a U=("$U1" "$U2" "$U3") T=("$T1" "$T2" "$T3")
   rm -f "$SCRATCH"/ms.i14 "$SCRATCH"/bg.i14*.st
@@ -422,7 +422,7 @@ i14c() {   # critical (R4a, F2-b) : rafale de lectures d'un même membre sur une
   local rep k j pl bad got want ja
   for rep in 1 2 3; do
     assert_baseline
-    pl=$(shared_pl "SPIKE-I14c-$rep" "$(IFS=,; echo "${M[*]}")"); prime "$pl" || true
+    pl=$(shared_pl "SPIKE-I14c-$rep" "$(IFS=,; echo "${M[*]:0:6}")"); prime "$pl" || true
     owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1; jclear
     bad=""
     for k in 0 1 2 3 4 5; do   # séquence rapide (sélection multiple) : pas d'attente entre deux marquages hormis l'attente active du retrait
@@ -443,11 +443,44 @@ i14c() {   # critical (R4a, F2-b) : rafale de lectures d'un même membre sur une
   harvest_removals
 }
 
+i14p() {   # critical (R4a, F2-b) : fin de lecture de PLUSIEURS médias EN PARALLÈLE par 3 membres sur une même playlist (déclenche la fenêtre de course)
+  local iters=${I14C_ITER:-8} pn=${#M[@]} kk it k j bad want got ja wl jl
+  if [[ $pn -gt 10 ]]; then pn=10; fi
+  kk=$((pn-4))   # médias lus ; les 4 derniers restent NON LUS : un retrait « voisin » (identifiant d'entrée périmé) les fait disparaître
+  echo "== I14c (parallèle) — $iters itérations : $kk médias finis en parallèle par 3 membres sur $pn, les $((pn-kk)) autres doivent rester (une fois)"
+  local -a U=("$U1" "$U2" "$U3") T=("$T1" "$T2" "$T3")
+  for ((it=1; it<=iters; it++)); do
+    assert_baseline
+    local pl; pl=$(shared_pl "SPIKE-I14p-$it" "$(IFS=,; echo "${M[*]:0:$pn}")"); prime "$pl" || true
+    owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; jclear
+    rm -f "$SCRATCH"/bg.i14p*.st
+    for ((k=0; k<kk; k++)); do   # lancement simultané (comme une sélection multiple / plusieurs membres) : marquage lu via l'API, comme I14
+      bg_call "i14p$k" i14p POST "/Users/${U[$((k%3))]}/PlayedItems/${M[$k]}" "" "${T[$((k%3))]}"
+    done
+    wait
+    for ((k=0; k<kk; k++)); do wait_count "$pl" "${M[$k]}" 0 15 || true; done
+    nap 3   # laisser aboutir un éventuel retrait tardif d'un mauvais média (rafraîchissement d'Emby)
+    bad=""
+    for ((j=0; j<pn; j++)); do
+      want=1; if [[ $j -lt $kk ]]; then want=0; fi
+      got=$(count_item "$pl" "${M[$j]}")
+      if [[ $got != "$want" ]]; then bad+=" M$j=$got(attendu $want)"; fi
+    done
+    ja=$(journal Removal,Skipped,Error)
+    wl=$(jcount "$ja" "$pl" Removal 'entries=1( |$)'); jl="$wl/$(jcount "$ja" "$pl" Skipped 'already-removed')/$(jcount "$ja" "$pl" Error 'wrong-entry')"
+    ck "I14c.par$it" "itération $it : seuls les $kk médias lus ont disparu, les $((pn-kk)) autres sont présents une fois" \
+      "$(jq -nc --arg b "$bad" '{violations:$b}')" test -z "$bad"
+    ck "I14c.parintegrity$it" "itération $it : $kk Removal entries=1, aucun Skipped already-removed, aucun Error wrong-entry (removal/already-removed/wrong-entry = $jl)" "$ja" \
+      test "$jl" = "$kk/0/0"
+  done
+  harvest_removals
+}
+
 i15() {
   echo "== I15 — passe planifiée pendant des transitions"
   assert_baseline
   local pl id k t pidbg dup
-  pl=$(shared_pl "SPIKE-I15" "$(IFS=,; echo "${M[*]}")"); prime "$pl" || true
+  pl=$(shared_pl "SPIKE-I15" "$(IFS=,; echo "${M[*]:0:6}")"); prime "$pl" || true
   owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1
   id=$(task_id)
   ( CFG="$SCRATCH/bg.loop.cfg"; RESP="$SCRATCH/bg.loop.resp"; BODYF="$SCRATCH/bg.loop.body"
@@ -512,7 +545,7 @@ i17() {
   close_open_sessions   # #61 : les 20 sessions progress-only (et celles des autres scénarios) sont fermées par Stopped
 }
 
-ALL=(I0 I1 I2 I3 I4 I5 I6 I7 I8 I9 I10 I11 I12 I13 I14 I14c I15 I16 I17)
+ALL=(I0 I1 I2 I3 I4 I5 I6 I7 I8 I9 I10 I11 I12 I13 I14 I14c I14p I15 I16 I17)
 if [[ ${#WANT[@]} -eq 0 ]]; then WANT=("${ALL[@]}"); fi
 for s in "${WANT[@]}"; do
   fn=$(tr 'A-Z' 'a-z' <<<"$s")

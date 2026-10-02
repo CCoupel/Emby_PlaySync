@@ -209,7 +209,7 @@ def transition(user, item):
             if MODE == "staleentry" and p["entries"]:
                 # défaut v1.2.1 (rafraîchissement d'Emby : identifiants d'entrée renumérotés entre lecture et écriture) : l'identifiant périmé
                 # désigne le média voisin, supprimé À LA PLACE (entries=2 pour un média présent une fois ; I14c / I14.integrity KO)
-                other = next((x for x in p["entries"] if x["item"] != item), None)
+                other = next((x for x in reversed(p["entries"]) if x["item"] != item), None)   # voisin décalé : ici la DERNIÈRE entrée d'un autre média (non lue dans I14c)
                 if other is not None: p["entries"].remove(other); n += 1
             for x in p["entries"]: x["pid"] = str(next(ids))   # le rafraîchissement d'Emby réattribue les identifiants d'entrée (I14c)
             jr("Removal", pid, user, item, f"entries={n} durationMs={ms}"); jr("Skipped", pid, detail="already-seen")   # écho PlaylistItemsRemoved
