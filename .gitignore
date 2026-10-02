@@ -73,3 +73,7 @@ private/*
 
 # Le bootstrapper reste tracke
 !.claude/commands/init-project.md
+
+# Site marketing : MARKETING/ est le WORKTREE git de la branche gh-pages (git worktree add MARKETING gh-pages).
+# Le site n'est gere que sur gh-pages — jamais commite sur la branche de code (main, milestone/*, hotfix).
+MARKETING/
