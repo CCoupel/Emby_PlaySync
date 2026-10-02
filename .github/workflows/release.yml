@@ -19,6 +19,31 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      # C2 : le tag doit egaler <Version> du csproj (version_file)
+      - name: Check tag matches csproj version
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          CSPROJ_VERSION=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/EmbySharedPlaylist/EmbySharedPlaylist.csproj | head -n1)
+          if [ "$CSPROJ_VERSION" != "$VERSION" ]; then
+            echo "::error::Tag v$VERSION != csproj Version $CSPROJ_VERSION"
+            exit 1
+          fi
+
+      # C5 : notes de release extraites de CHANGELOG.md (section ## [X.Y.Z])
+      - name: Extract release notes from CHANGELOG
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          awk -v v="$VERSION" '
+            /^## \[/ { if (found) exit; if (index($0, "## [" v "]") == 1) { found=1; next } }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::Section [$VERSION] absente ou vide dans CHANGELOG.md"
+            exit 1
+          fi
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -34,9 +59,17 @@ jobs:
             -p:Version=${{ steps.version.outputs.VERSION }} \
             --output dist/
 
+      # C4 : somme de controle du livrable (nom de la DLL inchange, requis par deploy)
+      - name: Checksum
+        run: |
+          cd dist
+          sha256sum EmbySharedPlaylist.dll > EmbySharedPlaylist.dll.sha256
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: "PlaySync v${{ steps.version.outputs.VERSION }}"
-          files: dist/EmbySharedPlaylist.dll
-          generate_release_notes: true
+          body_path: release-notes.md
+          files: |
+            dist/EmbySharedPlaylist.dll
+            dist/EmbySharedPlaylist.dll.sha256
