@@ -6,7 +6,7 @@ propager-avancement, sans héritage) ; tableau A (le retrait exige propager-lu=O
 tableau B (la position ne dépend que de propager-avancement, AUCUNE garde sur l'état lu) indépendants ; HelpText V1/V2 -> V3.
 Ce n'est PAS le plugin : c'est une spécification exécutable minimale qui vérifie que le script de test lit bien le contrat et
 enchaîne correctement les scénarios. MODES (détection de défauts, tests hors ligne « moteur défaillant ») :
-ok | noremove | nopropagate (ni lu ni position) | noautoshare | repose | retraitseul (défaut v0.2.0-v1.1.0 : retrait SANS propager-lu) |
+ok | staleentry (défaut v1.2.1 : retire le média voisin, I14c) | noremove | nopropagate (ni lu ni position) | noautoshare | repose | retraitseul (défaut v0.2.0-v1.1.0 : retrait SANS propager-lu) |
 dcguard (défaut : garde D-c « déclencheur déjà lu » de v0.3.1) | legacyavancement (défaut : propager-lu couvre la position) |
 nativeplayed (Emby pose le lu chez un membre après une position >= 90 %, origine plugin : bénin) |
 nativeleak (idem mais pris pour une action utilisateur : violation de S6) |
@@ -206,6 +206,12 @@ def transition(user, item):
                 e = next((x for x in p["entries"] if x["item"] == item), None)
                 if e is None: break
                 p["entries"].remove(e); n += 1
+            if MODE == "staleentry" and p["entries"]:
+                # défaut v1.2.1 (rafraîchissement d'Emby : identifiants d'entrée renumérotés entre lecture et écriture) : l'identifiant périmé
+                # désigne le média voisin, supprimé À LA PLACE (entries=2 pour un média présent une fois ; I14c / I14.integrity KO)
+                other = next((x for x in p["entries"] if x["item"] != item), None)
+                if other is not None: p["entries"].remove(other); n += 1
+            for x in p["entries"]: x["pid"] = str(next(ids))   # le rafraîchissement d'Emby réattribue les identifiants d'entrée (I14c)
             jr("Removal", pid, user, item, f"entries={n} durationMs={ms}"); jr("Skipped", pid, detail="already-seen")   # écho PlaylistItemsRemoved
         elif pr_st != "Oui":
             jr("Skipped", pid, user, item, "inactive")   # « inactive » seulement si la propagation du lu n'agit pas non plus

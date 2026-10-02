@@ -400,6 +400,10 @@ i14() {
   ck I14.distinct "6 médias différents finis en parallèle par 3 comptes : tous retirés (playlist vide)" "$(entries "$pl")" wait_empty "$pl" 15
   j=$(journal Removal)
   ck I14.once "exactement un Removal par média (6)" "$j" test "$(jcount "$j" "$pl" Removal)" = 6
+  # intégrité (F2-b, R4a) : un identifiant d'entrée périmé (renumérotation par le rafraîchissement d'Emby) retirait un AUTRE média
+  local ja; ja=$(journal Removal,Skipped,Error)
+  ck I14.integrity "lot parallèle : chaque Removal a entries=1, aucun Skipped already-removed (médias distincts), aucun Error wrong-entry" "$ja" \
+    test "$(jcount "$ja" "$pl" Removal 'entries=1( |$)')/$(jcount "$ja" "$pl" Skipped 'already-removed')/$(jcount "$ja" "$pl" Error 'wrong-entry')" = "6/0/0"
   # même média, 3 comptes en parallèle
   add_item "$pl" "${M[0]}"; nap 1; jclear
   for i in 0 1 2; do unmark "${U[$i]}" "${T[$i]}" "${M[0]}"; done; nap 1
@@ -410,6 +414,32 @@ i14() {
   ck I14.same "même média fini par 3 comptes en parallèle : UNE seule entrée retirée (1 Removal)" "$j" test "$(jcount "$j" "$pl" Removal)" = 1
   ck I14.noerror "aucune entrée Error dans le journal" "$(journal Error)" test "$(journal Error | jq length)" = 0
   ck I14.slow "aucun appel > 5 s" "null" bash -c '[[ ! -f $0 ]] || ! awk "\$1>5000{f=1} END{exit !f}" "$0"' "$SCRATCH/ms.i14"
+  harvest_removals
+}
+
+i14c() {   # critical (R4a, F2-b) : rafale de lectures d'un même membre sur une même playlist — seul le média lu disparaît
+  echo "== I14c — rafale (critical) : retraits rapprochés d'un même membre, seul le média lu disparaît (x3)"
+  local rep k j pl bad got want ja
+  for rep in 1 2 3; do
+    assert_baseline
+    pl=$(shared_pl "SPIKE-I14c-$rep" "$(IFS=,; echo "${M[*]}")"); prime "$pl" || true
+    owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1; jclear
+    bad=""
+    for k in 0 1 2 3 4 5; do   # séquence rapide (sélection multiple) : pas d'attente entre deux marquages hormis l'attente active du retrait
+      api POST "/Users/$U2/PlayedItems/${M[$k]}" "" "$T2" >/dev/null
+      wait_count "$pl" "${M[$k]}" 0 10 || bad+=" M$k:non-retiré"
+      for j in 0 1 2 3 4 5; do
+        want=1; if [[ $j -le $k ]]; then want=0; fi
+        got=$(count_item "$pl" "${M[$j]}")
+        if [[ $got != "$want" ]]; then bad+=" après-M$k:M$j=$got(attendu $want)"; fi
+      done
+    done
+    ck "I14c.rep$rep" "répétition $rep : après chaque marquage, seul ce média a disparu ; les autres sont présents une seule fois" \
+      "$(jq -nc --arg b "$bad" '{violations:$b}')" test -z "$bad"
+    ja=$(journal Removal,Skipped,Error)
+    ck "I14c.integrity$rep" "répétition $rep : 6 Removal entries=1, aucun Skipped already-removed, aucun Error wrong-entry" "$ja" \
+      test "$(jcount "$ja" "$pl" Removal 'entries=1( |$)')/$(jcount "$ja" "$pl" Skipped 'already-removed')/$(jcount "$ja" "$pl" Error 'wrong-entry')" = "6/0/0"
+  done
   harvest_removals
 }
 
@@ -454,9 +484,11 @@ i16() {
   finish "$U2" "$T2" "${M[0]}"; wait_count "$pl" "${M[0]}" 0 10 || true
   nap 3; j1=$(journal); nap 6; j2=$(journal); sd=$(echo_settle_split); rd=${sd% *}; ad=${sd#* }; e16d=$((rd+ad))
   ck I16.removal "un seul Removal pour un retrait" "$j1" test "$(jcount "$j1" "$pl" Removal)" = 1
-  # un seul RemoveFromPlaylist => au plus un écho synchrone (PlaylistItemsRemoved, reentrant) et un écho différé (ItemUpdated, already-seen) — spec §S8 l.447
-  ck I16.echo.removal.reentrant "au plus un écho synchrone (PlaylistItemsRemoved) pour l'unique écriture de retrait (+$((rd-rc)))" "{\"before\":$rc,\"after\":$rd}" test "$((rd-rc))" -le 1
-  ck I16.echo.removal.deferred "au plus un écho différé (ItemUpdated) pour l'unique écriture de retrait (+$((ad-ac)))" "{\"before\":$ac,\"after\":$ad}" test "$((ad-ac))" -le 1
+  # un seul RemoveFromPlaylist => au plus un écho synchrone (PlaylistItemsRemoved, reentrant) et un écho différé (ItemUpdated du worker de
+  # rafraîchissement, already-seen) — spec §S8 l.447. F1 (v1.2.2) : le WriteScope est révoqué à la sortie de l'écriture, donc l'écho différé
+  # du worker n'est PLUS compté reentrant (avant F1 : reentrant +2 / already-seen +0). Les bornes (≤ 1 chacune) restent inchangées.
+  ck I16.echo.removal.reentrant "au plus un écho synchrone (PlaylistItemsRemoved, reentrant) pour l'unique écriture de retrait (+$((rd-rc))) ; F1 : le worker différé n'y est plus compté" "{\"before\":$rc,\"after\":$rd}" test "$((rd-rc))" -le 1
+  ck I16.echo.removal.deferred "au plus un écho différé (ItemUpdated du worker, already-seen) pour l'unique écriture de retrait (+$((ad-ac)))" "{\"before\":$ac,\"after\":$ad}" test "$((ad-ac))" -le 1
   ck I16.norepose "6 s plus tard : aucune pose ni nouveau retrait (pas de boucle)" "null" \
     test "$(jcount "$j2" "$pl" MarkerPosed)/$(jcount "$j2" "$pl" Removal)" = "0/1"
   ck I16.noerror "aucune entrée Error pour cette playlist" "null" test "$(jcount "$j2" "$pl" Error)" = 0
@@ -480,7 +512,7 @@ i17() {
   close_open_sessions   # #61 : les 20 sessions progress-only (et celles des autres scénarios) sont fermées par Stopped
 }
 
-ALL=(I0 I1 I2 I3 I4 I5 I6 I7 I8 I9 I10 I11 I12 I13 I14 I15 I16 I17)
+ALL=(I0 I1 I2 I3 I4 I5 I6 I7 I8 I9 I10 I11 I12 I13 I14 I14c I15 I16 I17)
 if [[ ${#WANT[@]} -eq 0 ]]; then WANT=("${ALL[@]}"); fi
 for s in "${WANT[@]}"; do
   fn=$(tr 'A-Z' 'a-z' <<<"$s")
