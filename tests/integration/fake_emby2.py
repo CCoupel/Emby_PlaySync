@@ -397,6 +397,7 @@ class H(http.server.BaseHTTPRequestHandler):
         if p == "/Sessions/Playing/Progress":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
             item = body["ItemId"]; paused = bool(body.get("IsPaused", False)); sid = body.get("PlaySessionId"); ticks = body.get("PositionTicks", 0)
+            SESSIONS[(user, sid)] = item   # un Progress (même tardif) rouvre une session visible dans /Sessions, comme Emby (#61, I44)
             s = SYNC.get((user, item))
             if s and s["closed"] and s["sid"] == sid: return self.out(204)       # Progress tardif d'une session arrêtée : ignoré (CA6)
             if not s or s["closed"] or s["sid"] != sid: s = open_session(user, item, sid)

@@ -494,7 +494,9 @@ test_sessions_playing() { # JSON des sessions test_u* ayant un NowPlayingItem (c
 check_no_test_sessions() {
   if [[ ${INT_NESTED:-0} == 1 ]]; then return 0; fi
   close_open_sessions
-  local ss; ss=$(test_sessions_playing)
+  local ss i; ss=$(test_sessions_playing)
+  # lecture bornée : Emby expire la session quelques secondes après Stopped ; une session réellement ouverte reste visible et donne un KO
+  for ((i=0; i<3 && $(jq length <<<"$ss") > 0; i++)); do nap 2; ss=$(test_sessions_playing); done
   ck SESSIONS.clean "aucune session de lecture test_u* ne reste ouverte en fin de script (relais VirtualLib / sessions fantômes, #61)" "$ss" test "$(jq length <<<"$ss")" = 0
 }
 played_of() { api GET "/Users/$1/Items/$3" "" "$2" >/dev/null; jq -r '.UserData.Played' "$RESP"; }
