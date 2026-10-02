@@ -55,6 +55,7 @@ if [[ ${#missing[@]} -gt 0 && $CHECK == 0 ]]; then
       || die "copie de $f vers le pod échouée"
     rm -f "$tmp"; echo "  [OK] $f copié"
   done
+  missing=()   # tout est copié : sans cette remise à zéro, la condition de sortie « aucun manquant » restait fausse au 1er run
 fi
 
 echo "== Bibliothèque $LIB_NAME"
