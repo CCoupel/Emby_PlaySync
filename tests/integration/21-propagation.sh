@@ -255,8 +255,8 @@ i23() {
   set_marker_state "$L2" remove-si-lu oui; set_marker_state "$L2" propager-lu oui
   # pré-condition d'environnement (#60) : F1 ne doit figurer dans aucune autre playlist visible de test_u2/test_u3 que L1/L2,
   # sinon la propagation observée peut venir d'un résidu (ex. SPIKE-I17) et non du plugin
-  local stray; stray=$(playlists_containing "$item" "$L1" "$L2" | paste -sd, -)
-  ck I23.S6a.isolated "pré-condition : F1 dans aucune autre playlist partagée que L1/L2 (pollution d'environnement sinon)" "{\"others\":\"$stray\"}" test -z "$stray"
+  local stray; stray=$(playlists_containing "$item" "$L1" "$L2" | paste -sd';' -)
+  ck I23.S6a.isolated "pré-condition : F1 dans aucune autre playlist partagée que L1/L2 (pollution d'environnement sinon)" "$(jq -nc --arg o "$stray" '{others:$o}')" test -z "$stray"
   jclear
   finish "$U2" "$T2" "$item"
   ck I23.S6a.L1removed "L1 : F1 retiré" "null" wait_count "$L1" "$item" 0 10   # attente active : retrait et propagation (même playlist) partagent la passe

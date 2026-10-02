@@ -8,6 +8,7 @@
 # Mots de passe aléatoires -> private/test-users.env (gitignoré). Aucune valeur secrète affichée.
 # Usage : tests/integration/00-setup-users.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/int-lib.sh"   # select_test_media (#61)
 
 check_ignored "$USERS_ENV" "$SNAPSHOT" "$STATE" "$QUALIF_ENV"
 guard_target
@@ -22,10 +23,9 @@ done
 [[ ! -f $USERS_ENV ]] || die "$USERS_ENV existe déjà : lancer 90-cleanup.sh --delete-users d'abord"
 
 # Il faut au moins 4 médias avec durée pour les scénarios (m1..m4)
-st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=RunTimeTicks&SortBy=SortName&Limit=200")
-[[ $st == 200 ]] || die "GET /Items -> $st"
-MEDIA=$(jq -c '[.Items[]|select((.RunTimeTicks//0) >= 6000000000)|.Id][0:4]' "$RESP")
-[[ $(jq 'length' <<<"$MEDIA") -ge 4 ]] || die "moins de 4 médias (>= 10 min) dans la bibliothèque : demander à l'utilisateur"
+select_test_media 4   # #61 : bibliothèque locale PlaySync-Tests uniquement (01-setup-media.sh), refus de tout média /config/virtual/
+[[ ${#M[@]} -ge 4 ]] || die "moins de 4 médias (>= 10 min) dans la bibliothèque PlaySync-Tests : lancer 01-setup-media.sh"
+MEDIA=$(printf '%s\n' "${M[@]}" | jq -R . | jq -sc .)
 echo "  [OK] >= 4 médias exploitables"
 
 echo "== Snapshot avant (utilisateurs + politiques ${PROTECTED_USERS[*]})"

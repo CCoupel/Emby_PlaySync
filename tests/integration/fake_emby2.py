@@ -52,6 +52,8 @@ TASK_ID = "77"
 pass_no = itertools.count(1)
 
 LIB_ID = "7777"
+if os.environ.get("FAKE_NO_TESTUSERS") == "1":   # 00-setup-users.sh : les comptes test_* n'existent pas encore
+    for _n in ("test_u1", "test_u2", "test_u3"): USERS.pop(_n, None)
 SESSIONS = {}   # (user, PlaySessionId) -> item : sessions de lecture ouvertes (#61)
 PL, PLAYED, PLAYDATA, POLICY, POSITION = {}, set(), {}, {}, {}   # POSITION[(user,item)] = ticks (donnée Emby, persiste)
 TICKS_30S = 300_000_000   # v0.3.1 : seuil minimal (30 s, 100 ns/tick)
@@ -319,7 +321,7 @@ class H(http.server.BaseHTTPRequestHandler):
             return self.out(204)
         r = re.fullmatch(r"/Users/(\w+)/Policy", p)
         if r and m == "POST":
-            pol = POLICY.setdefault(r.group(1), dict(DEFAULT_POLICY)); pol.update(body); return self.out(204)
+            pol = POLICY.setdefault(r.group(1), {} if os.environ.get("FAKE_NO_TESTUSERS") == "1" else dict(DEFAULT_POLICY)); pol.update(body); return self.out(204)
         r = re.fullmatch(r"/Users/(\w+)", p)
         if r and m == "GET":
             # AllowSharingPersonalItems (v0.4.0, #26) : présent par défaut à False pour TOUT compte (comme un vrai

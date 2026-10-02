@@ -71,7 +71,7 @@ TEST_MEDIA_LIBRARY_NAME=${TEST_MEDIA_LIBRARY:-PlaySync-Tests}
 TEST_MEDIA_ROOT=${TEST_MEDIA_ROOT:-/config/test-media/}
 # assert_local_media ITEMS_JSON : die si un média n'a pas de Path, est sous /config/virtual/, est un .strm ou sort de TEST_MEDIA_ROOT
 assert_local_media() {
-  local bad
+  local bad; TEST_MEDIA_ROOT=${TEST_MEDIA_ROOT%/}/   # normalisé avec un « / » final (comme 01-setup-media.sh) : jamais /config/test-mediaX
   bad=$(jq -r --arg root "$TEST_MEDIA_ROOT" '[.[]|select((.Path//"")=="" or (.Path|startswith("/config/virtual/")) or (.Path|ascii_downcase|endswith(".strm")) or ((.Path|startswith($root))|not))|(.Path//"(sans chemin)")]|join(", ")' <<<"$1")
   [[ -z $bad ]] || die "médias virtuels interdits en QUALIF (#61) : $bad — utiliser la bibliothèque $TEST_MEDIA_LIBRARY_NAME (01-setup-media.sh)"
 }
@@ -389,17 +389,17 @@ purge_stale_test_playlists() {
   done < <(jq -r '.Items[]|select((.Name//"")|startswith("SPIKE"))|.Id' "$RESP")
   echo "  [OK] playlists SPIKE résiduelles purgées : $n"
 }
-# playlists_containing ITEM [PLAYLIST_A_IGNORER...] -> ids (un par ligne) des playlists visibles de test_u2/test_u3 qui contiennent ITEM
+# playlists_containing ITEM [PLAYLIST_A_IGNORER...] -> « nom (id) » (un par ligne) des playlists visibles de test_u2/test_u3 qui contiennent ITEM
 playlists_containing() {
   local item=$1; shift
-  local u id st seen=" $* "
+  local u id nm st seen=" $* "
   for u in "$U2" "$U3"; do
     st=$(api GET "/Users/$u/Items?Recursive=true&IncludeItemTypes=Playlist")
     [[ $st == 200 ]] || continue
-    jq -r '.Items[].Id' "$RESP" | while IFS= read -r id; do echo "$id"; done
-  done | sort -u | while IFS= read -r id; do
+    jq -r '.Items[]|"\(.Id)\t\(.Name)"' "$RESP"
+  done | sort -u | while IFS=$'\t' read -r id nm; do
     [[ $seen == *" $id "* ]] && continue
-    if [[ $(count_item "$id" "$item") -ge 1 ]]; then echo "$id"; fi
+    if [[ $(count_item "$id" "$item") -ge 1 ]]; then echo "$nm ($id)"; fi
   done
 }
 
