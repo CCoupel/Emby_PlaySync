@@ -3,6 +3,7 @@ using EmbySharedPlaylist.Engine;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Logging;
 
@@ -19,10 +20,10 @@ public sealed class PlaybackListener : IServerEntryPoint
     private readonly IUserDataManager _userDataManager;
 
     public PlaybackListener(IUserDataManager userDataManager, ILibraryManager libraryManager, IUserManager userManager,
-        IItemRepository itemRepository, IPlaylistManager playlistManager, ILogManager logManager)
+        IItemRepository itemRepository, IPlaylistManager playlistManager, IProviderManager providerManager, ILogManager logManager)
     {
         _userDataManager = userDataManager;
-        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, userDataManager, logManager);
+        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, providerManager, userDataManager, logManager);
     }
 
     public void Run() => _userDataManager.UserDataSaved += OnUserDataSaved;

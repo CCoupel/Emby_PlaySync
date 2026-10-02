@@ -4,6 +4,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 
@@ -31,11 +32,11 @@ public class UserPageService : IService, IRequiresRequest
     public IRequest Request { get; set; } = null!;
 
     public UserPageService(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
-        IPlaylistManager playlistManager, IUserDataManager userDataManager, ILogManager logManager, IAuthorizationContext authContext)
+        IPlaylistManager playlistManager, IProviderManager providerManager, IUserDataManager userDataManager, ILogManager logManager, IAuthorizationContext authContext)
     {
         // Même patron que DiagnosticsService/Spike.SpikeU13Service : idempotent, garantit PluginRuntime.* même si
         // aucun autre IService n'a encore été instancié par l'hôte.
-        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, userDataManager, logManager);
+        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, providerManager, userDataManager, logManager);
         _authContext = authContext;
     }
 

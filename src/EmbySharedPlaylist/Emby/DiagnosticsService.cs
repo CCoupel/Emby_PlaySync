@@ -3,6 +3,7 @@ using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 
@@ -17,9 +18,9 @@ namespace EmbySharedPlaylist.Emby;
 public class DiagnosticsService : IService
 {
     public DiagnosticsService(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
-        IPlaylistManager playlistManager, IUserDataManager userDataManager, ILogManager logManager)
+        IPlaylistManager playlistManager, IProviderManager providerManager, IUserDataManager userDataManager, ILogManager logManager)
     {
-        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, userDataManager, logManager);
+        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, providerManager, userDataManager, logManager);
     }
 
     public object Get(DiagnosticsJournal request) => Run(() =>
