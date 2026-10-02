@@ -512,6 +512,8 @@ play_start() { # UID TOKEN ITEM -> SID (session)
   echo "$sid"
 }
 play_progress() { # UID TOKEN ITEM SID POSITION_TICKS IS_PAUSED(true|false) -> HTTP status
+  # Un Progress (même tardif, après Stopped : I44) rouvre une session côté Emby : la (ré)enregistrer pour que close_open_sessions la ferme (#61)
+  if ! grep -qF -- "$(printf '\t%s\t' "$4")" "${SCRATCH:?}/sessions.open" 2>/dev/null; then session_register "$2" "$4" "$3" "$5"; fi
   api POST /Sessions/Playing/Progress "$(jq -nc --arg i "$3" --arg s "$4" --argjson p "$5" --argjson pa "$6" \
     '{ItemId:$i,MediaSourceId:$i,PlaySessionId:$s,PlayMethod:"DirectPlay",PositionTicks:$p,IsPaused:$pa,CanSeek:true}')" "$2"
 }
