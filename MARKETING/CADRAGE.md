@@ -49,3 +49,7 @@
   l'avancement, à part » et « Créer une playlist depuis PlaySync » — avec badge `Nouveau v1.2.0`
   (première apparition). `current-major` reste `1`. Tableau de configuration : ajout de
   `propager-avancement`, précisions sur `remove-si-lu` (dépend de `propager-lu`) et `propager-lu`.
+- **v1.2.1** (préparé le 2026-10-02, en attente de publication) : correctif #58 uniquement, aucun nouvel
+  élément → aucun badge posé, `current-major` inchangé (`1`). Version affichée `v1.2.1` ; texte de la
+  carte « Propager l'avancement » mis à jour (propagation continue ~10 s, fin de lecture = position 0 avec
+  « Propager le lu »). Pas de section Roadmap ajoutée (exclue par le cadrage).
