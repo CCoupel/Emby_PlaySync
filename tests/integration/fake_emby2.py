@@ -6,7 +6,7 @@ propager-avancement, sans héritage) ; tableau A (le retrait exige propager-lu=O
 tableau B (la position ne dépend que de propager-avancement, AUCUNE garde sur l'état lu) indépendants ; HelpText V1/V2 -> V3.
 Ce n'est PAS le plugin : c'est une spécification exécutable minimale qui vérifie que le script de test lit bien le contrat et
 enchaîne correctement les scénarios. MODES (détection de défauts, tests hors ligne « moteur défaillant ») :
-ok | staleentry (défaut v1.2.1 : retire le média voisin, I14c) | noremove | nopropagate (ni lu ni position) | noautoshare | repose | retraitseul (défaut v0.2.0-v1.1.0 : retrait SANS propager-lu) |
+ok | wrongentry (défaut v1.2.1 : retire le média voisin, I14c) | staleentry (F3 : 1re suppression sans effet = identifiant périmé, journal Skipped stale-entry, retentée : bénin) | noremove | nopropagate (ni lu ni position) | noautoshare | repose | retraitseul (défaut v0.2.0-v1.1.0 : retrait SANS propager-lu) |
 dcguard (défaut : garde D-c « déclencheur déjà lu » de v0.3.1) | legacyavancement (défaut : propager-lu couvre la position) |
 nativeplayed (Emby pose le lu chez un membre après une position >= 90 %, origine plugin : bénin) |
 nativeleak (idem mais pris pour une action utilisateur : violation de S6) |
@@ -51,6 +51,7 @@ RT = 7_000_000_000
 TASK_ID = "77"
 pass_no = itertools.count(1)
 
+STALE_DONE = set()   # (playlist, média) déjà « périmés » une fois (mode staleentry)
 LIB_ID = "7777"
 if os.environ.get("FAKE_NO_TESTUSERS") == "1":   # 00-setup-users.sh : les comptes test_* n'existent pas encore
     for _n in ("test_u1", "test_u2", "test_u3"): USERS.pop(_n, None)
@@ -200,13 +201,16 @@ def transition(user, item):
         # Tableau A (v1.2.0, D21, R4a subordonnée) : retrait seulement si remove-si-lu ET propager-lu sont OUI (mode retraitseul :
         # comportement défaillant v0.2.0-v1.1.0, remove-si-lu suffit).
         removal_on = rm_st == "Oui" and (pr_st == "Oui" or MODE == "retraitseul") and MODE != "noremove"
+        if removal_on and MODE == "staleentry" and (pid, item) not in STALE_DONE:
+            STALE_DONE.add((pid, item))      # F3 : première tentative = identifiant d'entrée périmé (aucune ligne supprimée), retentée aussitôt
+            jr("Skipped", pid, user, item, "stale-entry")
         if removal_on:
             n = 0
             while n < 50:                         # toutes les entrées du média, une à la fois
                 e = next((x for x in p["entries"] if x["item"] == item), None)
                 if e is None: break
                 p["entries"].remove(e); n += 1
-            if MODE == "staleentry" and p["entries"]:
+            if MODE == "wrongentry" and p["entries"]:
                 # défaut v1.2.1 (rafraîchissement d'Emby : identifiants d'entrée renumérotés entre lecture et écriture) : l'identifiant périmé
                 # désigne le média voisin, supprimé À LA PLACE (entries=2 pour un média présent une fois ; I14c / I14.integrity KO)
                 other = next((x for x in reversed(p["entries"]) if x["item"] != item), None)   # voisin décalé : ici la DERNIÈRE entrée d'un autre média (non lue dans I14c)

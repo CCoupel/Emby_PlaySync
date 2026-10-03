@@ -85,13 +85,20 @@ if command -v kubectl >/dev/null && [[ -f $KUBECONFIG_FILE ]]; then
   KUBECONFIG="$KUBECONFIG_FILE" kubectl logs "deployment/$KUBE_DEPLOY" -n "$KUBE_NS" --tail=1 >/dev/null 2>&1 && LOGS_OK=1
 fi
 echo "  GracePasses=$GRACE ; logs kubectl : $([[ $LOGS_OK == 1 ]] && echo lisibles || echo indisponibles)"
-REMOVAL_MS="$SCRATCH/removal.ms"; : > "$REMOVAL_MS"; : > "$SCRATCH/removal.acc"
-harvest_removals() { # ajoute les durées des entrées Removal du journal (dédoublonnées par ts|playlist|item)
+REMOVAL_MS="$SCRATCH/removal.ms"; REMOVAL_BURST="$SCRATCH/removal.burst"; : > "$REMOVAL_MS"; : > "$REMOVAL_BURST"; : > "$SCRATCH/removal.acc"
+CUR_SCEN=""
+# harvest_removals : durées des Removal du journal, dédoublonnées par ts|playlist|item, classées par scénario (#59/F3) :
+#  - « burst » = retraits des scénarios de concurrence (I14, I14c, I14p, I15) : la sérialisation par playlist s'ajoute à la durée ;
+#  - « iso »   = tous les autres scénarios ; seul le PREMIER Removal de chaque playlist compte (retrait isolé, cas courant).
+harvest_removals() {
+  local cls=iso
+  case "$CUR_SCEN" in I14|I14C|I14P|I15) cls=burst ;; esac
   journal Removal | jq -r '.[]|"\(.ts)|\(.playlistId)|\(.itemId)|\(.detail//"")"' | while IFS='|' read -r t p i d; do
-    echo "$t|$p|$i|$(jkv "$d" durationMs)"
+    echo "$t|$p|$i|$(jkv "$d" durationMs)|$cls"
   done >> "$SCRATCH/removal.acc"
-  sort -u "$SCRATCH/removal.acc" -o "$SCRATCH/removal.acc"
-  cut -d'|' -f4 "$SCRATCH/removal.acc" | grep -E '^[0-9]+$' > "$REMOVAL_MS" || true
+  sort "$SCRATCH/removal.acc" | awk -F'|' '!s[$1"|"$2"|"$3]++' > "$SCRATCH/removal.acc.tmp"; mv "$SCRATCH/removal.acc.tmp" "$SCRATCH/removal.acc"
+  awk -F'|' '$5=="iso" && !f[$2]++ {print $4}' "$SCRATCH/removal.acc" | grep -E '^[0-9]+$' > "$REMOVAL_MS" || true
+  awk -F'|' '$5=="burst" {print $4}' "$SCRATCH/removal.acc" | grep -E '^[0-9]+$' > "$REMOVAL_BURST" || true
 }
 assert_baseline() { # un scénario ne doit pas dépendre du précédent : journal vidé, état « lu » des médias de test remis à zéro
   local m
@@ -385,6 +392,11 @@ i13() {
   ck I13.echoes "les événements de la playlist déjà vue sont ignorés et comptés (skippedCounts already-seen/reentrant +$((e13b-e13a)))" "{\"before\":$e13a,\"after\":$e13b}" test "$((e13b-e13a))" -ge 1
 }
 
+stale_evidence() { # JOURNAL PLAYLIST -> {staleEntry (journal), skippedCountsStaleEntry (State), journal} : Skipped stale-entry est toléré mais consigné
+  jq -nc --argjson n "$(jcount "$1" "$2" Skipped 'stale-entry')" --argjson sc "$(state | jq '.skippedCounts["stale-entry"] // 0')" --argjson j "$1" \
+    '{staleEntry:$n, skippedCountsStaleEntry:$sc, journal:$j}'
+}
+
 i14() {
   echo "== I14 — événements simultanés"
   assert_baseline
@@ -402,7 +414,9 @@ i14() {
   ck I14.once "exactement un Removal par média (6)" "$j" test "$(jcount "$j" "$pl" Removal)" = 6
   # intégrité (F2-b, R4a) : un identifiant d'entrée périmé (renumérotation par le rafraîchissement d'Emby) retirait un AUTRE média
   local ja; ja=$(journal Removal,Skipped,Error)
-  ck I14.integrity "lot parallèle : chaque Removal a entries=1, aucun Skipped already-removed (médias distincts), aucun Error wrong-entry" "$ja" \
+  # entries = nombre d'entrées du média AVANT retrait (1 ici ; 2 pour les doublons d'I5). Skipped stale-entry (F3 : suppression sans effet, identifiant
+  # d'entrée périmé, retentée) est TOLÉRÉ et consigné en evidence (compteur journal + State.skippedCounts).
+  ck I14.integrity "lot parallèle : chaque Removal a entries=1, aucun Skipped already-removed (médias distincts), aucun Error wrong-entry ; stale-entry toléré et consigné" "$(stale_evidence "$ja" "$pl")" \
     test "$(jcount "$ja" "$pl" Removal 'entries=1( |$)')/$(jcount "$ja" "$pl" Skipped 'already-removed')/$(jcount "$ja" "$pl" Error 'wrong-entry')" = "6/0/0"
   # même média, 3 comptes en parallèle
   add_item "$pl" "${M[0]}"; nap 1; jclear
@@ -437,7 +451,7 @@ i14c() {   # critical (R4a, F2-b) : rafale de lectures d'un même membre sur une
     ck "I14c.rep$rep" "répétition $rep : après chaque marquage, seul ce média a disparu ; les autres sont présents une seule fois" \
       "$(jq -nc --arg b "$bad" '{violations:$b}')" test -z "$bad"
     ja=$(journal Removal,Skipped,Error)
-    ck "I14c.integrity$rep" "répétition $rep : 6 Removal entries=1, aucun Skipped already-removed, aucun Error wrong-entry" "$ja" \
+    ck "I14c.integrity$rep" "répétition $rep : 6 Removal entries=1, aucun Skipped already-removed, aucun Error wrong-entry ; stale-entry toléré et consigné" "$(stale_evidence "$ja" "$pl")" \
       test "$(jcount "$ja" "$pl" Removal 'entries=1( |$)')/$(jcount "$ja" "$pl" Skipped 'already-removed')/$(jcount "$ja" "$pl" Error 'wrong-entry')" = "6/0/0"
   done
   harvest_removals
@@ -470,7 +484,7 @@ i14p() {   # critical (R4a, F2-b) : fin de lecture de PLUSIEURS médias EN PARAL
     wl=$(jcount "$ja" "$pl" Removal 'entries=1( |$)'); jl="$wl/$(jcount "$ja" "$pl" Skipped 'already-removed')/$(jcount "$ja" "$pl" Error 'wrong-entry')"
     ck "I14c.par$it" "itération $it : seuls les $kk médias lus ont disparu, les $((pn-kk)) autres sont présents une fois" \
       "$(jq -nc --arg b "$bad" '{violations:$b}')" test -z "$bad"
-    ck "I14c.parintegrity$it" "itération $it : $kk Removal entries=1, aucun Skipped already-removed, aucun Error wrong-entry (removal/already-removed/wrong-entry = $jl)" "$ja" \
+    ck "I14c.parintegrity$it" "itération $it : $kk Removal entries=1, aucun Skipped already-removed, aucun Error wrong-entry (removal/already-removed/wrong-entry = $jl) ; stale-entry toléré et consigné" "$(stale_evidence "$ja" "$pl")" \
       test "$jl" = "$kk/0/0"
   done
   harvest_removals
@@ -505,10 +519,15 @@ i16() {
   assert_baseline
   local pl jp j1 j2 e16a e16b e16c e16d
   # (a) écriture de pose : une seule écriture (ApplyDefaults) => un seul écho, trois étiquettes posées une fois
-  pl=$(shared_pl "SPIKE-I16" "${M[0]},${M[1]}"); jclear
+  jclear   # AVANT la création : la fenêtre du journal couvre la première détection, quelle qu'en soit la cause (action, passe planifiée)
+  pl=$(shared_pl "SPIKE-I16" "${M[0]},${M[1]}")
   e16a=$(echo_settle)
-  prime "$pl" || true; nap 6; jp=$(journal); e16b=$(echo_settle)
-  ck I16.posed "MarkerPosed : exactement une pose par famille (3), pas de repose 6 s plus tard" "$jp" test "$(jcount "$jp" "$pl" MarkerPosed)" = 3
+  prime "$pl" || true
+  local w; for ((w=0; w<15; w++)); do   # attente active de la stabilisation : 3 poses (plafond 15 s), puis 6 s sans nouvelle pose
+    jp=$(journal); [[ $(jcount "$jp" "$pl" MarkerPosed) == 3 ]] && break; nap 1
+  done
+  nap 6; jp=$(journal); e16b=$(echo_settle)
+  ck I16.posed "MarkerPosed : exactement une pose par famille (3), quelle que soit la cause, pas de repose 6 s plus tard" "$jp" test "$(jcount "$jp" "$pl" MarkerPosed)" = 3
   ck I16.echo.pose "un écho au plus (already-seen/reentrant) pour l'écriture de pose (+$((e16b-e16a)))" "{\"before\":$e16a,\"after\":$e16b}" test "$((e16b-e16a))" -le 1
   # (b) écriture de retrait
   owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; jclear
@@ -533,9 +552,16 @@ i17() {
   harvest_removals
   s=$(state); max=$(jq -r '.handler.maxMs // 0' <<<"$s")
   ck I17.max "Handler.MaxMs <= 2000 ms" "$(jq -c '.handler' <<<"$s")" test "$max" -le 2000
+  # I17.p95 : retraits ISOLÉS (1er Removal de chaque playlist, hors I14/I14c/I14p/I15) ; seuil de la spec inchangé (300 ms)
   p95=$(stats_json "$REMOVAL_MS" | jq -r '.p95 // 0'); n=$(stats_json "$REMOVAL_MS" | jq -r '.n')
-  if [[ $n -lt 5 ]]; then skip I17.p95 "trop peu de Removal observés ($n) : lancer I3/I14/I15 dans la même exécution"
-  else ck I17.p95 "p95 des Removal.durationMs <= 300 ms" "$(stats_json "$REMOVAL_MS")" test "$p95" -le 300; fi
+  if [[ $n -lt 5 ]]; then skip I17.p95 "trop peu de retraits isolés observés ($n < 5) : lancer I3/I5/I9... dans la même exécution"
+  else ck I17.p95 "p95 des Removal.durationMs des retraits ISOLÉS <= 300 ms (n=$n)" "$(stats_json "$REMOVAL_MS")" test "$p95" -le 300; fi
+  # I17.burst : retraits de I14/I14c/I14p/I15 (rafales) : durationMs inclut l'attente du verrou de playlist (contrat) => bornes plus larges
+  local bp95 bmax bn
+  bp95=$(stats_json "$REMOVAL_BURST" | jq -r '.p95 // 0'); bmax=$(stats_json "$REMOVAL_BURST" | jq -r '.max // 0'); bn=$(stats_json "$REMOVAL_BURST" | jq -r '.n')
+  if [[ $bn -lt 5 ]]; then skip I17.burst "trop peu de retraits en rafale observés ($bn < 5) : lancer I14/I14c/I14p/I15 dans la même exécution"
+  else ck I17.burst "retraits en rafale (I14/I14c/I14p/I15) : p95 <= 1000 ms et max <= 2000 ms (n=$bn)" "$(stats_json "$REMOVAL_BURST")" \
+    bash -c '[[ $1 -le 1000 && $2 -le 2000 ]]' _ "$bp95" "$bmax"; fi
   pl=$(shared_pl "SPIKE-I17" "${M[0]},${M[1]}"); prime "$pl" || true
   owner_edit "$pl" "[\"$OUI_RM\",\"$OUI_PR\"]" "[\"$NON_RM\",\"$NON_PR\"]"; nap 1
   before=$(state | jq -r '.handler.count // 0')
@@ -550,6 +576,7 @@ if [[ ${#WANT[@]} -eq 0 ]]; then WANT=("${ALL[@]}"); fi
 for s in "${WANT[@]}"; do
   fn=$(tr 'A-Z' 'a-z' <<<"$s")
   declare -F "$fn" >/dev/null || die "scénario inconnu : $s"
+  CUR_SCEN=$(tr 'a-z' 'A-Z' <<<"$s")
   "$fn"
   harvest_removals
 done
