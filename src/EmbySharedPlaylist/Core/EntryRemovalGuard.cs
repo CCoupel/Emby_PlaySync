@@ -41,25 +41,34 @@ public sealed class EntryRemovalGuard
     {
     }
 
-    /// <summary>Vrai si une entrée de la cible a été résolue et supprimée (la boucle appelante relit et rappelle) ; faux si la cible n'a aucune entrée identifiable.</summary>
-    public bool RemoveOne(long itemId)
+    /// <summary>Compat : vrai si une entrée de la cible a été résolue et soumise à suppression (≠ <see cref="RemoveOutcome.NotFound"/>) ; faux sinon.</summary>
+    public bool RemoveOne(long itemId) => Remove(itemId).Outcome != RemoveOutcome.NotFound;
+
+    /// <summary>
+    /// F3 (#59) : retrait d'UNE entrée de la cible avec résultat. <see cref="RemoveOutcome.Removed"/> : le compte de la cible a baissé
+    /// (<see cref="RemoveResult.TargetRemaining"/> = entrées restantes, −1 si la relecture n'est pas fiable) ; <see cref="RemoveOutcome.NoEffect"/> :
+    /// le compte de la cible est inchangé (identifiant d'entrée périmé) — <see cref="RemoveResult.OtherLost"/> vrai si, en plus, un autre média
+    /// a perdu une entrée (compensation tentée, déjà journalisée <c>wrong-entry</c>) ; <see cref="RemoveOutcome.NotFound"/> : aucune entrée identifiable.
+    /// </summary>
+    public RemoveResult Remove(long itemId)
     {
         try { _waitRefreshIdle(); } catch { /* confort */ }
         var entries = _read();
         var entry = entries.FirstOrDefault(e => e.ItemId == itemId && e.EntryId != 0);
-        if (entry.EntryId == 0) return false;
+        if (entry.EntryId == 0) return new RemoveResult(RemoveOutcome.NotFound);
 
         var before = Counts(entries);
         _removeByEntryId(entry.EntryId);
 
-        try { Compensate(itemId, before); } catch { /* jamais d'exception : le retrait a eu lieu */ }
-        return true;
+        try { return Compensate(itemId, before); }
+        catch { return new RemoveResult(RemoveOutcome.Removed, -1); /* jamais d'exception : l'écriture a eu lieu, relecture inconnue */ }
     }
 
-    private void Compensate(long target, Dictionary<long, int> before)
+    private RemoveResult Compensate(long target, Dictionary<long, int> before)
     {
         var after = Counts(_read());
         var idleConfirmed = true;
+        var otherLost = false;
         if (HasLoss(before, after, target))
         {
             try { idleConfirmed = _waitRefreshIdle(); } catch { idleConfirmed = false; }
@@ -67,13 +76,14 @@ public sealed class EntryRemovalGuard
             after = Counts(_read());
         }
         // Lecture vide alors qu'il y avait plusieurs entrées : non fiable, jamais de ré-ajout à l'aveugle.
-        if (after.Count == 0 && before.Count > 1) return;
+        if (after.Count == 0 && before.Count > 1) return new RemoveResult(RemoveOutcome.Removed, -1);
         foreach (var (lost, count) in before)
         {
             if (lost == target) continue;
             after.TryGetValue(lost, out var now);
             for (var missing = count - now; missing > 0; missing--)
             {
+                otherLost = true;
                 if (!idleConfirmed)
                 {
                     // R4a : un doublon est plus tolérable qu'une perte, mais pas de faux ré-ajout tant que le worker d'Emby est actif.
@@ -84,6 +94,12 @@ public sealed class EntryRemovalGuard
                 try { _logWrongEntry($"wrong-entry removed={lost} target={target}"); } catch { }
             }
         }
+
+        before.TryGetValue(target, out var targetBefore);
+        after.TryGetValue(target, out var targetAfter);
+        return targetAfter < targetBefore
+            ? new RemoveResult(RemoveOutcome.Removed, targetAfter, otherLost)
+            : new RemoveResult(RemoveOutcome.NoEffect, targetAfter, otherLost);
     }
 
     private static bool HasLoss(Dictionary<long, int> before, Dictionary<long, int> after, long target) =>

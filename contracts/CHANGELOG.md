@@ -1,5 +1,11 @@
 # Changelog des contrats
 
+## [20261003] — v1.2.2 : BUGFIX retrait sûr et écho du WriteScope (#59)
+
+- **[NEW]** `Diagnostics/Journal` : `Skipped` raison `stale-entry` (tentative de retrait sans effet sur la cible : identifiant d'entrée Emby périmé), journalisée avec `PlaylistId` et comptée dans `SkippedCounts` (rétrocompatible : une raison de plus).
+- **[CHANGED — sens]** `Removal.Detail` `entries=<n>` : nombre d'entrées **réellement retirées** du média (doublons : n = nombre de doublons), et non plus le nombre d'appels de retrait ayant abouti. Format inchangé.
+- **[INFO]** Aucun endpoint modifié ; `Diagnostics/State` inchangé.
+
 ## [20260930] — v1.2.1 : BUGFIX avancement synchronisé en continu (D23)
 
 - **[CHANGED — comportement]** `propager-avancement` : la position est propagée aussi **pendant la lecture**, à chaque `ISessionManager.PlaybackProgress`, au plus **une fois toutes les 10 s** par couple (déclencheur, média) ; pause (transition) et arrêt restent immédiats ; seuil de 30 s (position absolue) inchangé. Corrige : un membre ne voyait pas l'avancement d'une lecture continue sans pause jusqu'à la fin.

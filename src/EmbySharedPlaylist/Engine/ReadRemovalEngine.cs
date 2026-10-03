@@ -30,6 +30,8 @@ public sealed record RemovalResult(int Candidates, int PlaylistsChanged, int Ent
 public sealed class ReadRemovalEngine
 {
     public const int MaxEntriesPerPlaylist = 50;
+    /// <summary>F3 (#59) : tentatives maximales sur <see cref="RemoveOutcome.NoEffect"/> (identifiant d'entrée périmé) par retrait.</summary>
+    public const int MaxNoEffectAttempts = 2;
 
     /// <summary>Budget cumulé du traitement d'une transition sur l'ensemble de ses playlists candidates (le gestionnaire tourne sur le fil de l'événement).</summary>
     public static readonly TimeSpan DefaultBudget = TimeSpan.FromSeconds(10);
@@ -153,7 +155,23 @@ public sealed class ReadRemovalEngine
             // Une entrée à la fois, résolue par ItemId à l'instant (les identifiants d'entrée ne sont pas stables).
             // v1.2.2 (#59, M1) : PAS de WriteScope englobant la boucle — la passerelle enveloppe chaque écriture ; un scope externe
             // resterait actif pendant l'attente de l'itération suivante et ferait compter « reentrant » l'ItemUpdated du worker Emby.
-            while (count < MaxEntriesPerPlaylist && total.Elapsed < _budget && _gateway.RemoveOneEntry(snapshot.Id, itemId)) count++;
+            // F3 (#59) : count = entrées RÉELLEMENT retirées (Removed). Arrêt dès que la cible n'a plus d'entrée (TargetRemaining == 0 : pas
+            // d'appel de vérification, donc pas d'attente de rafraîchissement inutile) ; 2 tentatives au plus sur NoEffect (identifiant périmé).
+            var noEffect = 0;
+            while (count < MaxEntriesPerPlaylist && total.Elapsed < _budget)
+            {
+                var r = _gateway.RemoveEntry(snapshot.Id, itemId);
+                if (r.Outcome == RemoveOutcome.Removed)
+                {
+                    count++;
+                    if (r.TargetRemaining == 0) break;
+                }
+                else if (r.Outcome == RemoveOutcome.NoEffect)
+                {
+                    if (++noEffect >= MaxNoEffectAttempts) break;
+                }
+                else break;
+            }
 
             if (count == 0)
             {

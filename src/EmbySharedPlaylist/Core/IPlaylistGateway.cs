@@ -46,6 +46,13 @@ public interface IPlaylistGateway
     bool RemoveOneEntry(string playlistId, string itemId);
 
     /// <summary>
+    /// F3 (#59) : comme <see cref="RemoveOneEntry"/> avec le résultat détaillé (<see cref="RemoveOutcome"/>, entrées restantes de la cible).
+    /// Implémentation par défaut : vrai → <c>Removed</c> (reste inconnu = −1, la boucle rappelle), faux → <c>NotFound</c>.
+    /// </summary>
+    RemoveResult RemoveEntry(string playlistId, string itemId) =>
+        RemoveOneEntry(playlistId, itemId) ? new RemoveResult(RemoveOutcome.Removed) : new RemoveResult(RemoveOutcome.NotFound);
+
+    /// <summary>
     /// Une seule lecture-écriture : chaque étiquette n'est ajoutée que si aucune étiquette de sa famille n'existe AU MOMENT
     /// DE L'ÉCRITURE ; la description suit <paramref name="overview"/> (ré-vérifiée au même instant). Jamais de suppression.
     /// </summary>

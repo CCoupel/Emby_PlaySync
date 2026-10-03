@@ -21,7 +21,7 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
     private const int CallTimeoutMs = 5000;
     /// <summary>v1.2.2 (#59, F2-b) : attente maximale de la fin du rafraîchissement Emby en file avant un retrait (dans le budget de 5 s).</summary>
     private const int RefreshIdleWaitMs = 1000;
-    private const int RefreshPollMs = 25;
+    private const int RefreshPollMs = 10;
 
     private readonly ILibraryManager _libraryManager;
     private readonly IUserManager _userManager;
@@ -88,10 +88,12 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         return Snapshot(playlist, rows);
     }
 
-    public bool RemoveOneEntry(string playlistId, string itemId)
+    public bool RemoveOneEntry(string playlistId, string itemId) => RemoveEntry(playlistId, itemId).Outcome == RemoveOutcome.Removed;
+
+    public RemoveResult RemoveEntry(string playlistId, string itemId)
     {
         var playlist = FindPlaylist(playlistId);
-        if (playlist == null || !long.TryParse(itemId, out var item)) return false;
+        if (playlist == null || !long.TryParse(itemId, out var item)) return new RemoveResult(RemoveOutcome.NotFound);
 
         // v1.2.2 (#59, F2-b) : Emby met un rafraîchissement en file après chaque retrait ; son worker réécrit ListItems et RENUMÉROTE
         // les identifiants d'entrée (rowids réutilisés). On attend (borné) qu'il soit passé, puis on lit l'EntryId au plus près de l'écriture.
@@ -104,16 +106,16 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         {
             // Repli (non vérifié en réel) : si Emby ne fournit AUCUN identifiant d'entrée (ListItemEntryId = 0) pour ce média,
             // retrait par ItemId via l'API interne du dépôt (retire d'un coup tous les doublons ; l'appel suivant ne trouve plus rien).
-            if (!read.WithoutEntryId.Contains(item)) return false;
+            if (!read.WithoutEntryId.Contains(item)) return new RemoveResult(RemoveOutcome.NotFound);
             using (WriteScope.Enter()) _itemRepository.RemoveListItemsByItemIds(playlist.InternalId, new[] { item });
 
             // Le repli n'est pas vérifié en réel : on RELIT la playlist et on n'affirme le succès que si le média a réellement disparu.
             if (ContainsItem(_entries.Read(playlist), item))
             {
                 try { _journal?.Add(JournalEntries.SkippedEntry(null, playlistId, "no-effect")); } catch { /* jamais d'exception ici */ }
-                return false;
+                return new RemoveResult(RemoveOutcome.NoEffect);
             }
-            return true;
+            return new RemoveResult(RemoveOutcome.Removed, 0);
         }
 
         var guard = new EntryRemovalGuard(
@@ -134,7 +136,13 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
                 try { _journal?.Add(JournalEntries.Of(null, JournalEntries.Error, playlistId, detail)); } catch { }
             },
             pause: () => Thread.Sleep(RefreshPollMs * 2));
-        return guard.RemoveOne(item);
+        var result = guard.Remove(item);
+        // F3 : identifiant d'entrée périmé sans autre dégât (sinon wrong-entry est déjà journalisé) : raison non bruyante.
+        if (result.Outcome == RemoveOutcome.NoEffect && !result.OtherLost)
+        {
+            try { _journal?.Add(JournalEntries.SkippedEntry(null, playlistId, "stale-entry")); } catch { /* jamais d'exception ici */ }
+        }
+        return result;
     }
 
     private IReadOnlyList<(long ItemId, long EntryId)> ReadFlat(Playlist playlist)
