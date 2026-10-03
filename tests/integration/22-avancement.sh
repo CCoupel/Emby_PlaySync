@@ -57,6 +57,7 @@ on_exit() {
   local rc=$?; set +e
   cleanup_restricted_user
   cleanup_registered_playlists
+  end_test_sessions   # #61 : Stopped sur les sessions ouvertes puis Logout des jetons de test
   if [[ $DONE == 0 && -s $RES ]]; then write_out true; echo "  (trap) preuves partielles : $OUT_FILE" >&2; fi
   rm -rf "$SCRATCH"; exit $rc
 }
@@ -71,10 +72,9 @@ U1=$(envget "$USERS_ENV" TEST_U1_ID); U2=$(envget "$USERS_ENV" TEST_U2_ID); U3=$
 T1=$(login test_u1 "$(envget "$USERS_ENV" TEST_U1_PW)")
 T2=$(login test_u2 "$(envget "$USERS_ENV" TEST_U2_PW)")
 T3=$(login test_u3 "$(envget "$USERS_ENV" TEST_U3_PW)")
+purge_stale_test_playlists   # #60 : aucune playlist SPIKE résiduelle d'un run précédent (sauf imbriqué : INT_NESTED=1)
 
-st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=RunTimeTicks&SortBy=SortName&Limit=200")
-[[ $st == 200 ]] || die "GET /Items -> $st"
-mapfile -t M < <(jq -r '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|.Id][0:20][]' "$RESP")
+select_test_media 20   # #61 : bibliothèque locale PlaySync-Tests uniquement ; refus de tout média /config/virtual/
 [[ ${#M[@]} -ge 11 ]] || die "moins de 11 médias (>= 10 min) : I27/28(1)+I29(4)+I30+I31+I32+I33+I34+I35+I36(=11) (demander à l'utilisateur)"
 reset_pool_full "${M[@]}"   # remise à zéro complète (lu+position) : un run précédent (même script, même invocation séparée) ne doit rien laisser
 echo "  [OK] bassin de ${#M[@]} médias remis à zéro (lu=false, position=0)"
@@ -557,6 +557,7 @@ for s in "${WANT[@]}"; do
   "$fn"
 done
 
+check_no_test_sessions   # #61 : aucune session test_u* en lecture
 echo "== Comptes protégés"
 compare_protected "fin des scénarios" "${TEST_USERS[@]}" && rec PROTECTED OK "admin, cyril, user2 inchangés" || rec PROTECTED KO "comptes protégés modifiés" "null"
 

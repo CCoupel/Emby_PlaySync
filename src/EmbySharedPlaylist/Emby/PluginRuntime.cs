@@ -5,6 +5,7 @@ using EmbySharedPlaylist.UserPage;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Logging;
 
 namespace EmbySharedPlaylist.Emby;
@@ -53,7 +54,7 @@ public static class PluginRuntime
 
     /// <summary>Idempotent : le premier appel construit les services, les suivants renvoient.</summary>
     public static void Initialize(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
-        IPlaylistManager playlistManager, IUserDataManager userDataManager, ILogManager logManager)
+        IPlaylistManager playlistManager, IProviderManager providerManager, IUserDataManager userDataManager, ILogManager logManager)
     {
         lock (InitLock)
         {
@@ -63,7 +64,7 @@ public static class PluginRuntime
             // Les Skipped bruyants (already-seen, reentrant…) ne vont qu'aux compteurs ; le reste est journalisé (mémoire + logs).
             var journal = new AggregatingJournal(new LoggingJournal(JournalStore, log), Skipped, log);
             var clock = new SystemClock();
-            var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager, journal: journal);
+            var gateway = new EmbyPlaylistGateway(libraryManager, userManager, itemRepository, playlistManager, journal: journal, providerManager: providerManager);
             var userData = new EmbyUserDataGateway(userManager, libraryManager, userDataManager);
             var defaults = new DefaultsService(gateway, Seen, Locks, journal, HelpText.V3,
                 () => Plugin.Instance?.Configuration.EffectiveGracePasses ?? 2, clock);

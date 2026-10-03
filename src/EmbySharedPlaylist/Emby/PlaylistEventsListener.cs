@@ -2,6 +2,7 @@ using EmbySharedPlaylist.Core;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Logging;
 
@@ -17,12 +18,12 @@ public sealed class PlaylistEventsListener : IServerEntryPoint
     private readonly ILibraryManager _libraryManager;
     private readonly IPlaylistManager _playlistManager;
 
-    public PlaylistEventsListener(ILibraryManager libraryManager, IPlaylistManager playlistManager, IUserManager userManager,
+    public PlaylistEventsListener(ILibraryManager libraryManager, IPlaylistManager playlistManager, IProviderManager providerManager, IUserManager userManager,
         IItemRepository itemRepository, IUserDataManager userDataManager, ILogManager logManager)
     {
         _libraryManager = libraryManager;
         _playlistManager = playlistManager;
-        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, userDataManager, logManager);
+        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, providerManager, userDataManager, logManager);
     }
 
     public void Run()

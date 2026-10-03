@@ -92,6 +92,10 @@ run v120 I41 I42
 [[ $(status_of I41.t1) == KO ]] && ok "I41.t1 : KO (le membre ne suit pas une lecture continue sans pause : bug #58)" || ko "I41.t1 : $(status_of I41.t1)"
 [[ $(status_of I42.rm.continuous) == KO ]] && ok "I42.rm.continuous : KO (aucune propagation avant la fin : bug #58)" || ko "I42.rm.continuous : $(status_of I42.rm.continuous)"
 
+echo "== 2b. #61 : le Progress tardif d'I44 rouvre une session ; elle est refermée (SESSIONS.clean OK)"
+run ok I44
+[[ $RC == 0 && $(status_of SESSIONS.clean) == OK ]] && ok "SESSIONS.clean OK après I44 (session rouverte refermée)" || ko "I44 sessions : rc=$RC $(status_of SESSIONS.clean)"
+
 echo "== 3. scénario inconnu refusé"
 run ok I99; [[ $RC != 0 ]] && ok "scénario inconnu refusé" || ko "scénario inconnu accepté"
 

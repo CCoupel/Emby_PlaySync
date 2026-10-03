@@ -6,7 +6,7 @@ propager-avancement, sans héritage) ; tableau A (le retrait exige propager-lu=O
 tableau B (la position ne dépend que de propager-avancement, AUCUNE garde sur l'état lu) indépendants ; HelpText V1/V2 -> V3.
 Ce n'est PAS le plugin : c'est une spécification exécutable minimale qui vérifie que le script de test lit bien le contrat et
 enchaîne correctement les scénarios. MODES (détection de défauts, tests hors ligne « moteur défaillant ») :
-ok | noremove | nopropagate (ni lu ni position) | noautoshare | repose | retraitseul (défaut v0.2.0-v1.1.0 : retrait SANS propager-lu) |
+ok | wrongentry (défaut v1.2.1 : retire le média voisin, I14c) | staleflood (staleentry ×2 par retrait : dépasse la borne de tolérance, integrity KO) | staleentry (F3 : 1re suppression sans effet = identifiant périmé, journal Skipped stale-entry, retentée : bénin) | noremove | nopropagate (ni lu ni position) | noautoshare | repose | retraitseul (défaut v0.2.0-v1.1.0 : retrait SANS propager-lu) |
 dcguard (défaut : garde D-c « déclencheur déjà lu » de v0.3.1) | legacyavancement (défaut : propager-lu couvre la position) |
 nativeplayed (Emby pose le lu chez un membre après une position >= 90 %, origine plugin : bénin) |
 nativeleak (idem mais pris pour une action utilisateur : violation de S6) |
@@ -51,6 +51,11 @@ RT = 7_000_000_000
 TASK_ID = "77"
 pass_no = itertools.count(1)
 
+STALE_DONE = set()   # (playlist, média) déjà « périmés » une fois (mode staleentry)
+LIB_ID = "7777"
+if os.environ.get("FAKE_NO_TESTUSERS") == "1":   # 00-setup-users.sh : les comptes test_* n'existent pas encore
+    for _n in ("test_u1", "test_u2", "test_u3"): USERS.pop(_n, None)
+SESSIONS = {}   # (user, PlaySessionId) -> item : sessions de lecture ouvertes (#61)
 PL, PLAYED, PLAYDATA, POLICY, POSITION = {}, set(), {}, {}, {}   # POSITION[(user,item)] = ticks (donnée Emby, persiste)
 TICKS_30S = 300_000_000   # v0.3.1 : seuil minimal (30 s, 100 ns/tick)
 DEFAULT_POLICY = {"EnableAllFolders": True, "EnabledFolders": [], "AllowSharingPersonalItems": False}
@@ -196,12 +201,22 @@ def transition(user, item):
         # Tableau A (v1.2.0, D21, R4a subordonnée) : retrait seulement si remove-si-lu ET propager-lu sont OUI (mode retraitseul :
         # comportement défaillant v0.2.0-v1.1.0, remove-si-lu suffit).
         removal_on = rm_st == "Oui" and (pr_st == "Oui" or MODE == "retraitseul") and MODE != "noremove"
+        if removal_on and MODE in ("staleentry", "staleflood") and (pid, item) not in STALE_DONE:
+            STALE_DONE.add((pid, item))      # F3 : première tentative = identifiant d'entrée périmé (aucune ligne supprimée), retentée aussitôt
+            jr("Skipped", pid, user, item, "stale-entry")
+            if MODE == "staleflood": jr("Skipped", pid, user, item, "stale-entry")   # au-delà de la borne (≤ 1 par retrait) : integrity KO (F3-4)
         if removal_on:
             n = 0
             while n < 50:                         # toutes les entrées du média, une à la fois
                 e = next((x for x in p["entries"] if x["item"] == item), None)
                 if e is None: break
                 p["entries"].remove(e); n += 1
+            if MODE == "wrongentry" and p["entries"]:
+                # défaut v1.2.1 (rafraîchissement d'Emby : identifiants d'entrée renumérotés entre lecture et écriture) : l'identifiant périmé
+                # désigne le média voisin, supprimé À LA PLACE (entries=2 pour un média présent une fois ; I14c / I14.integrity KO)
+                other = next((x for x in reversed(p["entries"]) if x["item"] != item), None)   # voisin décalé : ici la DERNIÈRE entrée d'un autre média (non lue dans I14c)
+                if other is not None: p["entries"].remove(other); n += 1
+            for x in p["entries"]: x["pid"] = str(next(ids))   # le rafraîchissement d'Emby réattribue les identifiants d'entrée (I14c)
             jr("Removal", pid, user, item, f"entries={n} durationMs={ms}"); jr("Skipped", pid, detail="already-seen")   # écho PlaylistItemsRemoved
         elif pr_st != "Oui":
             jr("Skipped", pid, user, item, "inactive")   # « inactive » seulement si la propagation du lu n'agit pas non plus
@@ -317,7 +332,7 @@ class H(http.server.BaseHTTPRequestHandler):
             return self.out(204)
         r = re.fullmatch(r"/Users/(\w+)/Policy", p)
         if r and m == "POST":
-            pol = POLICY.setdefault(r.group(1), dict(DEFAULT_POLICY)); pol.update(body); return self.out(204)
+            pol = POLICY.setdefault(r.group(1), {} if os.environ.get("FAKE_NO_TESTUSERS") == "1" else dict(DEFAULT_POLICY)); pol.update(body); return self.out(204)
         r = re.fullmatch(r"/Users/(\w+)", p)
         if r and m == "GET":
             # AllowSharingPersonalItems (v0.4.0, #26) : présent par défaut à False pour TOUT compte (comme un vrai
@@ -328,7 +343,18 @@ class H(http.server.BaseHTTPRequestHandler):
             return self.out(200, {"Policy": pol})                     # pour ne pas changer la forme des réponses des comptes jamais touchés
         if p == "/Items" and m == "GET":
             if "Ids" in q: return self.out(200, {"Items": [self.dto(q["Ids"][0])] if q["Ids"][0] in PL else []})
-            return self.out(200, {"Items": [{"Id": i, "Name": "M" + i, "RunTimeTicks": RT} for i in MEDIA]})
+            root = "/config/virtual/Alphi/" if os.environ.get("FAKE_VIRTUAL") == "1" else "/config/test-media/"   # #61 : FAKE_VIRTUAL=1 => médias VirtualLib (.strm)
+            ext = ".strm" if os.environ.get("FAKE_VIRTUAL") == "1" else ".mp4"
+            if "ParentId" in q and q["ParentId"][0] != LIB_ID: return self.out(200, {"Items": []})
+            return self.out(200, {"Items": [{"Id": i, "Name": "M" + i, "RunTimeTicks": RT, "Path": root + "PlaySync-Test-" + i + ext} for i in MEDIA]})
+        if p == "/Library/VirtualFolders" and m == "GET":
+            return self.out(200, [{"Name": "Listes de lecture", "ItemId": "9"}, {"Name": "PlaySync-Tests", "ItemId": LIB_ID, "Locations": ["/config/test-media"]}])
+        if p == "/Sessions" and m == "GET":
+            return self.out(200, [{"UserName": n, "UserId": u, "NowPlayingItem": {"Id": it}} for (u, sid), it in SESSIONS.items() for n, uu in USERS.items() if uu == u])
+        if p == "/Sessions/Logout" and m == "POST":
+            user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
+            for k in [k for k in SESSIONS if k[0] == user]: SESSIONS.pop(k)
+            return self.out(204)
         if p == "/SharedPlaylist/Diagnostics/State":
             return self.out(200, {"SeenPlaylistIds": sorted(SEEN), "GraceCounters": GRACEC, "LastPass": LASTPASS, "Handler": HANDLER, "SkippedCounts": SKIPPED, "GracePasses": GRACE, "PositionProgress": POSPROG})
         if p == "/SharedPlaylist/Diagnostics/Journal":
@@ -360,6 +386,10 @@ class H(http.server.BaseHTTPRequestHandler):
         r = re.fullmatch(r"/Users/(\w+)/PlayedItems/(\d+)", p)
         if r:
             set_played(r.group(1), r.group(2), m == "POST"); return self.out(200, {})
+        r = re.fullmatch(r"/Users/(\w+)/Items", p)
+        if r and m == "GET":   # liste des playlists visibles d'un compte (purge SPIKE résiduelles, #60)
+            if "Playlist" not in q.get("IncludeItemTypes", [""])[0]: return self.out(200, {"Items": []})
+            return self.out(200, {"Items": [{"Id": pid, "Name": x["name"]} for pid, x in PL.items() if member(x, r.group(1))]})
         r = re.fullmatch(r"/Users/(\w+)/Items/(\d+)", p)
         if r and m == "GET":
             if r.group(2) in PL: return self.out(200, self.dto(r.group(2)))
@@ -371,12 +401,14 @@ class H(http.server.BaseHTTPRequestHandler):
                                                 "PlaybackPositionTicks": POSITION.get(key, 0)}})
         if p == "/Sessions/Playing":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
+            SESSIONS[(user, body.get("PlaySessionId", ""))] = body["ItemId"]
             open_session(user, body.get("ItemId"), body.get("PlaySessionId"))
             PAUSED.pop((user, body.get("ItemId")), None)
             return self.out(204)
         if p == "/Sessions/Playing/Progress":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
             item = body["ItemId"]; paused = bool(body.get("IsPaused", False)); sid = body.get("PlaySessionId"); ticks = body.get("PositionTicks", 0)
+            SESSIONS[(user, sid)] = item   # un Progress (même tardif) rouvre une session visible dans /Sessions, comme Emby (#61, I44)
             s = SYNC.get((user, item))
             if s and s["closed"] and s["sid"] == sid: return self.out(204)       # Progress tardif d'une session arrêtée : ignoré (CA6)
             if not s or s["closed"] or s["sid"] != sid: s = open_session(user, item, sid)
@@ -393,6 +425,7 @@ class H(http.server.BaseHTTPRequestHandler):
             return self.out(204)
         if p == "/Sessions/Playing/Stopped":
             user = {"tok-" + n: i for n, i in USERS.items()}.get(self.headers.get("X-Emby-Token"))
+            SESSIONS.pop((user, body.get("PlaySessionId", "")), None)
             item = body["ItemId"]; ticks = body.get("PositionTicks", 0)
             s = SYNC.get((user, item)); targets = s["targets"] if s else []
             if s: s["closed"] = True
@@ -415,5 +448,12 @@ class H(http.server.BaseHTTPRequestHandler):
         r = re.fullmatch(r"/Items/(\d+)/MakePublic", p)
         if r: PL[r.group(1)]["public"] = True; return self.out(204)
         return self.out(404, {"error": p})
+
+if os.environ.get("FAKE_STALE") == "1":   # #60 : playlist SPIKE-I17 OUI/OUI résiduelle (non supprimée par un run précédent de 20), membre test_u3
+    _pid = str(next(ids))
+    PL[_pid] = {"name": "SPIKE-I17", "owner": USERS["test_u1"], "shares": {USERS["test_u2"]: "Write", USERS["test_u3"]: "Read"},
+                "tags": ["remove-si-lu=OUI", "propager-lu=OUI", "propager-avancement=NON"], "overview": "x", "public": False,
+                "entries": [{"pid": str(next(ids)), "item": MEDIA[0]}, {"pid": str(next(ids)), "item": MEDIA[1]}]}
+    SEEN.add(_pid)
 
 http.server.ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()

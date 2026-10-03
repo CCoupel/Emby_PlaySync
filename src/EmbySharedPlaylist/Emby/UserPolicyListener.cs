@@ -3,6 +3,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Events;
 using MediaBrowser.Model.Logging;
@@ -20,10 +21,10 @@ public sealed class UserPolicyListener : IServerEntryPoint
     private readonly IUserManager _userManager;
 
     public UserPolicyListener(IUserManager userManager, ILibraryManager libraryManager, IItemRepository itemRepository,
-        IPlaylistManager playlistManager, IUserDataManager userDataManager, ILogManager logManager)
+        IPlaylistManager playlistManager, IProviderManager providerManager, IUserDataManager userDataManager, ILogManager logManager)
     {
         _userManager = userManager;
-        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, userDataManager, logManager);
+        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, providerManager, userDataManager, logManager);
     }
 
     public void Run() => _userManager.UserCreated += OnUserCreated;

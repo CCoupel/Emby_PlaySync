@@ -49,6 +49,7 @@ on_exit() {
   # Nettoyage final (retour qa, 2026-09-27) : ni ce script ni 20-etiquettes-retrait.sh (relancé par I26, en
   # sous-processus partageant private/test-state.json) ne se nettoient sinon quand ils sont imbriqués.
   cleanup_registered_playlists
+  end_test_sessions   # #61 : Stopped sur les sessions ouvertes puis Logout des jetons de test
   if [[ $DONE == 0 && -s $RES ]]; then write_out true; echo "  (trap) preuves partielles : $OUT_FILE" >&2; fi
   rm -rf "$SCRATCH"; exit $rc
 }
@@ -63,10 +64,9 @@ U1=$(envget "$USERS_ENV" TEST_U1_ID); U2=$(envget "$USERS_ENV" TEST_U2_ID); U3=$
 T1=$(login test_u1 "$(envget "$USERS_ENV" TEST_U1_PW)")
 T2=$(login test_u2 "$(envget "$USERS_ENV" TEST_U2_PW)")
 T3=$(login test_u3 "$(envget "$USERS_ENV" TEST_U3_PW)")
+purge_stale_test_playlists   # #60 : aucune playlist SPIKE résiduelle d'un run précédent (sauf imbriqué : INT_NESTED=1)
 
-st=$(api GET "/Items?Recursive=true&IncludeItemTypes=Movie,Episode,Video&Fields=RunTimeTicks&SortBy=SortName&Limit=200")
-[[ $st == 200 ]] || die "GET /Items -> $st"
-mapfile -t M < <(jq -r '[.Items[]|select((.RunTimeTicks//0)>=6000000000)|.Id][0:24][]' "$RESP")
+select_test_media 24   # #61 : bibliothèque locale PlaySync-Tests uniquement ; refus de tout média /config/virtual/
 # Seuil abaissé (décision utilisateur, 2026-09-27) : la bibliothèque de QUALIF n'a que 13 médias de >= 10 min.
 # Réduction de couverture documentée : au lieu d'un média jamais réutilisé par sous-cas, un petit bassin est
 # recyclé (round-robin) pour I18/I19/I20/I21/I22/I24/I25, chaque réutilisation étant précédée d'une remise à
@@ -253,6 +253,10 @@ i23() {
   prime "$L1" || true; prime "$L2" || true
   set_marker_state "$L1" remove-si-lu oui; set_marker_state "$L1" propager-lu oui
   set_marker_state "$L2" remove-si-lu oui; set_marker_state "$L2" propager-lu oui
+  # pré-condition d'environnement (#60) : F1 ne doit figurer dans aucune autre playlist visible de test_u2/test_u3 que L1/L2,
+  # sinon la propagation observée peut venir d'un résidu (ex. SPIKE-I17) et non du plugin
+  local stray; stray=$(playlists_containing "$item" "$L1" "$L2" | paste -sd';' -)
+  ck I23.S6a.isolated "pré-condition : F1 dans aucune autre playlist partagée que L1/L2 (pollution d'environnement sinon)" "$(jq -nc --arg o "$stray" '{others:$o}')" test -z "$stray"
   jclear
   finish "$U2" "$T2" "$item"
   ck I23.S6a.L1removed "L1 : F1 retiré" "null" wait_count "$L1" "$item" 0 10   # attente active : retrait et propagation (même playlist) partagent la passe
@@ -382,7 +386,7 @@ i26() {
   echo "== I26 — régression complète I0-I17 (retrait, propager-lu requis depuis v1.2.0) : ne doit pas casser"
   local script="$INT_DIR/20-etiquettes-retrait.sh"
   [[ -x $script ]] || die "20-etiquettes-retrait.sh introuvable ou non exécutable"
-  if bash "$script"; then
+  if INT_NESTED=1 bash "$script"; then
     rec I26 OK "I0-I17 rejoués : tous verts" "null"
   else
     rec I26 KO "I0-I17 rejoués : au moins un KO (voir sa propre sortie/JSON)" "null"
@@ -397,6 +401,7 @@ for s in "${WANT[@]}"; do
   "$fn"
 done
 
+check_no_test_sessions   # #61 : aucune session test_u* en lecture
 echo "== Comptes protégés"
 compare_protected "fin des scénarios" "${TEST_USERS[@]}" && rec PROTECTED OK "admin, cyril, user2 inchangés" || rec PROTECTED KO "comptes protégés modifiés" "null"
 

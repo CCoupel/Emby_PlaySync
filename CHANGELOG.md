@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] — 2026-10-03
+
+**Status**: VALIDATED (QUALIF 1.2.2.1; issues #59, #60, #61 resolved)
+
+### Fixed
+
+- **Retrait d'un média non lu à la place d'un média lu** (#59) : lors de retraits rapprochés sur une même playlist, l'identifiant d'entrée pouvait être réattribué par le rafraîchissement d'Emby, causant le retrait du mauvais média. Défaut présent depuis v1.2.1 et versions antérieures. Corrigé par attente du rafraîchissement, relecture et compensation (ré-ajout si un autre média a perdu une entrée).
+- **Première détection à l'action ignorée après un retrait** (#59) : fuite du marqueur d'écriture `WriteScope` vers le worker de rafraîchissement d'Emby, causant l'écho `ItemUpdated` d'être compté `reentrant` et ignoré. Première détection reportée à la passe planifiée (≤ 5 min). Corrigé par révocation du `WriteScope` à la sortie du scope (jeton chaîné, non affecté par la capture d'`ExecutionContext`).
+
+### Changed
+
+- **Retrait sûr** : retrait synchrone avec verrous et attente du rafraîchissement avant lecture (≤ 1 s, avec poll 10 ms) ; relecture après suppression pour détecter les renumérotations ; ré-ajout par ItemId si un autre média a perdu une entrée lors de la race window. L'ordre de la liste peut changer en cas de compensation.
+- **Entrées retirées (`entries=N` dans les logs)** : compte maintenant uniquement les supprimés réels (conformé au contrat). Les tentatives sans effet (identifiants périmés) sont journalisées `Skipped stale-entry` (compteur `Diagnostics/State.skippedCounts.stale-entry`).
+- **Latence** : suppression de la boucle de vérification (gain ≈ 1 attente de rafraîchissement par retrait en rafale) ; retrait isolé p95 ≤ 100 ms, en rafale (sérialisation par playlist) p95 ≤ 350 ms ; max global ≤ 400 ms. En rafale : chaque requête attend la fin de la précédente.
+
+### Tests
+
+- **I14.integrity** : nouveau test ; chaque suppression au lot parallèle a `entries=1` et aucun `Skipped already-removed` n'apparaît pour un média distinct.
+- **I14c « Rafale »** : scenario de 6 médias marqués lus en séquence rapide (sélection multiple simulée) ; chaque marquage isole le média lu dans le journal (état final cohérent) ; rouge sur v1.2.1, vert après correctif.
+- **I14p / I14c.parN / I14c.parintegrity** (15 itérations × 3 runs) : parN 45/45, parintegrity 45/45 (élimine la classe « retrait d'un autre média »).
+- **I16 scindé** : `I16.echo.removal.reentrant` (Δ ≤ 1, maintenu) et `I16.echo.removal.deferred` (already-seen, maintenu) ; evidence Δreentrant/Δalready-seen consignée (attendu 0/0 avec WriteScope à jeton).
+- **I17.p95** (retraits isolés) ≤ 300 ms ; **I17.burst** (retraits en rafale, I14/I14c/I15) p95 ≤ 1000 ms, max ≤ 2000 ms (assouplissement : la sérialisation par playlist s'ajoute au coût unitaire).
+- **SESSIONS.clean** : aucune session `test_u*` en lecture après chaque script (9/9 OK).
+
+### Security
+
+- Aucun nouveau vecteur ; les données restent isolées par playlist et couple (utilisateur, média).
+
+### Notes
+
+- **Réserves QA mineures** (non bloquantes) : stale-entry observé 1×/693 retraits (comportement attendu), échantillon latence isolée faible (n≈8-9), max burst 393 ms ≪ 2000 ms.
+- Corrige la régression de latence en rafale introduite en v1.2.2.0 (F3 + latence) ; comportement p95 quasi revenu à baseline v1.2.1.
+
 ## [1.2.1] — 2026-10-02
 
 **Status**: VALIDATED WITH RESERVATIONS (QUALIF 1.2.1.0; réserves #59 et #60 hors périmètre)

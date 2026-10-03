@@ -4,6 +4,13 @@
 
 Prérequis : plugin déployé sur emby2 ; comptes `test_u1` (propriétaire), `test_u2` (Écriture), `test_u3` (Lecture) créés par `tests/integration/00-setup-users.sh` (mots de passe dans `private/test-users.env`). Ne jamais utiliser `user2` ni un compte réel. Noter pour chaque ligne le **client utilisé** (web, TV, mobile, version).
 
+## 0. Règles d'environnement QUALIF (#61)
+- **Aucun média virtuel.** La bibliothèque de QUALIF est VirtualLib (`/config/virtual/*.strm`) : chaque événement de session d'un tel média est relayé vers PROD (sessions fantômes `test_u*@spike`). Les scripts d'intégration n'utilisent **que** la bibliothèque locale `PlaySync-Tests` (`/config/test-media/`, 20 vidéos synthétiques de 11 min) et **refusent** (`die`, avant toute écriture) tout média sous `/config/virtual/`, en `.strm` ou hors de `TEST_MEDIA_ROOT`.
+- **Provisionner d'abord** : `tests/integration/01-setup-media.sh` (idempotent ; `--check` / `--dry-run` n'écrit rien et sort 1 si incomplet). Prérequis : `private/qualif.env`, `private/kubeconfig.yml`, `kubectl`, `ffmpeg` (seulement si des vidéos manquent). Cible : `deployment/emby2`, namespace `media`, jamais `emby`. Ordre d'un run complet : `01` → `00` → `20` → `21` → `22` → `23` → `24` → `25` → `90`.
+- **Un seul run QUALIF à la fois.** Les scripts purgent au démarrage les playlists `SPIKE*` de `test_u1` (#60) et ferment/déconnectent les sessions des comptes `test_*` en sortie : deux runs simultanés se supprimeraient mutuellement leurs playlists. Exception : un script imbriqué (I26 de 21 relance 20 avec `INT_NESTED=1`) ne purge ni ne déconnecte.
+- **Sessions** : chaque script ferme (`Stopped`) ses sessions de lecture ouvertes puis déconnecte les jetons `test_u*` ; le résultat `SESSIONS.clean` vérifie qu'aucune session `test_u*` n'est restée en lecture. Les sessions fantômes déjà présentes sur PROD expirent d'elles-mêmes (aucune action PROD).
+- Variables : `TEST_MEDIA_LIBRARY` (défaut `PlaySync-Tests`), `TEST_MEDIA_ROOT` (défaut `/config/test-media/`), `EMBY_API_KEY` (contenu de `private/qualif.env`) — **important** : nettoyer les retours à la ligne CR du fichier avant d'exporter (`tr -d '\r\n' < private/qualif.env`).
+
 ## 1. Préparer (client web, `test_u1`)
 Créer « SPIKE-manuel-v02 » avec ≥ 3 films, la partager (menu « … » > « Gérer la collaboration » : `test_u2` Écriture, `test_u3` Lecture). Attendre au plus 5 min (ou lancer la tâche « Emby Shared Playlist — réconciliation » : Tableau de bord > Tâches planifiées).
 

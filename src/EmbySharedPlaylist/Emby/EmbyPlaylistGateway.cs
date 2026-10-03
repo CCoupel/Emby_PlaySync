@@ -4,6 +4,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 
@@ -18,6 +19,9 @@ namespace EmbySharedPlaylist.Emby;
 public sealed class EmbyPlaylistGateway : IPlaylistGateway
 {
     private const int CallTimeoutMs = 5000;
+    /// <summary>v1.2.2 (#59, F2-b) : attente maximale de la fin du rafraîchissement Emby en file avant un retrait (dans le budget de 5 s).</summary>
+    private const int RefreshIdleWaitMs = 1000;
+    private const int RefreshPollMs = 10;
 
     private readonly ILibraryManager _libraryManager;
     private readonly IUserManager _userManager;
@@ -25,14 +29,16 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
     private readonly IPlaylistManager _playlistManager;
     private readonly PlaylistEntryReader _entries;
     private readonly IJournal? _journal;
+    private readonly IProviderManager? _providerManager;
 
     /// <summary>Verrou d'écriture unique de la passerelle : la passe planifiée et les gestionnaires peuvent se croiser.</summary>
     private readonly object _writeGate = new();
 
     public EmbyPlaylistGateway(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository, IPlaylistManager playlistManager,
-        IJournal? journal = null)
+        IJournal? journal = null, IProviderManager? providerManager = null)
     {
         _journal = journal;
+        _providerManager = providerManager;
         _entries = new PlaylistEntryReader(libraryManager, userManager, itemRepository);
         _libraryManager = libraryManager;
         _userManager = userManager;
@@ -82,10 +88,17 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         return Snapshot(playlist, rows);
     }
 
-    public bool RemoveOneEntry(string playlistId, string itemId)
+    public bool RemoveOneEntry(string playlistId, string itemId) => RemoveEntry(playlistId, itemId).Outcome == RemoveOutcome.Removed;
+
+    public RemoveResult RemoveEntry(string playlistId, string itemId)
     {
         var playlist = FindPlaylist(playlistId);
-        if (playlist == null || !long.TryParse(itemId, out var item)) return false;
+        if (playlist == null || !long.TryParse(itemId, out var item)) return new RemoveResult(RemoveOutcome.NotFound);
+
+        // v1.2.2 (#59, F2-b) : Emby met un rafraîchissement en file après chaque retrait ; son worker réécrit ListItems et RENUMÉROTE
+        // les identifiants d'entrée (rowids réutilisés). On attend (borné) qu'il soit passé, puis on lit l'EntryId au plus près de l'écriture.
+        WaitRefreshIdle(playlist);
+
         // Résolution par ItemId à l'instant : les identifiants d'entrée ne sont pas stables.
         var read = _entries.Read(playlist);
         var entry = read.Entries.FirstOrDefault(c => c.ItemId == item);
@@ -93,25 +106,83 @@ public sealed class EmbyPlaylistGateway : IPlaylistGateway
         {
             // Repli (non vérifié en réel) : si Emby ne fournit AUCUN identifiant d'entrée (ListItemEntryId = 0) pour ce média,
             // retrait par ItemId via l'API interne du dépôt (retire d'un coup tous les doublons ; l'appel suivant ne trouve plus rien).
-            if (!read.WithoutEntryId.Contains(item)) return false;
+            if (!read.WithoutEntryId.Contains(item)) return new RemoveResult(RemoveOutcome.NotFound);
             using (WriteScope.Enter()) _itemRepository.RemoveListItemsByItemIds(playlist.InternalId, new[] { item });
 
             // Le repli n'est pas vérifié en réel : on RELIT la playlist et on n'affirme le succès que si le média a réellement disparu.
             if (ContainsItem(_entries.Read(playlist), item))
             {
                 try { _journal?.Add(JournalEntries.SkippedEntry(null, playlistId, "no-effect")); } catch { /* jamais d'exception ici */ }
-                return false;
+                return new RemoveResult(RemoveOutcome.NoEffect);
             }
-            return true;
+            return new RemoveResult(RemoveOutcome.Removed, 0);
         }
 
+        var guard = new EntryRemovalGuard(
+            read: () => ReadFlat(playlist),
+            removeByEntryId: entryId =>
+            {
+                using (WriteScope.Enter())
+                {
+                    var task = _playlistManager.RemoveFromPlaylist(playlist, new[] { entryId });
+                    if (!task.Wait(CallTimeoutMs)) throw new TimeoutException("RemoveFromPlaylist > 5 s");
+                    task.GetAwaiter().GetResult();
+                }
+            },
+            reAdd: (lost, skipDuplicates) => ReAdd(playlist, playlistId, lost, skipDuplicates),
+            waitRefreshIdle: () => WaitRefreshIdle(playlist),
+            logWrongEntry: detail =>
+            {
+                try { _journal?.Add(JournalEntries.Of(null, JournalEntries.Error, playlistId, detail)); } catch { }
+            },
+            pause: () => Thread.Sleep(RefreshPollMs * 2));
+        var result = guard.Remove(item);
+        // F3 : identifiant d'entrée périmé sans autre dégât (sinon wrong-entry est déjà journalisé) : raison non bruyante.
+        if (result.Outcome == RemoveOutcome.NoEffect && !result.OtherLost)
+        {
+            try { _journal?.Add(JournalEntries.SkippedEntry(null, playlistId, "stale-entry")); } catch { /* jamais d'exception ici */ }
+        }
+        return result;
+    }
+
+    private IReadOnlyList<(long ItemId, long EntryId)> ReadFlat(Playlist playlist)
+    {
+        var r = _entries.Read(playlist);
+        return r.Entries.Select(e => (e.ItemId, e.EntryId)).Concat(r.WithoutEntryId.Select(i => (i, 0L))).ToList();
+    }
+
+    private void ReAdd(Playlist playlist, string playlistId, long lost, bool skipDuplicates)
+    {
+        User? owner = null;
+        try { var ownerId = Get(playlistId)?.OwnerId; if (ownerId != null) owner = _userManager.GetUserById(ownerId); } catch { /* sans propriétaire */ }
         using (WriteScope.Enter())
         {
-            var task = _playlistManager.RemoveFromPlaylist(playlist, new[] { entry.EntryId });
-            if (!task.Wait(CallTimeoutMs)) throw new TimeoutException("RemoveFromPlaylist > 5 s");
-            task.GetAwaiter().GetResult();
+            var add = _playlistManager.AddToPlaylist(playlist, new[] { lost }, skipDuplicates, owner, CancellationToken.None);
+            if (!add.Wait(CallTimeoutMs)) throw new TimeoutException("AddToPlaylist > 5 s");
+            add.GetAwaiter().GetResult();
         }
-        return true;
+    }
+
+    /// <summary>Attente bornée (≤ 1 s) que la playlist ne soit plus en file de rafraîchissement Emby. Sans fournisseur ou en cas d'erreur : on n'attend pas.</summary>
+    private bool WaitRefreshIdle(Playlist playlist)
+    {
+        if (_providerManager == null) return true;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            while (IsRefreshing(playlist.InternalId) && sw.ElapsedMilliseconds < RefreshIdleWaitMs)
+                Thread.Sleep(RefreshPollMs);
+            return !IsRefreshing(playlist.InternalId);
+        }
+        catch { return false; /* état inconnu : non confirmé */ }
+    }
+
+    private bool IsRefreshing(long playlistId)
+    {
+        var pm = _providerManager!;
+        if (pm.GetRefreshProgress(playlistId) != null) return true;
+        var queue = pm.GetRefreshQueue();
+        return queue != null && queue.Any(q => q.Item1 == playlistId);
     }
 
     public ApplyResult ApplyDefaults(string playlistId, IReadOnlyList<MarkerFamily> familiesToPose, OverviewChange? overview)

@@ -2,6 +2,7 @@ using EmbySharedPlaylist.Core;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 
@@ -18,10 +19,10 @@ public sealed class ReconciliationTask : IScheduledTask, IConfigurableScheduledT
     private readonly ILogManager _logManager;
 
     public ReconciliationTask(ILibraryManager libraryManager, IUserManager userManager, IItemRepository itemRepository,
-        IPlaylistManager playlistManager, IUserDataManager userDataManager, ILogManager logManager)
+        IPlaylistManager playlistManager, IProviderManager providerManager, IUserDataManager userDataManager, ILogManager logManager)
     {
         _logManager = logManager;
-        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, userDataManager, logManager);
+        PluginRuntime.Initialize(libraryManager, userManager, itemRepository, playlistManager, providerManager, userDataManager, logManager);
     }
 
     public string Name => "Emby Shared Playlist — réconciliation";
