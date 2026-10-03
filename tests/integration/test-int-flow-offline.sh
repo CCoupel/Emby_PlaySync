@@ -70,7 +70,12 @@ rm -f "$W"/out/*; ENVX="I14C_ITER=2" run wrongentry I14 I14c I14p
 echo "== 3d. F3 : identifiant périmé retenté (Skipped stale-entry) : état final exact, entries=1, evidence consignée, tout OK"
 rm -f "$W"/out/*; ENVX="I14C_ITER=2" run staleentry I14 I14c I14p
 [[ $RC == 0 && $(status_of I14.integrity) == OK && $(status_of I14c.par1) == OK && $(status_of I14c.parintegrity1) == OK && $(status_of I14c.integrity1) == OK ]] && ok "staleentry : code 0, integrity et par* OK (stale-entry toléré)" || ko "staleentry : rc=$RC $(status_of I14.integrity)/$(status_of I14c.par1)/$(status_of I14c.parintegrity1)"
-[[ $(jq '[.results[]|select(.id=="I14.integrity")|.evidence.staleEntry]|first // 0' "$(J)") -ge 1 ]] && ok "evidence I14.integrity : staleEntry >= 1 consigné dans le JSON" || ko "evidence stale-entry absente : $(jq -c '[.results[]|select(.id=="I14.integrity")|.evidence]|first' "$(J)" | cut -c1-200)"
+[[ $(jq '[.results[]|select(.id=="I14.integrity")|.evidence.staleEntry]|first // 0' "$(J)") -ge 1 ]] && ok "evidence I14.integrity : staleEntry >= 1 et ratio consignés dans le JSON" || ko "evidence stale-entry absente : $(jq -c '[.results[]|select(.id=="I14.integrity")|.evidence]|first' "$(J)" | cut -c1-200)"
+
+echo "== 3e. F3-4 : stale-entry au-delà de la borne (2 par retrait) : l'état final reste exact mais I14.integrity / parintegrity échouent"
+rm -f "$W"/out/*; ENVX="I14C_ITER=2" run staleflood I14 I14p
+[[ $RC == 1 && $(status_of I14.integrity) == KO && $(status_of I14c.parintegrity1) == KO && $(status_of I14c.par1) == OK ]] && ok "staleflood : integrity KO (ratio > 1), état final exact (par1 OK)" || ko "staleflood : rc=$RC $(status_of I14.integrity)/$(status_of I14c.parintegrity1)/$(status_of I14c.par1)"
+[[ $(jq '[.results[]|select(.id=="I14.integrity")|.evidence.ratio]|first // 0' "$(J)") -gt 1 || $(jq '[.results[]|select(.id=="I14.integrity")|.evidence.ratio]|first // 0' "$(J)") == 2 ]] && ok "evidence : ratio stale-entry/Removal consigné (> 1)" || ko "ratio absent : $(jq -c '[.results[]|select(.id=="I14.integrity")|.evidence|{removals,staleEntry,ratio}]|first' "$(J)")"
 
 echo "== 4. logs Emby en erreur"
 rm -f "$W"/out/*; ENVX="FAKE_LOG_BAD=1" run ok I1

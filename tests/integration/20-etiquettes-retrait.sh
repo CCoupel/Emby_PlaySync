@@ -392,9 +392,16 @@ i13() {
   ck I13.echoes "les événements de la playlist déjà vue sont ignorés et comptés (skippedCounts already-seen/reentrant +$((e13b-e13a)))" "{\"before\":$e13a,\"after\":$e13b}" test "$((e13b-e13a))" -ge 1
 }
 
-stale_evidence() { # JOURNAL PLAYLIST -> {staleEntry (journal), skippedCountsStaleEntry (State), journal} : Skipped stale-entry est toléré mais consigné
-  jq -nc --argjson n "$(jcount "$1" "$2" Skipped 'stale-entry')" --argjson sc "$(state | jq '.skippedCounts["stale-entry"] // 0')" --argjson j "$1" \
-    '{staleEntry:$n, skippedCountsStaleEntry:$sc, journal:$j}'
+# integrity_check JOURNAL PLAYLIST N : N Removal entries=1, 0 Skipped already-removed, 0 Error wrong-entry* ET tolérance bornée de stale-entry
+# (F3-4) : au plus 1 Skipped stale-entry par retrait (= la borne des 2 tentatives du moteur : 1 NoEffect puis Removed) ; au-delà => KO.
+integrity_check() {
+  local ja=$1 pl=$2 n=$3 stale
+  stale=$(jcount "$ja" "$pl" Skipped 'stale-entry')
+  [[ "$(jcount "$ja" "$pl" Removal 'entries=1( |$)')/$(jcount "$ja" "$pl" Skipped 'already-removed')/$(jcount "$ja" "$pl" Error 'wrong-entry')" == "$n/0/0" ]] && [[ $stale -le $n ]]
+}
+stale_evidence() { # JOURNAL PLAYLIST -> {removals, staleEntry, ratio (stale-entry / Removal, borne 1), skippedCountsStaleEntry (State), journal}
+  jq -nc --argjson r "$(jcount "$1" "$2" Removal)" --argjson n "$(jcount "$1" "$2" Skipped 'stale-entry')" --argjson sc "$(state | jq '.skippedCounts["stale-entry"] // 0')" --argjson j "$1" \
+    '{removals:$r, staleEntry:$n, ratio:(if $r>0 then ($n/$r) else null end), ratioBound:1, skippedCountsStaleEntry:$sc, journal:$j}'
 }
 
 i14() {
@@ -416,8 +423,8 @@ i14() {
   local ja; ja=$(journal Removal,Skipped,Error)
   # entries = nombre d'entrées du média AVANT retrait (1 ici ; 2 pour les doublons d'I5). Skipped stale-entry (F3 : suppression sans effet, identifiant
   # d'entrée périmé, retentée) est TOLÉRÉ et consigné en evidence (compteur journal + State.skippedCounts).
-  ck I14.integrity "lot parallèle : chaque Removal a entries=1, aucun Skipped already-removed (médias distincts), aucun Error wrong-entry ; stale-entry toléré et consigné" "$(stale_evidence "$ja" "$pl")" \
-    test "$(jcount "$ja" "$pl" Removal 'entries=1( |$)')/$(jcount "$ja" "$pl" Skipped 'already-removed')/$(jcount "$ja" "$pl" Error 'wrong-entry')" = "6/0/0"
+  ck I14.integrity "lot parallèle : chaque Removal a entries=1, aucun Skipped already-removed (médias distincts), aucun Error wrong-entry ; stale-entry toléré (ratio stale-entry/Removal ≤ 1, consigné)" "$(stale_evidence "$ja" "$pl")" \
+    integrity_check "$ja" "$pl" 6
   # même média, 3 comptes en parallèle
   add_item "$pl" "${M[0]}"; nap 1; jclear
   for i in 0 1 2; do unmark "${U[$i]}" "${T[$i]}" "${M[0]}"; done; nap 1
@@ -451,8 +458,8 @@ i14c() {   # critical (R4a, F2-b) : rafale de lectures d'un même membre sur une
     ck "I14c.rep$rep" "répétition $rep : après chaque marquage, seul ce média a disparu ; les autres sont présents une seule fois" \
       "$(jq -nc --arg b "$bad" '{violations:$b}')" test -z "$bad"
     ja=$(journal Removal,Skipped,Error)
-    ck "I14c.integrity$rep" "répétition $rep : 6 Removal entries=1, aucun Skipped already-removed, aucun Error wrong-entry ; stale-entry toléré et consigné" "$(stale_evidence "$ja" "$pl")" \
-      test "$(jcount "$ja" "$pl" Removal 'entries=1( |$)')/$(jcount "$ja" "$pl" Skipped 'already-removed')/$(jcount "$ja" "$pl" Error 'wrong-entry')" = "6/0/0"
+    ck "I14c.integrity$rep" "répétition $rep : 6 Removal entries=1, aucun Skipped already-removed, aucun Error wrong-entry ; stale-entry toléré (ratio stale-entry/Removal ≤ 1, consigné)" "$(stale_evidence "$ja" "$pl")" \
+      integrity_check "$ja" "$pl" 6
   done
   harvest_removals
 }
@@ -484,8 +491,8 @@ i14p() {   # critical (R4a, F2-b) : fin de lecture de PLUSIEURS médias EN PARAL
     wl=$(jcount "$ja" "$pl" Removal 'entries=1( |$)'); jl="$wl/$(jcount "$ja" "$pl" Skipped 'already-removed')/$(jcount "$ja" "$pl" Error 'wrong-entry')"
     ck "I14c.par$it" "itération $it : seuls les $kk médias lus ont disparu, les $((pn-kk)) autres sont présents une fois" \
       "$(jq -nc --arg b "$bad" '{violations:$b}')" test -z "$bad"
-    ck "I14c.parintegrity$it" "itération $it : $kk Removal entries=1, aucun Skipped already-removed, aucun Error wrong-entry (removal/already-removed/wrong-entry = $jl) ; stale-entry toléré et consigné" "$(stale_evidence "$ja" "$pl")" \
-      test "$jl" = "$kk/0/0"
+    ck "I14c.parintegrity$it" "itération $it : $kk Removal entries=1, aucun Skipped already-removed, aucun Error wrong-entry (removal/already-removed/wrong-entry = $jl) ; stale-entry toléré (ratio stale-entry/Removal ≤ 1, consigné)" "$(stale_evidence "$ja" "$pl")" \
+      integrity_check "$ja" "$pl" "$kk"
   done
   harvest_removals
 }
