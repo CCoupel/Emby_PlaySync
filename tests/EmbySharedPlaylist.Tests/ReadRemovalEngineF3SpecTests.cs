@@ -69,7 +69,7 @@ public class ReadRemovalEngineF3SpecTests
     }
 
     [Fact]
-    public void TwoNoEffects_StopTheLoop_AtTwoAttempts_NoInfiniteLoop_NoEffectJournaled()
+    public void TwoNoEffects_StopTheLoop_AtTwoAttempts_NoInfiniteLoop_NoEffectJournaled_NotAlreadyRemoved()
     {
         var (engine, gw, journal) = Build("x", "y");
         gw.Script.Enqueue(NoEffect());
@@ -81,7 +81,40 @@ public class ReadRemovalEngineF3SpecTests
         Assert.Equal(ReadRemovalEngine.MaxNoEffectAttempts, gw.RemoveEntryCalls);
         Assert.Equal(2, gw.RemoveEntryCalls);
         Assert.Empty(journal.Of("Removal"));
+        // F3-2 : la cible est TOUJOURS présente après deux suppressions sans effet : « no-effect » (« already-removed » serait trompeur)
         Assert.Contains(journal.Entries, e => e.Kind == "Skipped" && e.Detail != null && e.Detail.Contains("no-effect"));
+        Assert.DoesNotContain(journal.Entries, e => e.Kind == "Skipped" && e.Detail != null && e.Detail.Contains("already-removed"));
+    }
+
+    [Fact]
+    public void TargetNotFoundAtFirstCall_JournalsAlreadyRemoved_NotNoEffect()
+    {
+        var (engine, gw, journal) = Build("y");
+        gw.Script.Enqueue(new RemoveResult(RemoveOutcome.NotFound));
+
+        var result = engine.Handle("m", "y");
+
+        Assert.Equal(0, result!.EntriesRemoved);
+        Assert.Contains(journal.Entries, e => e.Kind == "Skipped" && e.Detail != null && e.Detail.Contains("already-removed"));
+        Assert.DoesNotContain(journal.Entries, e => e.Kind == "Skipped" && e.Detail != null && e.Detail.Contains("no-effect"));
+    }
+
+    [Fact]
+    public void NoEffect_Removed_NoEffect_Removed_CountsTwo_WithoutPrematureStop_F3_2()
+    {
+        // Doublons : le compteur de NoEffect est remis à zéro par un retrait réel (sinon 2 NoEffect espacés arrêteraient la boucle trop tôt).
+        var (engine, gw, journal) = Build("x", "x");
+        gw.Script.Enqueue(NoEffect());
+        gw.Script.Enqueue(Removed(1));
+        gw.Script.Enqueue(NoEffect());
+        gw.Script.Enqueue(Removed(0));
+
+        var result = engine.Handle("m", "x");
+
+        Assert.Equal(2, result!.EntriesRemoved);
+        Assert.Equal(4, gw.RemoveEntryCalls);
+        Assert.StartsWith("entries=2 durationMs=", Assert.Single(journal.Of("Removal")).Detail);
+        Assert.DoesNotContain(journal.Entries, e => e.Kind == "Skipped" && e.Detail != null && (e.Detail.Contains("no-effect") || e.Detail.Contains("already-removed")));
     }
 
     [Fact]
@@ -110,19 +143,5 @@ public class ReadRemovalEngineF3SpecTests
 
         Assert.Equal(1, result!.EntriesRemoved);
         Assert.Equal(2, gw.RemoveEntryCalls);
-    }
-
-    [Fact]
-    public void NoEffectCountsAreIndependentOfRemoved_ARemovedBetweenDoesNotResetBelowTheLimit_OnlyTwoNoEffectsStop()
-    {
-        var (engine, gw, _) = Build("x", "x");
-        gw.Script.Enqueue(Removed(1));
-        gw.Script.Enqueue(NoEffect());
-        gw.Script.Enqueue(Removed(0));
-
-        var result = engine.Handle("m", "x");
-
-        Assert.Equal(2, result!.EntriesRemoved);
-        Assert.Equal(3, gw.RemoveEntryCalls);
     }
 }
