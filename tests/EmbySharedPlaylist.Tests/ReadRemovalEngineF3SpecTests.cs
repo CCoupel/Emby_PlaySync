@@ -69,7 +69,7 @@ public class ReadRemovalEngineF3SpecTests
     }
 
     [Fact]
-    public void TwoNoEffects_StopTheLoop_AtTwoAttempts_NoInfiniteLoop_AlreadyRemovedJournaled()
+    public void TwoNoEffects_StopTheLoop_AtTwoAttempts_NoInfiniteLoop_NoEffectJournaled()
     {
         var (engine, gw, journal) = Build("x", "y");
         gw.Script.Enqueue(NoEffect());
@@ -81,7 +81,7 @@ public class ReadRemovalEngineF3SpecTests
         Assert.Equal(ReadRemovalEngine.MaxNoEffectAttempts, gw.RemoveEntryCalls);
         Assert.Equal(2, gw.RemoveEntryCalls);
         Assert.Empty(journal.Of("Removal"));
-        Assert.Contains(journal.Entries, e => e.Kind == "Skipped" && e.Detail != null && e.Detail.Contains("already-removed"));
+        Assert.Contains(journal.Entries, e => e.Kind == "Skipped" && e.Detail != null && e.Detail.Contains("no-effect"));
     }
 
     [Fact]

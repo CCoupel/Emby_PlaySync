@@ -52,7 +52,10 @@ public sealed class EntryRemovalGuard
     /// </summary>
     public RemoveResult Remove(long itemId)
     {
-        try { _waitRefreshIdle(); } catch { /* confort */ }
+        // F3-1 : une 1ʳᵉ attente expirée/en échec = le worker d'Emby peut être en pleine réinsertion ; la relecture post-écriture ne prouve
+        // alors pas que la cible a disparu (R4a : jamais d'arrêt silencieux avec un média lu non retiré).
+        var firstIdle = true;
+        try { firstIdle = _waitRefreshIdle(); } catch { firstIdle = false; }
         var entries = _read();
         var entry = entries.FirstOrDefault(e => e.ItemId == itemId && e.EntryId != 0);
         if (entry.EntryId == 0) return new RemoveResult(RemoveOutcome.NotFound);
@@ -60,11 +63,11 @@ public sealed class EntryRemovalGuard
         var before = Counts(entries);
         _removeByEntryId(entry.EntryId);
 
-        try { return Compensate(itemId, before); }
+        try { return Compensate(itemId, before, firstIdle); }
         catch { return new RemoveResult(RemoveOutcome.Removed, -1); /* jamais d'exception : l'écriture a eu lieu, relecture inconnue */ }
     }
 
-    private RemoveResult Compensate(long target, Dictionary<long, int> before)
+    private RemoveResult Compensate(long target, Dictionary<long, int> before, bool firstIdle)
     {
         var after = Counts(_read());
         var idleConfirmed = true;
@@ -97,8 +100,9 @@ public sealed class EntryRemovalGuard
 
         before.TryGetValue(target, out var targetBefore);
         after.TryGetValue(target, out var targetAfter);
+        // Cible apparemment absente mais 1ʳᵉ attente non confirmée : reste inconnu (-1), la boucle rappelle (attente + relecture fraîche).
         return targetAfter < targetBefore
-            ? new RemoveResult(RemoveOutcome.Removed, targetAfter, otherLost)
+            ? new RemoveResult(RemoveOutcome.Removed, !firstIdle && targetAfter == 0 ? -1 : targetAfter, otherLost)
             : new RemoveResult(RemoveOutcome.NoEffect, targetAfter, otherLost);
     }
 

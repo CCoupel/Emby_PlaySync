@@ -164,6 +164,7 @@ public sealed class ReadRemovalEngine
                 if (r.Outcome == RemoveOutcome.Removed)
                 {
                     count++;
+                    noEffect = 0; // un retrait réel remet le compteur à zéro (doublons : NoEffect, Removed, NoEffect ne s'arrête pas)
                     if (r.TargetRemaining == 0) break;
                 }
                 else if (r.Outcome == RemoveOutcome.NoEffect)
@@ -175,7 +176,8 @@ public sealed class ReadRemovalEngine
 
             if (count == 0)
             {
-                Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, "already-removed"));
+                // Abandon après NoEffect répétés (cible encore présente) : « no-effect », pas « already-removed » (trompeur).
+                Journal(JournalEntries.SkippedEntry(_clock, snapshot.Id, noEffect >= MaxNoEffectAttempts ? "no-effect" : "already-removed"));
                 result = 0;
             }
             else
