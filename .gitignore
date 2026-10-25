@@ -80,3 +80,6 @@ MARKETING/
 
 # Caches Python des tests d'intégration (faux Emby)
 tests/integration/__pycache__/
+.claude/skills/milestone-panel/
+.claude/workflow/
+.claude/worktrees/

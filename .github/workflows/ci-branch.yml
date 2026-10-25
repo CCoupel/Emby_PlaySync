@@ -1,0 +1,27 @@
+name: CI branch
+
+# C10 : pre-validation sans publier — verdict requis avant fermeture des issues et avant merge/tag
+on:
+  push:
+    branches:
+      - 'milestone/**'
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      # C11 : CI_CMD (commands.ci)
+      - name: CI
+        run: scripts/ci.sh
