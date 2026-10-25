@@ -1,138 +1,139 @@
 # MEMORY.md — Emby_PlaySync
 
-> Mis à jour le 2026-10-02 en fin de session (/end-session, 2e session du jour). Source de vérité pour
-> `/start-session`. À tenir à jour à chaque session.
+> Mis à jour le 2026-10-04 en fin de session (/end-session). Source de vérité pour `/start-session`.
+> À tenir à jour à chaque session.
 
 ## Version courante
 
-- **v1.2.1** — déployée en PROD (namespace `media`, `deployment/emby`), tag `v1.2.1`,
-  merge `2828ea9`, release https://github.com/CCoupel/Emby_PlaySync/releases/tag/v1.2.1
-- Déploiement PROD : 2026-10-02 (scale 0 / terminaison / copie / scale 1, base saine)
-- Branche courante : `milestone/v1.2.2` (locale, **non poussée**, créée depuis `main` le 2026-10-02)
-  - `main` = `9c9c1f4`/`f986dd7`, aligné `origin/main` ; `milestone/v1.2.1` conservée (non supprimée)
-- **Template Claude : v3.9.0** (`cf187ca`), sync faite le 2026-10-02 (était v3.8.0)
-- QUALIF (`emby2`) : plugin 1.2.1.0, `.prev` = 1.2.0.0 (PROD aussi)
-- Site marketing publié : https://ccoupel.github.io/Emby_PlaySync/ (v1.2.1, gh-pages seulement)
-- **Posts réseaux v1.2.0 et v1.2.1 : rédigés, NON publiés** (docs/releases/vX/social-posts.md) — publication manuelle
+- **v1.2.2** — déployée en PROD (namespace `media`, `deployment/emby`), tag `v1.2.2`,
+  merge `43b88f8` (main), release https://github.com/CCoupel/Emby_PlaySync/releases/tag/v1.2.2
+- DLL : `EmbySharedPlaylist.dll` sha256 `6217b3d9…03bb` (223 KB), déployée le 2026-10-03
+  - Déploiement PROD : scale 0 → pod busybox de sauvegarde sur PVC emby-config-claim → `/config/backup-pre-v1.2.2-20261003-121847/` (library.db + .wal/.shm) → DLL versionnée → scale 1 ; integrity_check non exécuté (sqlite3 absent)
+  - `.prev` = 1.2.1.0 (PROD) ; QUALIF emby2 1.2.2.1 `.prev` = 1.2.2.0
+- Branche `milestone/v1.2.2` : poussée, mergée dans `main`, non supprimée
+  - `main` = `513a850`, aligné `origin/main`
+- **Template Claude : v3.9.1** (`d2d8143`), sync faite le 2026-10-03 (était v3.9.0)
+- **Milestone GitHub v1.2.2 fermé** ; issues #59 #60 #61 fermées
+- **Aucun milestone ouvert** — ne créer v1.3.0 que pour une feature
+- Site marketing : v1.2.1/v1.2.2 rédigés (docs/releases/vX/social-posts.md), **NON publiés** — publication manuelle
+- **Posts réseaux v1.2.0 v1.2.1 v1.2.2** : rédigés, NON publiés (publication manuelle)
 
 ## Travail en cours
 
-- **Milestone v1.2.2 ouvert** (GitHub n°11, patch) : issues #59, #60, #61 (bugs/tests) + nouveau pipeline CI
-  - Créé d'abord en `v1.3.0` par erreur, renommé : bugs seuls = incrément de patch
-  - Commit `f1af920` sur `milestone/v1.2.2` : `.github/workflows/release.yml` (C2 tag = `<Version>` du csproj,
-    C5 notes extraites de `CHANGELOG.md` `## [X.Y.Z]`, C4 asset `.sha256`) ; actionlint v1.7.7 : 0 erreur ; **pas de tag**
-  - Asset conservé en `EmbySharedPlaylist.dll` (écart C4 assumé : deploy et dossier plugins l'attendent)
-  - **Avant le tag v1.2.2** : `doc-updater` doit écrire `## [1.2.2]` dans `CHANGELOG.md`, sinon la release échoue volontairement
-- Aucun cycle de dev démarré sur #59/#60/#61 (pas de plan, pas de dev)
-- Milestone GitHub **v1.2.1 fermé** (#58 fermée) ; backlog v1.3.0 en attente de cadrage (ouvrir v1.3.0 seulement pour une feature)
+Aucun. Cycle v1.2.2 clos (PROD + doc + CI validés).
 
-## Décisions techniques v1.2.1 (bugfix #58, D23, session 2026-09-30/10-02)
+## Décisions techniques v1.2.2 (bugfix #59 #60 #61, D24, session 2026-10-02/10-04)
 
-### Cause du bugfix #58
-- **Avancement propagé seulement à pause/arrêt** (v1.2.0) — en lecture continue sans pause, position n'était jamais écrite chez les membres
-- **Fin de lecture** : Emby pose « lu » **avant** `PlaybackStopped` (spike U15 confirmé : `PlayedToCompletion=true` à 100 % et 95 %)
-  - Avec `remove-si-lu=OUI` actif, le média était déjà retiré quand `PlaybackStopped` arrivait → position non écrite
-  - Symptôme observé : média « lu » chez le membre, position périmée (~99 %)
+### Découverte : deux défauts PLUGIN cachés sous 3 "bugs de test"
 
-### Correctif (D23, spec docs/chronogrammes.md R10/S9g)
-- **Événements écoutés** : `PlaybackStart` (nouveau), `PlaybackProgress` (chaque), `PlaybackStopped` (+ `PlayedToCompletion`)
-- **Propagation continue** : à chaque `ISessionManager.PlaybackProgress`, au plus **une fois toutes les 10 s par couple** (déclencheur, média)
-  - **Throttle** : 10 s absolu par couple ; si verrou occupé délai 250 ms → ignoré sans journal, compteur `LockBusy`
-  - **Pause/arrêt** : immédiats (pas d'attente throttle)
-- **Seuil 30 s** : conservé (position absolue dans le média)
-- **Fin de lecture** (`PlayedToCompletion=true`) :
-  - Si `propager-lu=OUI` aussi actif → position écrite = **0** (aucun point de reprise, miroir du déclencheur)
-  - Sinon → position d'arrêt brute (~99–100 %)
-- **Cibles de playlists** : mémorisées pendant la lecture dans `PlaybackSyncTracker.TargetPlaylistIds` (péremption 5 min, liste vide re-résolue)
-- **Race Progress/Stop** : `PlaySessionId` fermé par `OnStop` avant que tout `Progress` tardif ré-écrive (garde `IsOpen` sous verrou)
-- **Repli incertitude `PlayedToCompletion`** : si absent/faux, utiliser UserData du déclencheur (`Played=true` ET position = 0) — mais U15 confirme fiable à 100 % et 95 %
-- **Journal** : `PositionPropagation.Detail` gagne `trigger=<pause|stop|completion>` ; les Progress périodiques ne sont **pas journalisés** (bruit), compteurs `Diagnostics.PositionProgress { Propagated, Throttled, LockBusy }` à la place
-- **Handler** : `State.Handler` ne mesure plus les Periodic (p95/max non biaisées par ~1/10s)
+#### (a) Fuite du WriteScope vers le worker de rafraîchissement (I16 reentrant +2, première détection manquée)
+- **Cause** : `AsyncLocal<int> Depth` utilisé pour `WriteScope.Active` (Core/WriteScope.cs)
+  - `RemoveFromPlaylist` met en file un rafraîchissement asynchrone via `Task.Run` qui **capture l'ExecutionContext**
+  - ExecutionContext inclut une copie du `Depth` AsyncLocal = 1 (on est dans le scope)
+  - À la sortie du scope côté plugin, `Dispose()` restaure `Depth` **dans le contexte du plugin** uniquement
+  - Le worker Emby garde `Depth = 1` pendant toute la vie de la file de rafraîchissement
+  - `ItemUpdated` émis par le worker est compté `reentrant` (fausse ré-entrance), première détection ignorée
 
-### Nouveau tracker : `PlaybackSyncTracker` (remplace `PauseTransitionTracker`)
-- Mémoire LRU borné 2000, thread-safe, logique pure
-- Par couple (user, item) : `PlaySessionId`, `LastPaused`, `LastPropagatedAt`, `LastPropagatedTicks`, `Closed`, `TargetPlaylistIds`
-- Décisions retournées : `PauseTransition`, `Periodic`, `Throttled`, `Ignored`, `Closed`
+#### (b) Retrait du MAUVAIS média sur retraits rapprochés (I14.once, I14c.parN 5/45 en v1.2.1)
+- **Cause** : `RemoveFromPlaylist` met en file un rafraîchissement complet (**asynchrone**) qui réécrit toutes les entrées ListItems
+  - Table ListItems **sans AUTOINCREMENT** ; SQLite réutilise `max(rowid)+1` → les nouveaux rowids sont les mêmes, décalés sur d'autres ItemId
+  - `EmbyPlaylistGateway.RemoveOneEntry` lit l'`EntryId` (rowid), puis appelle `RemoveFromPlaylist(playlist, [entryId])`
+  - Si le worker réécrit ListItems **entre la lecture et la suppression**, l'EntryId lu est périmé et désigne un **autre média**
+  - **Défaut présent en PROD v1.2.1 et avant** — condition de course sur même playlist, quelques ms à quelques secondes d'intervalle (deux retraits parallèles, sélection multiple)
 
-## Incidents et leçons (session 2026-09-30/10-02)
+### Correctif (D24 : F1 WriteScope à identité + F2-b retrait sûr + F3 RemoveOutcome)
 
-### INCIDENT 2026-10-02 — Sessions fantômes (PROD, diagnostic)
-**Contexte** : L'UI Emby PROD montrait 9 « lectures » (`test_u1`, `test_u2`, `test_u3`, spike) depuis le 30/09
+#### F1 — WriteScope à jeton chaîné et révoqué
+- Remplace `AsyncLocal<int>` par `AsyncLocal<ScopeToken?>`
+- Chaque `Enter()` crée un jeton chaîné au parent, révoqué à `Dispose()` (volatile bool)
+- `Active` parcourt la chaîne : faux dès que le jeton est révoqué, **indépendamment du contexte**
+- Une copie capturée par `Task.Run` est inactive dès la sortie du scope (protège contre la fuite ExecutionContext)
+- API inchangée (`Enter()`, `Active`, `Dispose()`)
 
-**Cause établie** : Relais VirtualLib (emby2 QUALIF vers PROD, médias virtuels `/config/virtual/DadoursTV`)
-- VirtualLib 1.10.0 sur emby2 relayait les `PlaybackStart` des tests QA sans les `PlaybackStopped` correspondants
-- Le heartbeat interne de VirtualLib gardait les sessions "ouvertes"
-- Les vraies lectures PROD (très peu) n'étaient pas affectées, mais les compteurs UI gonflés
+#### F2-b — Retrait sûr avec attente du rafraîchissement, relecture, compensation
+- **IProviderManager injecté** via DI dans 7 classes (Diagnostics, PlaybackListener, etc.)
+- **Avant écriture** : attente bornée ≤ 1 s (poll 10 ms) que la playlist ne soit plus dans `GetRefreshQueue()` / `GetRefreshProgress()`
+- **Après suppression** : relecture de l'`EntryId` pour détecter renumérotation (aucun > 0 = périmé)
+- **Compensation** : si `after.Count < before.Count && before.Count > 1`, ré-ajout via `AddToPlaylist` (journal `Error wrong-entry`)
+- **Repli** : si première attente expire, pas de ré-ajout (journal `Error wrong-entry-unconfirmed`)
+- L'ordre de la liste peut changer en cas de compensation
 
-**Résolu par** : Redémarrage emby2, puis redémarrage PROD (sessions fermées)
+#### F3 — RemoveResult, TargetRemaining, Skipped stale-entry
+- `RemoveOneEntry` retourne `RemoveResult { Removed | NoEffect | NotFound, TargetRemaining, OtherLost }`
+- Boucle n'incrémente `entries` que sur `Removed` (entrées **réellement** supprimées)
+- Tentatives sans effet (entryId périmé) → retentée (max 2), journalisé `Skipped stale-entry` (non bruyant, inclus en `Diagnostics/State.skippedCounts`)
+- `TargetRemaining = -1` si attente initiale expirée (parade F3-1 : risque d'arrêt prématuré sur `TargetRemaining == 0`)
 
-**Leçons** :
-1. **Tests QUALIF ne doivent pas lire de médias virtuels** (#61 ouverte) — cibles de test : médias locaux ou Emby URL
-2. **Avant tout DEPLOY PROD**, vérifier lectures actives :
-   - Consulter logs PROD (pas de clé API PROD disponible dans `private/`)
-   - S'attendre à quelques vraies lectures, identifier vs. fantômes de test
-3. **Distinguer vraies lectures et artefacts** : logs + durée + compte + URL média
+### Latence et tests (#60 #61)
 
-### (2) QA v1.2.1 : VALIDATED WITH RESERVATIONS
-- **Unitaires** : 900/900 ✓
-- **Intégration QUALIF** : 22-avancement.sh 77 OK / 0 KO / 0 SKIP ; 20-etiquettes-retrait.sh 70 OK / 1 KO / 1 SKIP ; 21-propagation.sh 56 OK / 2 KO
-- **Réserves** :
-  - I16.echo.removal (+2) : pré-existant en v1.2.0 et v1.2.1, seuil ≤ 1 probablement obsolète (#59)
-  - I23.S6a.propagation : intermittent (flaky), dépend de résidus d'état, OK quand rejoué seul (#60)
-  - Aucun lien avec #58 (flux lu et code non modifiés)
-- **NON vérifié** : aucune lecture réelle Emby Web (cadence réelle des `PlaybackProgress`, CA1/CA4 en réel) ; coût résolution playlists pour média hors playlist non mesurable sur emby2 ; `Handler` max 323 ms (> 300 ms cible, p95 non exposé) — à re-mesurer en PROD
+- **Latence** : isolé p95 31–44 ms (1.2.1 baseline ~48 ms), rafale p95 314–393 ms (1.2.2.0 était 410–500 ms)
+  - **I17.p95** (300 ms) porte sur retraits isolés ; **I17.burst** (p95 ≤ 1 s, max ≤ 2 s) sur rafales
+  - Assouplissement I17 accepté par l'utilisateur (prix de la protection contre le mauvais média)
+- **Tests** (#60 #61) :
+  - Purge SPIKE*/INT_NESTED, bibliothèque locale PlaySync-Tests (20 vidéos ffmpeg, tests/integration/01-setup-media.sh idempotent)
+  - Ordre complet : 01 → 00 → 20–25 → 90 ; un seul run QUALIF à la fois
+  - Nouveaux I14.integrity, I14c (séquentiel 6 médias), I14p (rafale parallèle C_ITER=15)
+  - I16 scindé reentrant/deferred ≤ 1 chacun ; I16.posed corrigé (jclear avant création, stabilisation 15 s)
+  - Garde-fou assert_local_media (refus `/config/virtual/`), Stopped/Logout des sessions, SESSIONS.clean
+  - EMBY_API_KEY : CR final dans private/qualif.env (corriger avec `tr -d '\r\n'`)
 
-### (3) Procédure PROD : sauvegarde library.db
-- **AVANT** : pas de documentation, sauvegarde pouvait être à chaud (possiblement incohérente)
-- **APRÈS** (deploy.prod.md, commit 9c9c1f4) :
-  ```
-  1. Scale 0 et attendre terminaison complète du pod
-  2. Copie à froid de library.db + library.db-wal + library.db-shm
-  3. Backup dans backups/prod/<timestamp>/
-  ```
-- **Important** : jamais de copie à chaud, jamais `rollout restart` (utiliser scale 0/wait/scale 1)
-- Sauvegarde du 02/10 avant v1.2.1 (/config/backup-pre-v1.2.1-20261002-091809/ dans le pod PROD) avait été à chaud
+## Leçons (v1.2.2, session 2026-10-02/10-04)
 
-### (4) Site marketing vit sur gh-pages seulement
-- **UNIQUE source** : branche `gh-pages` → https://ccoupel.github.io/Emby_PlaySync/
-- Dossier `MARKETING/` **retiré** de `main` en commit 3c24ca6 (doublon historique)
-- **Template v3.9.0 (2026-10-02)** : le template adopte cette règle. Worktree git de `gh-pages` = **`MARKETING/`**
-  (gitignoré, `git worktree add MARKETING gh-pages`), commit/push depuis ce worktree ; release notes et posts restent
-  dans `docs/releases/` sur la branche de code. Compagnon `marketing-release.md` (qui imposait `_work/site`) **supprimé**.
-  Plus de worktree `_work/site` (absent de `git worktree list`) ; `/marketing` recréera `MARKETING/`.
+### (1) Diagnostic : les 3 "bugs de test" cachaient 2 défauts PLUGIN
+- **Processus** : I16/I23/I14c étaient censés être des défauts de test (charges, races, timeouts)
+- **Découverte** : décompilation IL des DLL Emby du pod QUALIF (lecture seule, `/system/Emby.*.dll` via `ilspycmd`)
+  a révélé la fuite ExecutionContext + la renumérotation de ListItems (sans AUTOINCREMENT)
+- **Leçon** : avant dev, vérifier les diagnostics en QUALIF réel (pas juste analyse statique)
+- **Preuve** : I14c séquentiel était vert sur v1.2.1 (pas de race), il a fallu I14p parallèle pour montrer la défaillance
 
-### (5) Règle oubliée : `/deploy prod` dispatche systématiquement `marketing PREPARE`
-- **Décision** : Phase 6 du cycle (Deployment + Communication)
-- **NON fait au déploiement v1.2.1** : agent `marketing-release` n'est pas permanent (spawné à la demande)
-- Rattrapé a posteriori sur demande utilisateur
-- À documenter et respecter pour v1.3.0+
+### (2) QA v1.2.2 : VALIDATED
+- **Unitaires** : 950/950 ✓
+- **Intégration QUALIF** : I14/I14c/I14p (45 retraits parallèles ×3) 0 rouge ; I16 vert 3/3 ; I17.p95 isolé ≤ 300 ms ✓ ; I17.burst p95 ≤ 1 s ✓ ; SESSIONS.clean 9/9 ✓
+- **Aucune réserve bloquante** — stale-entry 1/693 (comportement attendu F3), latence rafale p95 ~315 ms (< 1 s cible)
 
-### (6) Issues ouvertes et backlog impacté
-- **#59** : I16.echo.removal (+2 rare), pré-existant, probable seuil obsolète
-- **#60** : I23.S6a intermittent, flaky/test (aucun impact opérationnel)
-- **#61** : Tests QUALIF doivent éviter médias virtuels VirtualLib
-- **Backlog v1.3.0** (inchangé) : B12 (anti-écho durcir), `UserItemLocks` (risques concurrence), repli `RemoveListItemsByItemIds`, `PlaylistEntryReader`, `DeleteShare`, comptage playlists PROD v1.2.0, clients TV/mobile (#28)
+### (3) Procédure PROD v1.2.2 : sauvegarde à froid via pod busybox
+- **Chemin correct** : `/config/data/library.db` (et `.wal`, `.shm`)
+- **Procédure** :
+  1. Scale 0, attendre terminaison complète du pod
+  2. **Pod busybox temporaire monté sur PVC `emby-config-claim`** (copie à froid)
+  3. Sauvegarde dans backups/prod/`<timestamp>`/
+  4. DLL déployée sur le pod normal
+  5. Scale 1
+- **Limitation** : sqlite3 **absent** du pod busybox ; integrity_check non réalisable (alternative documentée : reprise manuelle si KO)
+- **Jamais** `rollout restart` (incohérence SQLite possible)
 
-### (7) SDK .NET 6.0.428 hors PATH WSL
-- Rappel CLAUDE.md : chemin complet requis en WSL `/mnt/c/Users/cyril/AppData/Local/Microsoft/dotnet/dotnet.exe`
+### (4) Variante F2-a (retrait par ItemId) non retenue
+- **Raison** : non vérifiée en réel, API interne, plus d'événement `PlaylistItemsRemoved` (rupture pour clients tiers)
+- **Repli si latence rafale gêne en PROD** : basculer à F2-a sans retest (moins de latence, accepté par l'utilisateur comme contingency)
 
-### (8) Équipe/Outils — incohérences à remonter
-- **TeamCreate indisponible** dans la session
-- **Adresse teammates** : répondent à `team-lead` (label de tâche), pas à `main` (adresse du protocole template)
-- **Protocole** : `.claude/agents/context/TEAMMATES_PROTOCOL.template.md` (pas de fichier sans suffixe)
-- **Template v3.9.0** (cf187ca) : unification adresses `main`/`team-lead` non vérifiée, à contrôler
+### (5) Règles QUALIF (#61) strictes et robustes
+- **Aucun média virtuel** : tests locaux sur PlaySync-Tests (ffmpeg) + garde-fou assert_local_media
+- **Un seul run à la fois** : purge SPIKE*, Stopped/Logout en sortie
+- **EMBY_API_KEY** : cr final dans private/qualif.env (corriger avec `tr -d '\r\n'`)
+- **media.coupel.net** : non joignable depuis WSL (passer par pod / port-forward)
+
+### (6) Points ouverts pour v1.3.0+
+- **Surveillance en PROD** : ratio stale-entry/Removal, latence rafale réelle (max 2 s spécification)
+- **Test I10 --restart** : jamais exécuté (skip dans QUALIF)
+- **Repli F2-a** : à vérifier en réel si F2-b gêne
+- **Clients TV/mobile** (#28) : édition étiquettes non garantie
 
 ## Règles critiques projet
 
 - Ne jamais déployer sur `deployment/emby` (PROD) sauf via `/deploy prod` sur ordre explicite utilisateur
 - Un seul milestone en développement à la fois, branche `milestone/vX.Y.Z`
-- Spec de référence : `docs/chronogrammes.md` (règles R1–R12, scénarios S1–S11, décisions D3/D9/D19/D20/D21/D23)
+- Spec de référence : `docs/chronogrammes.md` (règles R1–R12, scénarios S1–S11, décisions D3/D9/D19/D20/D21/D23/D24)
+  - **D24 (v1.2.2)** : retrait sûr (WriteScope à jeton F1 + attente rafraîchissement F2-b + RemoveOutcome F3)
+  - Latence isolée p95 ≤ 300 ms ; rafale sérialisation par playlist p95 ≤ 1 s, max ≤ 2 s
 - PROD SQLite : arrêt propre avant redémarrage (pas `rollout restart`, utiliser scale 0/wait/scale 1)
-- Sauvegarde library.db à **froid** (scale 0 + terminaison complète du pod) avant tout déploiement
+- Sauvegarde library.db à **froid** (scale 0 + pod busybox temporaire sur PVC + copie `/config/data/library.db{,.wal,.shm}`) avant déploiement
+  - **Chemin correct** : `/config/data/library.db` (non `/config/plugins/`)
+  - sqlite3 absent du pod : integrity_check non réalisable tel quel
 - Marketing : travail seulement sur branche `gh-pages` (worktree `MARKETING/`), jamais sur `main/milestone/*`
 - Jamais de travail direct sur `main` ; pipeline de release = contrat C1–C9 (`agents/infra`, section 3bis), audité avant PUBLISH PROD
 - `/deploy prod` doit dispatcher automatiquement `marketing PREPARE` (Phase 6)
-- Tests QUALIF : éviter médias virtuels VirtualLib (isolation emby2 vs PROD)
+- Tests QUALIF : éviter médias virtuels VirtualLib (isolation emby2 vs PROD) ; un seul run à la fois
+- EMBY_API_KEY : nettoyer CR final (`tr -d '\r\n'` avant export)
 
 ## Backlog v1.3.0
 
@@ -149,5 +150,6 @@
 
 ---
 
-**Clôture session 2026-10-02** : v1.2.1 en PROD ; template v3.9.0 synchronisé ; milestone v1.2.2 ouvert avec le patch CI
-(`f1af920`, local, non poussé). Prochaine étape : cadrer/planifier #59/#60/#61, puis CHANGELOG `[1.2.2]` avant tag.
+**Clôture session 2026-10-04** : v1.2.2 en PROD (patch D24 : WriteScope à jeton + retrait sûr + RemoveOutcome)
+; template v3.9.1 synchronisé ; milestone v1.2.2 fermé (poussé, mergé, issues #59 #60 #61 fermées)
+; aucun milestone ouvert. Prochaine étape : cadrage v1.3.0 (feature nouvelle ou accumulation de bugs).

@@ -9,33 +9,49 @@
 
 **Avant tout déploiement**, sauvegarder la base de données Emby de PROD pour la cohérence et le rollback :
 
+**Chemin réel** : `/config/data/library.db` (et `.wal`, `.shm`) — **non** `/config/library.db` ni `/config/plugins/`
+
 ```bash
 # 1. Scale à 0 et attendre la terminaison complète du pod
 kubectl scale deployment/emby -n media --replicas=0
 sleep 5
 kubectl wait --for=delete pod -l app=emby -n media --timeout=60s 2>/dev/null || true
 
-# 2. Copie à froid (base complètement stoppée)
-POD=$(kubectl get pods -n media --no-headers | grep -E '^emby-' | grep -v emby2 | head -1)
-[ -n "$POD" ] && kubectl exec -n media "$POD" -- ls /config/library.db >/dev/null 2>&1 || {
-  echo "ERREUR : pod PROD non accessible après scale 0 — avorter et investiguer"
+# 2. Copie à froid via pod busybox temporaire monté sur PVC emby-config-claim
+#    (impossible d'utiliser kubectl exec après scale 0 — le pod n'existe plus)
+BACKUP_DIR="backups/prod/pre-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+# Lancer un pod busybox temporaire (point de montage emby-config-claim)
+BUSYBOX_POD="backup-busybox-$$-$(date +%s)"
+kubectl run "$BUSYBOX_POD" -n media --image=busybox:latest --restart=Never \
+  -v emby-config=/config --overrides='{"spec":{"containers":[{"name":"busybox","volumeMounts":[{"name":"emby-config","mountPath":"/config"}]}],"volumes":[{"name":"emby-config","persistentVolumeClaim":{"claimName":"emby-config-claim"}}]}}' \
+  -- sleep 300 &
+
+# Attendre que le pod soit ready
+sleep 5
+kubectl wait --for=condition=Ready pod -l run="$BUSYBOX_POD" -n media --timeout=30s || {
+  echo "ERREUR : pod busybox non ready — avorter"
+  kubectl delete pod "$BUSYBOX_POD" -n media 2>/dev/null || true
   exit 1
 }
 
-# Créer le répertoire de backup
-mkdir -p backups/prod
-BACKUP_DIR="backups/prod/$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$BACKUP_DIR"
+# Copier library.db via kubectl cp depuis le pod busybox
+MSYS_NO_PATHCONV=1 kubectl cp "media/$BUSYBOX_POD:/config/data/library.db" "$BACKUP_DIR/library.db" 2>/dev/null || true
+MSYS_NO_PATHCONV=1 kubectl cp "media/$BUSYBOX_POD:/config/data/library.db-wal" "$BACKUP_DIR/library.db-wal" 2>/dev/null || true
+MSYS_NO_PATHCONV=1 kubectl cp "media/$BUSYBOX_POD:/config/data/library.db-shm" "$BACKUP_DIR/library.db-shm" 2>/dev/null || true
 
-# Copier library.db, .db-wal, .db-shm (WAL mode)
-MSYS_NO_PATHCONV=1 kubectl cp media/$POD:/config/library.db "$BACKUP_DIR/library.db" 2>/dev/null || true
-MSYS_NO_PATHCONV=1 kubectl cp media/$POD:/config/library.db-wal "$BACKUP_DIR/library.db-wal" 2>/dev/null || true
-MSYS_NO_PATHCONV=1 kubectl cp media/$POD:/config/library.db-shm "$BACKUP_DIR/library.db-shm" 2>/dev/null || true
+# Supprimer le pod busybox
+kubectl delete pod "$BUSYBOX_POD" -n media 2>/dev/null || true
 
 echo "Backup PROD : $BACKUP_DIR"
 ```
 
-**Important** : ne jamais copier `library.db` pendant qu'Emby est en fonctionnement — seule une copie à froid (après scale 0) garantit la cohérence. `kubectl rollout restart` ne suffit pas : il faut scale à 0, attendre la terminaison, puis sauvegarder.
+**Important** :
+- Copie **à froid uniquement** (scale 0 + terminaison complète) → cohérence SQLite
+- **Jamais** `kubectl rollout restart` — utiliser scale 0/wait/scale 1
+- **sqlite3 absent du pod** : integrity_check non réalisable à chaud. Reprise manuelle en cas de KO base
+- Chemin correct : `/config/data/library.db{,.wal,.shm}` (WAL mode)
 
 ## GARDE-FOU
 
@@ -54,15 +70,22 @@ EXPECTED_SIZE=$(stat -c %s "$ARTIFACT")
 
 # 2. Install (memes regles critiques que deploy.qualif.md : MSYS_NO_PATHCONV, chemin relatif,
 #    copie AVANT restart, destination /config/plugins/EmbySharedPlaylist.dll a la racine)
+#    IMPORTANT : ne pas utiliser 'kubectl rollout restart' (peut laisser SQLite incohérent)
+#    Utiliser scale 0/wait/scale 1 pour un arrêt propre de PROD
 POD=$(kubectl get pods -n media --no-headers | grep -E '^emby-' | grep -v emby2 | awk '{print $1}')
 echo "Pod PROD cible : $POD"   # controle visuel : ne doit pas contenir "emby2"
 MSYS_NO_PATHCONV=1 kubectl exec -n media "$POD" -- cp /config/plugins/EmbySharedPlaylist.dll /config/plugins/EmbySharedPlaylist.dll.prev 2>/dev/null || true
 MSYS_NO_PATHCONV=1 kubectl cp "$ARTIFACT" media/$POD:/config/plugins/EmbySharedPlaylist.dll
-kubectl rollout restart deployment/emby -n media
 
-# 3. Rollout + verification dans le NOUVEAU pod
+# 3. Restart propre : scale 0/wait/scale 1 (jamais rollout restart)
+kubectl scale deployment/emby -n media --replicas=0
+sleep 5
+kubectl wait --for=delete pod -l app=emby -n media --timeout=60s 2>/dev/null || true
+kubectl scale deployment/emby -n media --replicas=1
 kubectl rollout status deployment/emby -n media --timeout=120s
 ROLLOUT_STATUS=$?
+
+# 4. Verification dans le NOUVEAU pod
 NEW_POD=$(kubectl get pods -n media --no-headers | grep -E '^emby-' | grep -v emby2 | awk '{print $1}')
 ACTUAL_SIZE=$(MSYS_NO_PATHCONV=1 kubectl exec -n media "$NEW_POD" -- stat -c %s /config/plugins/EmbySharedPlaylist.dll)
 [ "$ACTUAL_SIZE" = "$EXPECTED_SIZE" ] || ROLLOUT_STATUS=1
