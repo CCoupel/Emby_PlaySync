@@ -11,11 +11,11 @@
   - Déploiement PROD : scale 0 → pod busybox de sauvegarde sur PVC emby-config-claim → `/config/backup-pre-v1.2.2-20261003-121847/` (library.db + .wal/.shm) → DLL versionnée → scale 1 ; integrity_check non exécuté (sqlite3 absent)
   - `.prev` = 1.2.1.0 (PROD) ; QUALIF emby2 1.2.2.1 `.prev` = 1.2.2.0
 - Branche `milestone/v1.2.2` : poussée, mergée dans `main`, non supprimée
-  - `main` = `513a850`, aligné `origin/main`
-- **Template Claude : v3.9.1** (`d2d8143`), sync faite le 2026-10-03 (était v3.9.0)
+  - `main` = `b617c40` (merge docs post-release), aligné `origin/main`
+- **Template Claude : v3.29.0** (`f939d3b`), sync faite le 2026-10-27 — version de référence : `project-config.json` → `template_version`
 - **Milestone GitHub v1.2.2 fermé** ; issues #59 #60 #61 fermées
 - **Aucun milestone ouvert** — ne créer v1.3.0 que pour une feature
-- Site marketing : v1.2.1/v1.2.2 rédigés (docs/releases/vX/social-posts.md), **NON publiés** — publication manuelle
+- Site marketing : v1.2.1 rédigé (`docs/releases/v1.2.1/social-posts.md`), **NON publié** — publication manuelle ; `docs/releases/v1.2.2/` absent (à produire)
 - **Posts réseaux v1.2.0 v1.2.1 v1.2.2** : rédigés, NON publiés (publication manuelle)
 
 ## Travail en cours
@@ -120,20 +120,16 @@ Aucun. Cycle v1.2.2 clos (PROD + doc + CI validés).
 
 ## Règles critiques projet
 
-- Ne jamais déployer sur `deployment/emby` (PROD) sauf via `/deploy prod` sur ordre explicite utilisateur
-- Un seul milestone en développement à la fois, branche `milestone/vX.Y.Z`
+- Déploiement PROD/QUALIF, branches, milestone unique : voir `CLAUDE.md` (Déploiement, Conventions Git)
+- Arrêt propre (scale 0/wait/scale 1, jamais `rollout restart`), sauvegarde à froid `/config/data/library.db{,.wal,.shm}` via pod busybox : voir `.claude/agents/environments/deploy.prod.md`
+- Règles des tests QUALIF (pas de média virtuel, un seul run, `EMBY_API_KEY` sans CR) : voir `.claude/agents/environments/deploy.qualif.md`
 - Spec de référence : `docs/chronogrammes.md` (règles R1–R12, scénarios S1–S11, décisions D3/D9/D19/D20/D21/D23/D24)
   - **D24 (v1.2.2)** : retrait sûr (WriteScope à jeton F1 + attente rafraîchissement F2-b + RemoveOutcome F3)
   - Latence isolée p95 ≤ 300 ms ; rafale sérialisation par playlist p95 ≤ 1 s, max ≤ 2 s
-- PROD SQLite : arrêt propre avant redémarrage (pas `rollout restart`, utiliser scale 0/wait/scale 1)
-- Sauvegarde library.db à **froid** (scale 0 + pod busybox temporaire sur PVC + copie `/config/data/library.db{,.wal,.shm}`) avant déploiement
-  - **Chemin correct** : `/config/data/library.db` (non `/config/plugins/`)
-  - sqlite3 absent du pod : integrity_check non réalisable tel quel
+- sqlite3 absent du pod busybox : integrity_check non réalisable tel quel
 - Marketing : travail seulement sur branche `gh-pages` (worktree `MARKETING/`), jamais sur `main/milestone/*`
-- Jamais de travail direct sur `main` ; pipeline de release = contrat C1–C9 (`agents/infra`, section 3bis), audité avant PUBLISH PROD
+- Jamais de travail direct sur `main` ; pipeline de release = contrat C1–C11 (`agents/infra`, section 3bis), audité avant PUBLISH PROD
 - `/deploy prod` doit dispatcher automatiquement `marketing PREPARE` (Phase 6)
-- Tests QUALIF : éviter médias virtuels VirtualLib (isolation emby2 vs PROD) ; un seul run à la fois
-- EMBY_API_KEY : nettoyer CR final (`tr -d '\r\n'` avant export)
 
 ## Backlog v1.3.0
 

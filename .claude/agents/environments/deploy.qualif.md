@@ -14,6 +14,13 @@
 7. **Jamais de rolling update** : deux pods Emby simultanes sur le meme volume provoquent `database is locked` (SQLite sur MooseFS/fuse, observe au premier deploiement). Strategie imposee : `scale --replicas=0`, attente de la suppression du pod, `scale --replicas=1`.
 6. **Verification dans le NOUVEAU pod** : la taille du DLL doit egaler celle de l'artefact publie.
 
+## Regles des tests QUALIF (v1.2.2, #61)
+
+- **Aucun media virtuel** (VirtualLib, `/config/virtual/`) : tests sur la bibliotheque locale PlaySync-Tests (ffmpeg, `tests/integration/01-setup-media.sh`), garde-fou `assert_local_media`.
+- **Un seul run a la fois** sur emby2 : purge SPIKE*, Stopped/Logout des sessions en sortie.
+- **`EMBY_API_KEY`** (`private/qualif.env`) : retirer le CR final (`tr -d '\r\n'`) avant export.
+- `media.coupel.net` n'est pas joignable depuis WSL : passer par le pod ou un port-forward.
+
 ## Variables attendues
 
 | Variable | Usage |
