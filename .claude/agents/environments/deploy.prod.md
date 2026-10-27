@@ -96,5 +96,6 @@ Variables : `KUBECONFIG` (defaut `private/kubeconfig.yml`), `KUBE_CONTEXT` optio
 ## Echec / Rollback
 
 `kubectl rollout undo` est inoperant (DLL sur volume). Restaurer `EmbySharedPlaylist.dll.prev` puis
-`kubectl rollout restart deployment/emby -n media` (commandes de `deploy.qualif.md`, cible `emby`).
+un redemarrage propre `scale --replicas=0` / attente de la suppression du pod / `scale --replicas=1`
+(commandes de `deploy.qualif.md`, cible `emby`) — jamais `rollout restart` (voir ci-dessus).
 Le tag/la Release restent tels quels sauf decision de `main` (voir Rollback de `publish.prod.md`).
